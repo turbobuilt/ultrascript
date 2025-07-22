@@ -59,11 +59,9 @@ let y: float64 = 3.14;
 let z = 100; // standard flexible js variable
 ```
 
-### Tensor Operations
+### Tensor Operations (WIP)
 ```ultraScript
-var x: tensor = [];
-x.push(1);
-x.push(2);
+var x: [int64] = Array.full([2,4], 5) // 2x4 array of 5
 x.shape; // returns [2]
 
 var y = tensor.zeros([10, 4, 5]);
@@ -90,7 +88,7 @@ for let item of list
 - Function calling conventions
 - Memory management
 
-### WebAssembly Backend
+### WebAssembly Backend [NOT IMPLEMENTED YET]
 - WASM bytecode generation
 - SharedArrayBuffer for goroutines
 - Browser compatibility
