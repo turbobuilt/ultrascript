@@ -55,9 +55,8 @@ let results = await Promise.all(numbers.goMap(doSomething));
 let x: int64 = 42;
 let y: float64 = 3.14;
 
-// Type inference
-let z = 100; // inferred as int64
-let w = 2.5; // inferred as float64
+// Any Type
+let z = 100; // standard flexible js variable
 ```
 
 ### Tensor Operations
