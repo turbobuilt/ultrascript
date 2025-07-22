@@ -2,8 +2,6 @@
 
 ## (Work In Progress!)
 
-Many features do not work yet
-
 A high-performance programming language compiler that combines the best of Go's concurrency model with TypeScript's syntax and static typing, generating direct machine code for maximum performance.
 
 ## Features
@@ -183,21 +181,4 @@ make clean && make
 ## Future Enhancements
 
 ### Planned Features
-- Module system
-- Package manager
-- IDE integration
-- Debugging support
-- Profiling tools
-- Standard library expansion
-
-### Optimization Opportunities
-- LLVM backend option
-- GPU computation support
-- Advanced type inference
-- Link-time optimization
-- Profile-guided optimization
-
-## License
-
-This implementation is a demonstration of compiler design principles and high-performance language features.# ultraScript
-# ultrascript
+- Libtorch integration
