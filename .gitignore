@@ -1,0 +1,4 @@
+*.o
+gots
+node_modules/
+libtorch/
