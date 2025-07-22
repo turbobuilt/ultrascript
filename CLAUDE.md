@@ -24,12 +24,11 @@ let results = await Promise.all([1,2,3].goMap(doSomething));
 
 The cool thing is these execute in parallel.
 
-The goroutines also need to be able to function in extremely high performance.  Therefore all functions will have the unmanaged keyword. Unmanaged functions do not have an event loop, cannot have async code, and compile directly to machine code. They are for high performance synchronous code that must be run multithreaded. They still return a promise though. They can also be marked "inline" to tell the compiler to inline them for additional performance.
 
-```
-// this code will not be subject to garbage collection. Therefore closures are prohibited.
-// it also does not have access to parent lexical scope for performance.
-unmanaged function x(a,b) {
+Planned: The goroutines also need to be able to function in extremely high performance.  Therefore functions can have the "fast" keyword. This keyword means the function only uses memory on the stack, can't use async functions or timers. As a result it generate ultra high performance assembly. functions can also be inline fast functions which mean they are used inline for maximum performance.
+
+```ultraScript
+fast function x(a,b) {
     var a = 0;
     var b = 1;
     var c = [];
@@ -39,7 +38,7 @@ unmanaged function x(a,b) {
     return a + b;
 }
 let result = await go x();
-inline unmanaged function x(a,b) {
+inline fast function x(a,b) {
     var a = 0;
     var b = 1;
     return a + b;
