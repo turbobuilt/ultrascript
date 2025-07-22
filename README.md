@@ -140,8 +140,6 @@ make clean && make
 - `make test` - Run tests
 - `make clean` - Clean build files
 
-## Architecture
-
 ### Compiler Pipeline
 1. **Lexer**: Tokenizes source code
 2. **Parser**: Builds Abstract Syntax Tree (AST)
@@ -178,7 +176,6 @@ make clean && make
 - Garbage collection for dynamic objects
 - Memory pooling for frequent allocations
 
-## Future Enhancements
-
 ### Planned Features
 - Libtorch integration
+- Add ability to import parse and run Python syntax.
