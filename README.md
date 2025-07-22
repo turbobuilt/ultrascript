@@ -57,12 +57,12 @@ let y: float64 = 3.14;
 let z = 100; // standard flexible js variable
 ```
 
-### Tensor Operations (WIP)
+### Tensor Operations (NOT YET WORKING)
 ```ultraScript
 var x: [int64] = Array.full([2,4], 5) // 2x4 array of 5
 x.shape; // returns [2]
 
-var y = tensor.zeros([10, 4, 5]);
+var y = Array.zeros([10, 4, 5]);
 var z = y.transpose().matmul(x);
 ```
 
