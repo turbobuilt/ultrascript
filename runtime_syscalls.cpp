@@ -3,6 +3,27 @@
 #include "runtime_object.h"
 #include "lock_system.h"
 
+// Forward declarations for HTTP functionality
+extern "C" {
+    void* __runtime_http_create_server_advanced(void* handler_ptr);
+    int64_t __runtime_http_server_listen_advanced(void* server_ptr, int64_t port, const char* host);
+    bool __runtime_http_server_close(void* server_ptr);
+    void* __runtime_http_request_advanced(const char* method, const char* url, void* headers_ptr, const char* body);
+    void* __runtime_http_get_advanced(const char* url);
+    void* __runtime_http_post_advanced(const char* url, const char* data);
+    void* __runtime_http_request_get_method(void* request_ptr);
+    void* __runtime_http_request_get_url(void* request_ptr);
+    void* __runtime_http_request_get_header(void* request_ptr, const char* name);
+    void* __runtime_http_request_get_body(void* request_ptr);
+    void __runtime_http_response_set_status(void* response_ptr, int64_t status);
+    void __runtime_http_response_set_header(void* response_ptr, const char* name, const char* value);
+    void __runtime_http_response_write(void* response_ptr, const char* data, int64_t length);
+    void __runtime_http_response_end(void* response_ptr, const char* data);
+    void __runtime_http_response_json(void* response_ptr, const char* json_data);
+    void __runtime_http_response_html(void* response_ptr, const char* html_data);
+    void __runtime_http_response_send_file(void* response_ptr, const char* file_path);
+}
+
 // Forward declarations for new goroutine system
 extern "C" {
     int64_t __gots_set_timeout(void* callback, int64_t delay_ms);
@@ -1890,12 +1911,34 @@ void initialize_runtime_object() {
     // Initialize lock object function pointers
     global_runtime->lock.create = reinterpret_cast<void*>(__runtime_lock_create);
     
+    // Initialize HTTP object function pointers
+    global_runtime->http.createServer = reinterpret_cast<void*>(__runtime_http_create_server_advanced);
+    global_runtime->http.serverListen = reinterpret_cast<void*>(__runtime_http_server_listen_advanced);
+    global_runtime->http.serverClose = reinterpret_cast<void*>(__runtime_http_server_close);
+    global_runtime->http.request = reinterpret_cast<void*>(__runtime_http_request_advanced);
+    global_runtime->http.get = reinterpret_cast<void*>(__runtime_http_get_advanced);
+    global_runtime->http.post = reinterpret_cast<void*>(__runtime_http_post_advanced);
+    global_runtime->http.requestGetMethod = reinterpret_cast<void*>(__runtime_http_request_get_method);
+    global_runtime->http.requestGetUrl = reinterpret_cast<void*>(__runtime_http_request_get_url);
+    global_runtime->http.requestGetHeader = reinterpret_cast<void*>(__runtime_http_request_get_header);
+    global_runtime->http.requestGetBody = reinterpret_cast<void*>(__runtime_http_request_get_body);
+    global_runtime->http.responseSetStatus = reinterpret_cast<void*>(__runtime_http_response_set_status);
+    global_runtime->http.responseSetHeader = reinterpret_cast<void*>(__runtime_http_response_set_header);
+    global_runtime->http.responseWrite = reinterpret_cast<void*>(__runtime_http_response_write);
+    global_runtime->http.responseEnd = reinterpret_cast<void*>(__runtime_http_response_end);
+    global_runtime->http.responseJson = reinterpret_cast<void*>(__runtime_http_response_json);
+    global_runtime->http.responseHtml = reinterpret_cast<void*>(__runtime_http_response_html);
+    global_runtime->http.responseSendFile = reinterpret_cast<void*>(__runtime_http_response_send_file);
+    
     // Register all methods for JIT optimization
     runtime_method_registry["time.now"] = {"time.now", global_runtime->time.now_millis, false, 0};
     runtime_method_registry["time.nowNanos"] = {"time.nowNanos", global_runtime->time.now_nanos, false, 0};
     runtime_method_registry["process.pid"] = {"process.pid", global_runtime->process.pid, false, 0};
     runtime_method_registry["process.cwd"] = {"process.cwd", global_runtime->process.cwd, false, 0};
     runtime_method_registry["lock.create"] = {"lock.create", global_runtime->lock.create, false, 0};
+    runtime_method_registry["http.createServer"] = {"http.createServer", global_runtime->http.createServer, false, 1};
+    runtime_method_registry["http.get"] = {"http.get", global_runtime->http.get, true, 1};
+    runtime_method_registry["http.post"] = {"http.post", global_runtime->http.post, true, 2};
     // Add more as needed...
 }
 

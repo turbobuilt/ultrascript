@@ -83,6 +83,35 @@ struct RuntimeObject {
         void* recv;
     };
     
+    struct HTTPObject {
+        static constexpr const char* OBJECT_NAME = "http";
+        
+        // HTTP server functions
+        void* createServer;         // runtime.http.createServer(handler)
+        void* serverListen;         // runtime.http.serverListen(server, port, host)
+        void* serverClose;          // runtime.http.serverClose(server)
+        
+        // HTTP client functions
+        void* request;              // runtime.http.request(options, callback)
+        void* get;                  // runtime.http.get(url, callback)
+        void* post;                 // runtime.http.post(url, data, callback)
+        
+        // HTTP request object methods
+        void* requestGetMethod;     // req.method
+        void* requestGetUrl;        // req.url
+        void* requestGetHeader;     // req.getHeader(name)
+        void* requestGetBody;       // req.body
+        
+        // HTTP response object methods
+        void* responseSetStatus;    // res.setStatus(code)
+        void* responseSetHeader;    // res.setHeader(name, value)
+        void* responseWrite;        // res.write(data)
+        void* responseEnd;          // res.end(data)
+        void* responseJson;         // res.json(data)
+        void* responseHtml;         // res.html(data)
+        void* responseSendFile;     // res.sendFile(path)
+    };
+    
     struct CryptoObject {
         static constexpr const char* OBJECT_NAME = "crypto";
         
@@ -181,6 +210,7 @@ struct RuntimeObject {
     ProcessObject process;
     FSObject fs;
     NetObject net;
+    HTTPObject http;
     CryptoObject crypto;
     BufferObject buffer;
     OSObject os;
@@ -231,6 +261,14 @@ inline void* resolve_runtime_method(const char* object_name, const char* method_
     } else if (strcmp(object_name, "fs") == 0) {
         if (strcmp(method_name, "readFile") == 0) return global_runtime->fs.readFile;
         if (strcmp(method_name, "writeFile") == 0) return global_runtime->fs.writeFile;
+        // ... etc
+    } else if (strcmp(object_name, "http") == 0) {
+        if (strcmp(method_name, "createServer") == 0) return global_runtime->http.createServer;
+        if (strcmp(method_name, "serverListen") == 0) return global_runtime->http.serverListen;
+        if (strcmp(method_name, "serverClose") == 0) return global_runtime->http.serverClose;
+        if (strcmp(method_name, "request") == 0) return global_runtime->http.request;
+        if (strcmp(method_name, "get") == 0) return global_runtime->http.get;
+        if (strcmp(method_name, "post") == 0) return global_runtime->http.post;
         // ... etc
     } else if (strcmp(object_name, "lock") == 0) {
         if (strcmp(method_name, "create") == 0) return global_runtime->lock.create;

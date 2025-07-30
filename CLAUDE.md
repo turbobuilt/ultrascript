@@ -230,4 +230,63 @@ When asked to implement ECMAscript things, you can reference ./ecmascript_refere
 
 NodeJS compatibility. We are not going to implement any modules. Instead we will create a global called runtime. Then runtime will be an object with every possible call you will need to implement every node module. This object will then be used to create node modules in ultraScript.
 
+### HTTP Server Support
+
+UltraScript now includes a high-performance HTTP server optimized for goroutines:
+
+```ultraScript
+// Create HTTP server with goroutine-optimized request handling
+const server = runtime.http.createServer((req, res) => {
+    go async function() {
+        if (req.url === '/') {
+            res.html('<h1>Hello UltraScript!</h1>');
+        } else if (req.url === '/api/data') {
+            // Process in parallel goroutines
+            const [data1, data2] = await Promise.all([
+                go fetchData1(),
+                go fetchData2()
+            ]);
+            res.json({ data1, data2 });
+        } else {
+            res.setStatus(404);
+            res.json({ error: "Not found" });
+        }
+    }();
+});
+
+await server.listen(8080);
+console.log('Server running on http://localhost:8080');
+```
+
+The HTTP server features:
+- **Multi-threaded connection handling** with configurable thread pools
+- **Goroutine-optimized request processing** - each request runs in its own goroutine
+- **High-performance request/response objects** with zero-copy operations
+- **Full HTTP/1.1 support** including keep-alive, multiple methods, headers, body parsing
+- **JSON/HTML response helpers** and static file serving
+- **HTTP client functionality** for outbound requests
+- **Promise-based APIs** that work seamlessly with `await` and `goMap`
+
+Usage examples:
+```ultraScript
+// Parallel HTTP requests
+const urls = ['http://api1.com', 'http://api2.com'];  
+const responses = await urls.goMap(runtime.http.get);
+
+// Server with parallel processing
+const server = runtime.http.createServer((req, res) => {
+    go async function() {
+        if (req.method === 'POST' && req.url === '/process') {
+            const data = JSON.parse(req.body);
+            const results = await Promise.all([
+                go processData(data),
+                go validateInput(data),
+                go logRequest(req)
+            ]);
+            res.json({ results });
+        }
+    }();
+});
+```
+
 Use all cores when building
