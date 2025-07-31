@@ -912,11 +912,17 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
         } else if (object_type == DataType::ARRAY) {
             // Handle simplified Array methods
             if (method_name == "push") {
+                std::cout << "[DEBUG] AST: Generating code for array.push() method" << std::endl;
+                std::cout.flush();
                 // Get the array variable offset
                 int64_t array_offset = types.get_variable_offset(object_name);
+                std::cout << "[DEBUG] AST: Array variable offset: " << array_offset << std::endl;
+                std::cout.flush();
                 
                 // For each argument, call push
                 for (size_t i = 0; i < arguments.size(); i++) {
+                    std::cout << "[DEBUG] AST: Processing push argument " << i << std::endl;
+                    std::cout.flush();
                     // Load array pointer
                     gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
                     
@@ -926,6 +932,8 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                     // Move argument to RSI (second parameter)
                     gen.emit_mov_reg_reg(6, 0); // RSI = value (from RAX)
                     
+                    std::cout << "[DEBUG] AST: Calling __simple_array_push for argument " << i << std::endl;
+                    std::cout.flush();
                     // Call simplified array push
                     gen.emit_call("__simple_array_push");
                 }
@@ -1080,19 +1088,51 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
             // Special handling for Array static methods
             if (object_name == "Array") {
                 if (method_name == "zeros") {
-                    // Handle Array.zeros([shape]) 
+                    // Handle Array.zeros([shape], dtype) - supports both 1 and 2 arguments
+                    std::cout << "[DEBUG] AST: Generating code for Array.zeros with " << arguments.size() << " arguments" << std::endl;
+                    std::cout.flush();
+                    
                     if (arguments.size() >= 1) {
+                        std::cout << "[DEBUG] AST: Generating shape array argument" << std::endl;
+                        std::cout.flush();
                         // Generate the shape array argument
                         arguments[0]->generate_code(gen, types);
                         // RAX now contains the shape array, extract first dimension
                         gen.emit_mov_reg_reg(7, 0); // RDI = shape array
+                        std::cout << "[DEBUG] AST: Calling __simple_array_get_first_dimension" << std::endl;
+                        std::cout.flush();
                         gen.emit_call("__simple_array_get_first_dimension");
-                        gen.emit_mov_reg_reg(7, 0); // RDI = first dimension size
+                        gen.emit_mov_mem_reg(-40, 0); // Save size (RAX) to stack
+                        
+                        // Check if dtype argument is provided
+                        if (arguments.size() >= 2) {
+                            std::cout << "[DEBUG] AST: Generating dtype argument" << std::endl;
+                            std::cout.flush();
+                            // Generate the dtype argument (string)
+                            arguments[1]->generate_code(gen, types);
+                            gen.emit_mov_reg_reg(6, 0); // RSI = dtype string
+                            
+                            // Restore size to RDI
+                            gen.emit_mov_reg_mem(7, -40); // RDI = size
+                            std::cout << "[DEBUG] AST: Calling __simple_array_zeros_typed_wrapper with size and dtype" << std::endl;
+                            std::cout.flush();
+                            gen.emit_call("__simple_array_zeros_typed_wrapper");
+                        } else {
+                            std::cout << "[DEBUG] AST: No dtype, calling __simple_array_zeros" << std::endl;
+                            std::cout.flush();
+                            // No dtype, use regular zeros function  
+                            gen.emit_mov_reg_mem(7, -40); // RDI = size
+                            gen.emit_call("__simple_array_zeros");
+                        }
                     } else {
+                        std::cout << "[DEBUG] AST: No arguments, creating empty array" << std::endl;
+                        std::cout.flush();
                         gen.emit_mov_reg_imm(7, 0); // RDI = 0 (empty array)
+                        gen.emit_call("__simple_array_zeros");
                     }
-                    gen.emit_call("__simple_array_zeros");
                     result_type = DataType::ARRAY;
+                    std::cout << "[DEBUG] AST: Array.zeros code generation complete" << std::endl;
+                    std::cout.flush();
                     return;
                 } else if (method_name == "ones") {
                     // Handle Array.ones([shape])
@@ -2986,6 +3026,62 @@ void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types)
             gen.emit_mov_reg_reg(2, 0); // RDX = value (from RAX)
             gen.emit_call("__static_set_property");
         }
+    }
+    
+    result_type = DataType::VOID;
+}
+
+void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types) {
+    // Generate code for the value expression first
+    value->generate_code(gen, types);
+    
+    // Save the value on the stack temporarily
+    gen.emit_mov_mem_reg(-8, 0); // Save value to stack
+    
+    // Generate code for the object expression
+    object->generate_code(gen, types);
+    DataType object_type = object->result_type;
+    
+    // Restore value to RDX
+    gen.emit_mov_reg_mem(2, -8); // RDX = value
+    
+    if (object_type == DataType::CLASS_INSTANCE) {
+        // For class instances, we need to use the object ID that's now in RAX
+        // and call the property setter
+        
+        // For now, hardcode property indices for Point class
+        int64_t property_index = 0;
+        if (property_name == "x") property_index = 0;
+        else if (property_name == "y") property_index = 1;
+        // TODO: Implement general property mapping system using class registry
+        
+        // Function signature: __object_set_property(object_id, property_index, value)
+        gen.emit_mov_reg_reg(7, 0); // RDI = object_id (from RAX)
+        gen.emit_mov_reg_imm(6, property_index);  // RSI = property_index
+        // RDX already has the value
+        gen.emit_call("__object_set_property");
+    } else {
+        // For other object types, use dynamic property setting
+        
+        // Create a pooled string for the property name
+        static std::unordered_map<std::string, const char*> property_name_pool;
+        
+        auto it = property_name_pool.find(property_name);
+        const char* property_name_ptr;
+        if (it == property_name_pool.end()) {
+            char* name_copy = new char[property_name.length() + 1];
+            strcpy(name_copy, property_name.c_str());
+            property_name_pool[property_name] = name_copy;
+            property_name_ptr = name_copy;
+        } else {
+            property_name_ptr = it->second;
+        }
+        
+        // Call dynamic property setter
+        gen.emit_mov_reg_reg(7, 0);  // RDI = object pointer (from RAX)
+        gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property name
+        // RDX already has the value
+        gen.emit_call("__dynamic_set_property");
     }
     
     result_type = DataType::VOID;

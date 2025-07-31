@@ -394,38 +394,88 @@ extern "C" void* __simple_array_create(double* values, int64_t size) {
 }
 
 extern "C" void* __simple_array_zeros(int64_t size) {
+    std::cout << "[DEBUG] __simple_array_zeros called with size=" << size << std::endl;
+    std::cout.flush();
+    
     if (size <= 0) {
+        std::cout << "[DEBUG] Creating empty array (size <= 0)" << std::endl;
+        std::cout.flush();
         // Create empty array
         Array* arr = new Array();
+        std::cout << "[DEBUG] Empty array created successfully" << std::endl;
+        std::cout.flush();
         return arr;
     }
-    std::vector<size_t> shape = {static_cast<size_t>(size)};
-    Array* arr = new Array(Array::zeros(shape));
-    return arr;
+    
+    std::cout << "[DEBUG] Calling Array::zeros with size=" << size << std::endl;
+    std::cout.flush();
+    Array arr = Array::zeros(static_cast<size_t>(size));
+    
+    std::cout << "[DEBUG] Array::zeros completed, creating heap array" << std::endl;
+    std::cout.flush();
+    Array* result = new Array(std::move(arr));
+    
+    std::cout << "[DEBUG] Array creation successful, returning: " << result << std::endl;
+    std::cout.flush();
+    return result;
 }
 
 extern "C" void* __simple_array_ones(int64_t size) {
-    std::vector<size_t> shape = {static_cast<size_t>(size)};
-    Array* arr = new Array(Array::ones(shape));
-    return arr;
+    Array arr = Array::ones(static_cast<size_t>(size));
+    Array* result = new Array(std::move(arr));
+    return result;
 }
 
 extern "C" void __simple_array_push(void* array, double value) {
+    std::cout << "[DEBUG] __simple_array_push called with array=" << array << ", value=" << value << std::endl;
+    std::cout.flush();
+    
     if (array) {
-        static_cast<Array*>(array)->push(value);
+        std::cout << "[DEBUG] Array pointer is valid, casting to Array*" << std::endl;
+        std::cout.flush();
+        
+        Array* arr = static_cast<Array*>(array);
+        
+        std::cout << "[DEBUG] Cast successful, checking array state" << std::endl;
+        std::cout.flush();
+        
+        std::cout << "[DEBUG] Array size before push: " << arr->size() << std::endl;
+        std::cout.flush();
+        
+        std::cout << "[DEBUG] Array length before push: " << arr->length() << std::endl;
+        std::cout.flush();
+        
+        std::cout << "[DEBUG] About to call arr->push(" << value << ")" << std::endl;
+        std::cout.flush();
+        
+        arr->push(value);
+        
+        std::cout << "[DEBUG] Push completed successfully" << std::endl;
+        std::cout.flush();
+        
+        std::cout << "[DEBUG] Array size after push: " << arr->size() << std::endl;
+        std::cout.flush();
+        
+        std::cout << "[DEBUG] Array length after push: " << arr->length() << std::endl;
+        std::cout.flush();
+    } else {
+        std::cout << "[DEBUG] Array is null, cannot push" << std::endl;
+        std::cout.flush();
     }
 }
 
 extern "C" double __simple_array_pop(void* array) {
     if (array) {
-        return static_cast<Array*>(array)->pop();
+        DynamicValue val = static_cast<Array*>(array)->pop();
+        return val.to_number();
     }
     return 0.0;
 }
 
 extern "C" double __simple_array_get(void* array, int64_t index) {
     if (array) {
-        return (*static_cast<Array*>(array))[index];
+        DynamicValue val = (*static_cast<Array*>(array))[index];
+        return val.to_number();
     }
     return 0.0;
 }
@@ -460,11 +510,11 @@ extern "C" double __simple_array_mean(void* array) {
 extern "C" void* __simple_array_shape(void* array) {
     if (array) {
         const std::vector<size_t>& shape = static_cast<Array*>(array)->shape();
-        std::vector<double> shape_as_doubles;
+        Array* shape_array = new Array();
         for (size_t dim : shape) {
-            shape_as_doubles.push_back(static_cast<double>(dim));
+            shape_array->push(static_cast<double>(dim));
         }
-        return new Array({shape_as_doubles.size()}, shape_as_doubles);
+        return shape_array;
     }
     return nullptr;
 }
@@ -479,16 +529,22 @@ extern "C" const char* __simple_array_tostring(void* array) {
 
 extern "C" void* __simple_array_slice(void* array, int64_t start, int64_t end, int64_t step) {
     if (array) {
-        Array sliced = static_cast<Array*>(array)->slice(start, end, step);
-        return new Array(sliced);
+        // TODO: Implement slice functionality for DynamicArray
+        // For now, return a copy of the original array
+        Array* original = static_cast<Array*>(array);
+        Array* copy = new Array(*original);
+        return copy;
     }
     return nullptr;
 }
 
 extern "C" void* __simple_array_slice_all(void* array) {
     if (array) {
-        Array sliced = static_cast<Array*>(array)->slice_all();
-        return new Array(sliced);
+        // TODO: Implement slice_all functionality for DynamicArray
+        // For now, return a copy of the original array
+        Array* original = static_cast<Array*>(array);
+        Array* copy = new Array(*original);
+        return copy;
     }
     return nullptr;
 }
@@ -509,24 +565,49 @@ double __simple_array_min(void* array) {
 
 // Helper function to get first dimension from shape array
 int64_t __simple_array_get_first_dimension(void* shape_array) {
+    std::cout << "[DEBUG] __simple_array_get_first_dimension called with array=" << shape_array << std::endl;
+    std::cout.flush();
+    
     if (shape_array) {
+        std::cout << "[DEBUG] Converting to Array pointer" << std::endl;
+        std::cout.flush();
         Array* arr = static_cast<Array*>(shape_array);
+        
+        std::cout << "[DEBUG] Checking array length" << std::endl;
+        std::cout.flush();
         if (arr->length() > 0) {
-            return static_cast<int64_t>((*arr)[0]);
+            std::cout << "[DEBUG] Getting first element" << std::endl;
+            std::cout.flush();
+            DynamicValue first_value = (*arr)[0];
+            int64_t result = static_cast<int64_t>(first_value.to_number());
+            std::cout << "[DEBUG] First dimension = " << result << std::endl;
+            std::cout.flush();
+            return result;
+        } else {
+            std::cout << "[DEBUG] Array length is 0" << std::endl;
+            std::cout.flush();
         }
+    } else {
+        std::cout << "[DEBUG] shape_array is null" << std::endl;
+        std::cout.flush();
     }
+    
+    std::cout << "[DEBUG] Returning 0" << std::endl;
+    std::cout.flush();
     return 0;
 }
 
 // Array static factory methods
 void* __simple_array_arange(double start, double stop, double step) {
-    Array* arr = new Array(Array::arange(start, stop, step));
-    return arr;
+    Array arr = Array::arange(start, stop, step);
+    Array* result = new Array(std::move(arr));
+    return result;
 }
 
 void* __simple_array_linspace(double start, double stop, int64_t num) {
-    Array* arr = new Array(Array::linspace(start, stop, static_cast<size_t>(num)));
-    return arr;
+    Array arr = Array::linspace(start, stop, static_cast<size_t>(num));
+    Array* result = new Array(std::move(arr));
+    return result;
 }
 
 // Timer management functions moved to goroutine_system.cpp
@@ -599,6 +680,162 @@ extern "C" const char* __dynamic_method_toString(void* obj) {
         return strdup(str.c_str());
     }
     return strdup("undefined");
+}
+
+// Typed array functions - stubs for now
+extern "C" void* __typed_array_create_int32(int64_t size) {
+    std::vector<size_t> shape = {static_cast<size_t>(size)};
+    Int32Array* arr = new Int32Array(shape);
+    return arr;
+}
+
+extern "C" void* __typed_array_create_int64(int64_t size) {
+    std::vector<size_t> shape = {static_cast<size_t>(size)};
+    Int64Array* arr = new Int64Array(shape);
+    return arr;
+}
+
+extern "C" void* __typed_array_create_float32(int64_t size) {
+    std::vector<size_t> shape = {static_cast<size_t>(size)};
+    Float32Array* arr = new Float32Array(shape);
+    return arr;
+}
+
+extern "C" void* __typed_array_create_float64(int64_t size) {
+    std::vector<size_t> shape = {static_cast<size_t>(size)};
+    Float64Array* arr = new Float64Array(shape);
+    return arr;
+}
+
+extern "C" void* __typed_array_create_uint8(int64_t size) {
+    std::vector<size_t> shape = {static_cast<size_t>(size)};
+    Uint8Array* arr = new Uint8Array(shape);
+    return arr;
+}
+
+extern "C" void* __typed_array_create_uint16(int64_t size) {
+    std::vector<size_t> shape = {static_cast<size_t>(size)};
+    Uint16Array* arr = new Uint16Array(shape);
+    return arr;
+}
+
+extern "C" void* __typed_array_create_uint32(int64_t size) {
+    std::vector<size_t> shape = {static_cast<size_t>(size)};
+    Uint32Array* arr = new Uint32Array(shape);
+    return arr;
+}
+
+extern "C" void* __typed_array_create_uint64(int64_t size) {
+    std::vector<size_t> shape = {static_cast<size_t>(size)};
+    Uint64Array* arr = new Uint64Array(shape);
+    return arr;
+}
+
+extern "C" void __typed_array_push_int32(void* array, int32_t value) {
+    if (array) {
+        static_cast<Int32Array*>(array)->push(value);
+    }
+}
+
+extern "C" void __typed_array_push_int64(void* array, int64_t value) {
+    if (array) {
+        static_cast<Int64Array*>(array)->push(value);
+    }
+}
+
+extern "C" void __typed_array_push_float32(void* array, float value) {
+    if (array) {
+        static_cast<Float32Array*>(array)->push(value);
+    }
+}
+
+extern "C" void __typed_array_push_float64(void* array, double value) {
+    if (array) {
+        static_cast<Float64Array*>(array)->push(value);
+    }
+}
+
+extern "C" void __typed_array_push_uint8(void* array, uint8_t value) {
+    if (array) {
+        static_cast<Uint8Array*>(array)->push(value);
+    }
+}
+
+extern "C" void __typed_array_push_uint16(void* array, uint16_t value) {
+    if (array) {
+        static_cast<Uint16Array*>(array)->push(value);
+    }
+}
+
+extern "C" void __typed_array_push_uint32(void* array, uint32_t value) {
+    if (array) {
+        static_cast<Uint32Array*>(array)->push(value);
+    }
+}
+
+extern "C" void __typed_array_push_uint64(void* array, uint64_t value) {
+    if (array) {
+        static_cast<Uint64Array*>(array)->push(value);
+    }
+}
+
+extern "C" int64_t __typed_array_size(void* array) {
+    if (array) {
+        // Assuming we can cast to any typed array for size (they all have same interface)
+        return static_cast<int64_t>(static_cast<Int32Array*>(array)->size());
+    }
+    return 0;
+}
+
+extern "C" double __typed_array_sum_float64(void* array) {
+    if (array) {
+        return static_cast<Float64Array*>(array)->sum();
+    }
+    return 0.0;
+}
+
+extern "C" int64_t __typed_array_sum_int64(void* array) {
+    if (array) {
+        return static_cast<Int64Array*>(array)->sum();
+    }
+    return 0;
+}
+
+extern "C" void* __simple_array_zeros_typed(int64_t size, const char* dtype) {
+    if (!dtype) {
+        return __simple_array_zeros(size);
+    }
+    
+    std::string dtype_str(dtype);
+    if (dtype_str == "int32") {
+        return __typed_array_create_int32(size);
+    } else if (dtype_str == "int64") {
+        return __typed_array_create_int64(size);
+    } else if (dtype_str == "float32") {
+        return __typed_array_create_float32(size);
+    } else if (dtype_str == "float64") {
+        return __typed_array_create_float64(size);
+    } else if (dtype_str == "uint8") {
+        return __typed_array_create_uint8(size);
+    } else if (dtype_str == "uint16") {
+        return __typed_array_create_uint16(size);
+    } else if (dtype_str == "uint32") {
+        return __typed_array_create_uint32(size);
+    } else if (dtype_str == "uint64") {
+        return __typed_array_create_uint64(size);
+    } else {
+        return __simple_array_zeros(size);
+    }
+}
+
+extern "C" void* __simple_array_zeros_typed_wrapper(int64_t size, void* dtype_ptr) {
+    if (!dtype_ptr) {
+        return __simple_array_zeros(size);
+    }
+    
+    // Assume dtype_ptr points to a string (this is a simplified version)
+    const char* dtype = static_cast<const char*>(dtype_ptr);
+    return __simple_array_zeros_typed(size, dtype);
 }
 
 } // namespace ultraScript

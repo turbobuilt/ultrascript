@@ -37,104 +37,9 @@ struct ExecutableMemoryInfo {
 // Global executable memory instance
 extern ExecutableMemoryInfo g_executable_memory;
 
-// High-performance typed arrays - direct templates for maximum performance
-template<typename T>
-struct TypedArray {
-    T* data;
-    int64_t size;
-    int64_t capacity;
-    DataType element_type;
-    
-    TypedArray(DataType type, int64_t initial_capacity = 8) 
-        : data(nullptr), size(0), capacity(initial_capacity), element_type(type) {
-        if (capacity > 0) {
-            data = new T[capacity];
-        }
-    }
-    
-    ~TypedArray() {
-        if (data) delete[] data;
-    }
-    
-    // Inline for maximum performance
-    inline void ensure_capacity(int64_t new_size) {
-        if (__builtin_expect(new_size > capacity, 0)) {
-            int64_t new_capacity = capacity == 0 ? 8 : capacity;
-            while (new_capacity < new_size) {
-                new_capacity <<= 1;  // Bit shift for faster multiplication
-            }
-            T* new_data = new T[new_capacity];
-            if (data) {
-                // Use fast memory copy for POD types, move semantics for complex types
-                if constexpr (std::is_trivially_copyable_v<T>) {
-                    std::memcpy(new_data, data, size * sizeof(T));
-                } else {
-                    for (int64_t i = 0; i < size; ++i) {
-                        new_data[i] = std::move(data[i]);
-                    }
-                }
-                delete[] data;
-            }
-            data = new_data;
-            capacity = new_capacity;
-        }
-    }
-    
-    // Inline push for maximum performance - no bounds checking overhead
-    inline void push(T value) {
-        ensure_capacity(size + 1);
-        data[size++] = std::move(value);
-    }
-    
-    // Inline pop for maximum performance
-    inline T pop() {
-        if (__builtin_expect(size > 0, 1)) {
-            return std::move(data[--size]);
-        }
-        return T{};
-    }
-    
-    // Direct array access - no bounds checking for maximum performance
-    inline T& operator[](int64_t index) {
-        return data[index];
-    }
-    
-    inline const T& operator[](int64_t index) const {
-        return data[index];
-    }
-    
-    // Safe access with bounds checking
-    inline T get(int64_t index) const {
-        if (__builtin_expect(index >= 0 && index < size, 1)) {
-            return data[index];
-        }
-        return T{};
-    }
-    
-    inline void set(int64_t index, T value) {
-        if (__builtin_expect(index >= 0 && index < size, 1)) {
-            data[index] = std::move(value);
-        }
-    }
-    
-    // Direct access to raw data for maximum performance
-    inline T* raw_data() { return data; }
-    inline const T* raw_data() const { return data; }
-    inline int64_t length() const { return size; }
-    inline bool empty() const { return size == 0; }
-};
-
-// Specialized arrays for common types - maximum performance
-using Int8Array = TypedArray<int8_t>;
-using Int16Array = TypedArray<int16_t>;
-using Int32Array = TypedArray<int32_t>;
-using Int64Array = TypedArray<int64_t>;
-using Uint8Array = TypedArray<uint8_t>;
-using Uint16Array = TypedArray<uint16_t>;
-using Uint32Array = TypedArray<uint32_t>;
-using Uint64Array = TypedArray<uint64_t>;
-using Float32Array = TypedArray<float>;
-using Float64Array = TypedArray<double>;
+// Ultra-Performance Array System - The new unified array implementation
+// is now in ultra_performance_array.h and included in compiler.h
+// Old TypedArray and LegacyArray implementations have been removed
 
 // High-Performance String Implementation with Small String Optimization (SSO)
 // This implements an extremely fast string type optimized for JIT compilation
@@ -404,44 +309,6 @@ public:
 
 // Global string pool instance
 extern StringPool global_string_pool;
-
-// Simple legacy array for basic operations
-struct LegacyArray {
-    int64_t* data;
-    int64_t size;
-    int64_t capacity;
-    
-    LegacyArray() : data(nullptr), size(0), capacity(0) {}
-    
-    LegacyArray(int64_t initial_capacity) : size(0), capacity(initial_capacity) {
-        data = new int64_t[capacity];
-    }
-    
-    ~LegacyArray() {
-        if (data) delete[] data;
-    }
-    
-    void push(int64_t value) {
-        if (size >= capacity) {
-            int64_t new_capacity = capacity == 0 ? 8 : capacity * 2;
-            int64_t* new_data = new int64_t[new_capacity];
-            for (int64_t i = 0; i < size; i++) {
-                new_data[i] = data[i];
-            }
-            if (data) delete[] data;
-            data = new_data;
-            capacity = new_capacity;
-        }
-        data[size++] = value;
-    }
-    
-    int64_t pop() {
-        if (size > 0) {
-            return data[--size];
-        }
-        return 0;
-    }
-};
 
 struct Promise {
     std::atomic<bool> resolved{false};
@@ -847,6 +714,10 @@ extern "C" {
     int64_t __object_get_property(int64_t object_id, int64_t property_index);
     void __object_destroy(int64_t object_id);
     
+    // Dynamic property access (for runtime property access)
+    void __dynamic_set_property(int64_t object_id, const char* property_name, int64_t value);
+    int64_t __dynamic_get_property(int64_t object_id, const char* property_name);
+    
     // Property name management for iteration
     void __object_set_property_name(int64_t object_id, int64_t property_index, const char* property_name);
     const char* __object_get_property_name(int64_t object_id, int64_t property_index);
@@ -1011,9 +882,6 @@ extern "C" {
     void* __regex_get_source(void* regex_ptr);
     bool __regex_get_global(void* regex_ptr);
     bool __regex_get_ignore_case(void* regex_ptr);
-    
-    // Dynamic property access
-    void* __dynamic_get_property(void* object_ptr, const char* property_name);
     
     // Debug functions
     void __debug_print_pointer(void* ptr);

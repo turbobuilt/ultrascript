@@ -124,24 +124,97 @@ x[anything goes here]
 
 It may cause a few issues omitting var, but it's important for newbies that it exists like that.
 
-The program has a built in "Array" type which mirrors pytorch perfectly. It contains array slicing, etc. For example
+The program has a unified "Array" class that provides ultra-high performance for typed arrays while maintaining flexibility for untyped arrays. The Array class automatically detects whether it should use the typed or untyped path based on how it's constructed.
+
+## Unified Array Implementation
+
+### Two Array Paths:
+
+**1. Typed Arrays (Ultra Performance):**
+```ultraScript
+// Explicitly typed arrays - stored as contiguous memory like PyTorch tensors
+var x: [int64] = [];  // Empty typed int64 array
+var y: [float32] = [1.5, 2.5, 3.5];  // Typed float32 array
+
+// Factory methods with dtype inference - automatically creates typed arrays
+var zeros = Array.zeros([10,4,5], "int64");  // Creates typed int64 array
+var ones = Array.ones([3, 3], "float32");    // Creates typed float32 array
+var range = Array.arange(0, 100, 1, "int32"); // Creates typed int32 array
+var linear = Array.linspace(0, 1, 50, "float64"); // Creates typed float64 array
+```
+
+**2. Untyped Arrays (Flexible):**
+```ultraScript
+// Dynamic arrays - can store any type, trades some performance for flexibility
+var x = [];  // Untyped array - can store anything
+x.push(1);    // Stores as number
+x.push("hello");  // Can store strings too
+x.push(3.14);     // Can store any type
+
+// Factory methods without dtype create flexible arrays
+var flexible = Array.zeros([5]);  // Creates untyped array filled with zeros
+```
+
+### Intelligent Type Inference:
+
+The system intelligently determines array type based on construction:
 
 ```ultraScript
-var x: array = []; // any type
-x.push(1) // pushes an element onto 0th dimension.
-x.pop() // removes last element from 0th position
-x.shape // returns [0]
-x.length // returns x.shape[0]
-// all other pytorch ops work
-var y: [int64] = Array.zeros([10,4,5]) // create empty tensor with zeros of given shape
-var y = Array.linspace(...)
-var y = new Array(values, shape) // create tensor of shape with given values
+// These create TYPED arrays with automatic type inference:
+var typed1 = Array.zeros([10,4,5], { dtype: "int64" });  // int64 typed array
+var typed2 = Array.ones([3], { dtype: "float32" });      // float32 typed array
 
-// typed array
-var y: [int32] = [1,2,3];
+// Type safety: Typed arrays only accept compatible values
+typed1.push(42);     // ✓ Works - converts number to int64
+typed1.push(3.14);   // ✓ Works - converts 3.14 to int64 (3)
+typed1.push("hi");   // ✗ Crashes - strings not compatible with int64 array
 
-// support dot product, etc.
+// Type conversion with JIT optimization:
+typed2.push(5);      // ✓ Converts int to float32 with ultra-fast JIT code
+typed2.push(2.718);  // ✓ Stores as float32 with precision handling
+```
 
+### Array Operations:
+
+```ultraScript
+// 1D operations (push/pop only work on 1D arrays)
+var arr = [1, 2, 3];
+arr.push(4);         // arr is now [1, 2, 3, 4]
+var last = arr.pop(); // last = 4, arr is now [1, 2, 3]
+
+// Properties work on any array
+console.log(arr.length);  // 3 (size of first dimension)
+console.log(arr.size);    // 3 (total number of elements)
+console.log(arr.shape);   // [3] (shape array)
+console.log(arr.ndim);    // 1 (number of dimensions)
+
+// Multi-dimensional arrays
+var matrix = Array.zeros([3, 4], { dtype: "float64" });
+console.log(matrix.shape);  // [3, 4]
+console.log(matrix.size);   // 12
+console.log(matrix.ndim);   // 2
+
+// Element access
+var val1 = arr[0];           // 1D access: arr[index]
+var val2 = matrix.at([1, 2]); // Multi-D access: matrix.at([row, col])
+
+// Statistical operations (ultra-fast for typed arrays)
+var data = Array.arange(1, 101, 1, { dtype: "float64" });
+console.log(data.sum());     // 5050.0
+console.log(data.mean());    // 50.5
+console.log(data.max());     // 100.0
+console.log(data.min());     // 1.0
+```
+
+### Performance Characteristics:
+
+- **Typed arrays**: Use contiguous memory layout, SIMD optimizations, and zero-overhead type conversions
+- **Untyped arrays**: Use variant storage for flexibility but still optimized for common operations
+- **Type conversion**: JIT-compiled type casting with optimal performance paths
+- **Memory management**: Automatic capacity doubling for push operations, efficient memory reuse
+
+### PyTorch-style Slicing (Coming Soon):
+```ultraScript
 // Pytorch-style slicing with [:] operator
 var z = y[:, 1:3, ::2];  // slice all first dim, 1-3 second dim, every 2nd third dim
 var w = y[1:];           // slice from index 1 to end
@@ -154,14 +227,16 @@ type Slice = {
     end?: int64;      // optional end index (default: length)
     step?: int64;     // optional step size (default: 1)
 }
-
-// Usage examples:
-var slice1 = new Slice{ start: 1, end: 5 };       // 1:5
-var slice2 = new Slice{ step: 2 };                // ::2 
-var slice3 = new Slice{ start: 10 };              // 10:
 ```
 
-push/pop/length only supported on 1d array.
+### Key Features:
+
+1. **Single Array class** - handles both typed and untyped arrays seamlessly
+2. **Automatic type inference** - from constructors like `Array.zeros([10], { dtype: "int64" })`
+3. **Ultra performance** - typed arrays use optimal memory layout and SIMD operations
+4. **Type safety** - typed arrays enforce type compatibility with intelligent casting
+5. **JIT optimization** - type conversions are compiled to ultra-fast assembly code
+6. **Memory efficiency** - contiguous storage for typed arrays, smart capacity management
 
 It supports keyword function parameters
 

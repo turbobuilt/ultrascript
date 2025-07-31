@@ -266,6 +266,32 @@ extern "C" {
     extern void* __simple_array_slice(void* array, int64_t start, int64_t end, int64_t step);
     extern void* __simple_array_slice_all(void* array);
     extern const char* __dynamic_method_toString(void* obj);
+    extern int64_t __simple_array_get_first_dimension(void* shape_array);
+    
+    // Typed Array runtime functions
+    extern void* __typed_array_create_int32(int64_t initial_capacity);
+    extern void* __typed_array_create_int64(int64_t initial_capacity);
+    extern void* __typed_array_create_float32(int64_t initial_capacity);
+    extern void* __typed_array_create_float64(int64_t initial_capacity);
+    extern void* __typed_array_create_uint8(int64_t initial_capacity);
+    extern void* __typed_array_create_uint16(int64_t initial_capacity);
+    extern void* __typed_array_create_uint32(int64_t initial_capacity);
+    extern void* __typed_array_create_uint64(int64_t initial_capacity);
+    
+    extern void __typed_array_push_int32(void* array, int32_t value);
+    extern void __typed_array_push_int64(void* array, int64_t value);
+    extern void __typed_array_push_float32(void* array, float value);
+    extern void __typed_array_push_float64(void* array, double value);
+    extern void __typed_array_push_uint8(void* array, uint8_t value);
+    extern void __typed_array_push_uint16(void* array, uint16_t value);
+    extern void __typed_array_push_uint32(void* array, uint32_t value);
+    extern void __typed_array_push_uint64(void* array, uint64_t value);
+    
+    extern int64_t __typed_array_size(void* array);
+    extern double __typed_array_sum_float64(void* array);
+    extern int64_t __typed_array_sum_int64(void* array);
+    extern void* __simple_array_zeros_typed(int64_t size, const char* dtype);
+    extern void* __simple_array_zeros_typed_wrapper(int64_t size, void* dtype_ptr);
 }
 
 static void initialize_runtime_function_table() {
@@ -348,6 +374,37 @@ static void initialize_runtime_function_table() {
     g_runtime_function_table["__simple_array_slice_all"] = (void*)__simple_array_slice_all;
     g_runtime_function_table["__console_log_number"] = (void*)__console_log_number;
     g_runtime_function_table["__dynamic_method_toString"] = (void*)__dynamic_method_toString;
+    g_runtime_function_table["__simple_array_get_first_dimension"] = (void*)__simple_array_get_first_dimension;
+    
+    // Register Typed Array runtime functions
+    g_runtime_function_table["__typed_array_create_int32"] = (void*)__typed_array_create_int32;
+    g_runtime_function_table["__typed_array_create_int64"] = (void*)__typed_array_create_int64;
+    g_runtime_function_table["__typed_array_create_float32"] = (void*)__typed_array_create_float32;
+    g_runtime_function_table["__typed_array_create_float64"] = (void*)__typed_array_create_float64;
+    g_runtime_function_table["__typed_array_create_uint8"] = (void*)__typed_array_create_uint8;
+    g_runtime_function_table["__typed_array_create_uint16"] = (void*)__typed_array_create_uint16;
+    g_runtime_function_table["__typed_array_create_uint32"] = (void*)__typed_array_create_uint32;
+    g_runtime_function_table["__typed_array_create_uint64"] = (void*)__typed_array_create_uint64;
+    
+    g_runtime_function_table["__typed_array_push_int32"] = (void*)__typed_array_push_int32;
+    g_runtime_function_table["__typed_array_push_int64"] = (void*)__typed_array_push_int64;
+    g_runtime_function_table["__typed_array_push_float32"] = (void*)__typed_array_push_float32;
+    g_runtime_function_table["__typed_array_push_float64"] = (void*)__typed_array_push_float64;
+    g_runtime_function_table["__typed_array_push_uint8"] = (void*)__typed_array_push_uint8;
+    g_runtime_function_table["__typed_array_push_uint16"] = (void*)__typed_array_push_uint16;
+    g_runtime_function_table["__typed_array_push_uint32"] = (void*)__typed_array_push_uint32;
+    g_runtime_function_table["__typed_array_push_uint64"] = (void*)__typed_array_push_uint64;
+    
+    g_runtime_function_table["__typed_array_size"] = (void*)__typed_array_size;
+    g_runtime_function_table["__typed_array_sum_float64"] = (void*)__typed_array_sum_float64;
+    g_runtime_function_table["__typed_array_sum_int64"] = (void*)__typed_array_sum_int64;
+    g_runtime_function_table["__simple_array_zeros_typed"] = (void*)__simple_array_zeros_typed;
+    g_runtime_function_table["__simple_array_zeros_typed_wrapper"] = (void*)__simple_array_zeros_typed_wrapper;
+    
+    std::cout << "[DEBUG] Runtime function table initialized with " << g_runtime_function_table.size() << " functions" << std::endl;
+    std::cout << "[DEBUG] __simple_array_zeros_typed registered at: " << g_runtime_function_table["__simple_array_zeros_typed"] << std::endl;
+    std::cout << "[DEBUG] __simple_array_zeros_typed_wrapper registered at: " << g_runtime_function_table["__simple_array_zeros_typed_wrapper"] << std::endl;
+    std::cout.flush();
     
     g_runtime_table_initialized = true;
 }
@@ -355,6 +412,9 @@ static void initialize_runtime_function_table() {
 void X86CodeGen::emit_call(const std::string& label) {
     // Check if this is a runtime function call
     if (label.substr(0, 2) == "__") {
+        std::cout << "[DEBUG] emit_call: Calling runtime function " << label << std::endl;
+        std::cout.flush();
+        
         // Initialize function table on first use
         initialize_runtime_function_table();
         
@@ -364,7 +424,11 @@ void X86CodeGen::emit_call(const std::string& label) {
         
         if (it != g_runtime_function_table.end()) {
             func_addr = it->second;
+            std::cout << "[DEBUG] emit_call: Found function " << label << " at address " << func_addr << std::endl;
+            std::cout.flush();
         } else {
+            std::cout << "[DEBUG] emit_call: Function " << label << " NOT FOUND, using stub" << std::endl;
+            std::cout.flush();
             // Default case - return a no-op function for unimplemented runtime functions
             func_addr = (void*)__runtime_stub_function;
         }

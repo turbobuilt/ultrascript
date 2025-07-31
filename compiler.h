@@ -6,7 +6,7 @@
 #include <memory>
 #include <cstdint>
 #include <chrono>
-#include "simple_array.h"
+#include "ultra_performance_array.h"
 
 namespace ultraScript {
 
@@ -652,6 +652,15 @@ struct PropertyAssignment : ExpressionNode {
     std::unique_ptr<ExpressionNode> value;
     PropertyAssignment(const std::string& obj, const std::string& prop, std::unique_ptr<ExpressionNode> val)
         : object_name(obj), property_name(prop), value(std::move(val)) {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+};
+
+struct ExpressionPropertyAssignment : ExpressionNode {
+    std::unique_ptr<ExpressionNode> object;
+    std::string property_name;
+    std::unique_ptr<ExpressionNode> value;
+    ExpressionPropertyAssignment(std::unique_ptr<ExpressionNode> obj, const std::string& prop, std::unique_ptr<ExpressionNode> val)
+        : object(std::move(obj)), property_name(prop), value(std::move(val)) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 

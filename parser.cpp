@@ -53,6 +53,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
         
         auto identifier = dynamic_cast<Identifier*>(expr.get());
         auto property_access = dynamic_cast<PropertyAccess*>(expr.get());
+        auto expression_property_access = dynamic_cast<ExpressionPropertyAccess*>(expr.get());
         
         if (identifier) {
             std::string var_name = identifier->name;
@@ -69,6 +70,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
             expr.release();
             auto prop_assignment = std::make_unique<PropertyAssignment>(obj_name, prop_name, std::move(value));
             return prop_assignment;
+        } else if (expression_property_access) {
+            auto object_expr = std::move(expression_property_access->object);
+            std::string prop_name = expression_property_access->property_name;
+            auto value = parse_assignment_expression();
+            
+            expr.release();
+            auto expr_prop_assignment = std::make_unique<ExpressionPropertyAssignment>(
+                std::move(object_expr), prop_name, std::move(value));
+            return expr_prop_assignment;
         } else {
             if (error_reporter) {
                 error_reporter->report_parse_error("Invalid assignment target", current_token());

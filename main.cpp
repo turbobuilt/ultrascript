@@ -1,26 +1,38 @@
 #include "compiler.h"
-#include "tensor.h"
+#include "ultra_performance_array.h"
 #include "promise.h"
 #include <iostream>
 #include <string>
 
 using namespace ultraScript;
 
-void test_tensor_operations() {
-    std::cout << "\n=== Testing Tensor Operations ===" << std::endl;
+void test_ultra_performance_arrays() {
+    std::cout << "\n=== Testing Ultra-Performance Array System ===" << std::endl;
     
-    tensor a = {1, 2, 3, 4, 5};
-    std::cout << "Created 1D tensor with " << a.size() << " elements" << std::endl;
+    // Test typed arrays - ultra performance
+    auto typed_array = TypedArray<double>::ones({5});
+    std::cout << "Created typed double array with " << typed_array.size() << " elements" << std::endl;
     
-    a.push(6);
-    std::cout << "After push: size = " << a.size() << std::endl;
+    typed_array.push(6.0);
+    std::cout << "After push: size = " << typed_array.size() << std::endl;
     
-    auto b = tensor::zeros({2, 3});
-    std::cout << "Created 2D tensor with shape [" << b.shape()[0] << ", " << b.shape()[1] << "]" << std::endl;
+    auto matrix = TypedArray<float>::zeros({2, 3});
+    std::cout << "Created 2D typed float matrix with shape [" << matrix.shape()[0] << ", " << matrix.shape()[1] << "]" << std::endl;
     
-    auto c = tensor::ones({3, 2});
-    auto d = b.transpose().matmul(c);
-    std::cout << "Matrix multiplication result shape: [" << d.shape()[0] << ", " << d.shape()[1] << "]" << std::endl;
+    // Test dynamic arrays - flexibility
+    DynamicArray dynamic_array;
+    dynamic_array.push(1);
+    dynamic_array.push(2.5);
+    dynamic_array.push(std::string("hello"));
+    std::cout << "Dynamic array with mixed types: size = " << dynamic_array.size() << std::endl;
+    
+    // Performance demonstration
+    auto large_array = TypedArray<int64_t>::zeros({1000000});
+    auto start = std::chrono::high_resolution_clock::now();
+    double sum = large_array.sum();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    std::cout << "Sum of 1M element array computed in " << duration.count() << " microseconds" << std::endl;
 }
 
 void test_compiler() {
@@ -89,7 +101,7 @@ int main() {
     std::cout << "==================" << std::endl;
     
     try {
-        test_tensor_operations();
+        test_ultra_performance_arrays();
         test_compiler();
         test_promises();
         
