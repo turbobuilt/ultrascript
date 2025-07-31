@@ -210,4 +210,7 @@ extern "C" {
 // Current goroutine (thread-local)
 extern thread_local std::shared_ptr<Goroutine> current_goroutine;
 
+// Utility functions
+std::shared_ptr<Goroutine> spawn_goroutine(std::function<void()> task);
+
 } // namespace ultraScript

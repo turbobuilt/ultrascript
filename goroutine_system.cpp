@@ -463,6 +463,10 @@ void __runtime_wait_for_main_goroutine() {
 
 } // extern "C"
 
+std::shared_ptr<Goroutine> spawn_goroutine(std::function<void()> task) {
+    return GoroutineScheduler::instance().spawn(task, current_goroutine);
+}
+
 } // namespace ultraScript
 
 // Timer helper functions for compatibility - need C linkage

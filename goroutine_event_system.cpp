@@ -168,10 +168,12 @@ bool Goroutine::should_continue_event_loop() const {
     
     bool should_continue = has_async_events || has_timers || has_handles || has_children;
     
-              << " (events:" << has_async_events 
-              << " timers:" << has_timers 
-              << " handles:" << has_handles 
-              << " children:" << has_children << ")" << std::endl;
+    // Debug output (commented out for now)
+    // std::cout << "Goroutine " << id_ << " should_continue: " << should_continue
+    //           << " (events:" << has_async_events 
+    //           << " timers:" << has_timers 
+    //           << " handles:" << has_handles 
+    //           << " children:" << has_children << ")" << std::endl;
     
     return should_continue;
 }
