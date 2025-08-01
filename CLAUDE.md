@@ -365,3 +365,10 @@ const server = runtime.http.createServer((req, res) => {
 ```
 
 Use all cores when building make -j$(nproc)
+
+For performance
+
+- we use direct function pointers
+- we use typed functions
+- variables of type ANY store their type as part of DynamicValue
+- when variables are explicity typed, or ar initialized as the return value of a function that has typed return, the type are kept while compiling and typed versions of functions are emitted for max perf directly

@@ -34,6 +34,9 @@ public:
     // Check if a type needs special handling
     static bool needs_special_handling(DataType type);
     
+    // Check if a type is floating-point and needs XMM register handling
+    static bool is_floating_point_type(DataType type);
+    
     // Generate code for any type (C++ fallback)
     static void generate_any_type_code(
         CodeGenerator& gen,

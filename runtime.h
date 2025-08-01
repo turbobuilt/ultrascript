@@ -661,7 +661,7 @@ extern "C" {
     void __console_timeEnd(const char* label);
     
     // DynamicValue allocation functions for ANY type variables
-    void* __dynamic_value_create_from_double(double value);
+    void* __dynamic_value_create_from_double(int64_t double_bits);
     void* __dynamic_value_create_from_int64(int64_t value);
     void* __dynamic_value_create_from_bool(bool value);
     void* __dynamic_value_create_from_string(void* string_ptr);

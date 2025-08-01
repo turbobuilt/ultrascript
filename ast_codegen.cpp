@@ -199,11 +199,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
         // Push left operand result onto stack to protect it during right operand evaluation
         gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8 (allocate stack space)
         // Store to RSP-relative location to match the RSP-relative load later
-        if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-            x86_gen->emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax (save left operand on stack)
-        } else {
-            gen.emit_mov_mem_reg(0, 0);   // fallback for other backends
-        }
+        gen.emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax (save left operand on stack)
     }
     
     if (right) {
@@ -223,11 +219,8 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
                     gen.emit_mov_reg_reg(6, 0);   // mov rsi, rax (right operand -> second argument)
                     
                     // Pop left operand from stack
-                    if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                        x86_gen->emit_mov_reg_mem_rsp(7, 0);   // mov rdi, [rsp] (left operand -> first argument)
-                    } else {
-                        gen.emit_mov_reg_mem(7, 0);   // fallback for other backends
-                    }
+                    auto* x86_gen = static_cast<X86CodeGen*>(&gen);
+                    x86_gen->emit_mov_reg_mem(7, 0);   // mov rdi, [rsp] (left operand -> first argument)
                     gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                     
                     // Robust string concatenation with proper type handling
@@ -258,11 +251,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
                 result_type = types.get_cast_type(left_type, right_type);
                 if (left) {
                     // Pop left operand from stack and add to right operand (in RAX)
-                    if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                        x86_gen->emit_mov_reg_mem_rsp(3, 0);   // mov rbx, [rsp] (load left operand from stack)
-                    } else {
-                        gen.emit_mov_reg_mem(3, 0);   // fallback for other backends
-                    }
+                    gen.emit_mov_reg_mem_rsp(3, 0);   // mov rbx, [rsp] (load left operand from stack)
                     gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                     gen.emit_add_reg_reg(0, 3);   // add rax, rbx (add left to right)
                 }
@@ -273,11 +262,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
             result_type = types.get_cast_type(left_type, right_type);
             if (left) {
                 // Binary minus: Pop left operand from stack and subtract right operand from it
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_mov_reg_mem_rsp(3, 0);   // mov rbx, [rsp] (load left operand from stack)
-                } else {
-                    gen.emit_mov_reg_mem(3, 0);   // fallback for other backends
-                }
+                gen.emit_mov_reg_mem_rsp(3, 0);   // mov rbx, [rsp] (load left operand from stack)
                 gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                 gen.emit_sub_reg_reg(3, 0);   // sub rbx, rax (subtract right from left)
                 gen.emit_mov_reg_reg(0, 3);   // mov rax, rbx (result in rax)
@@ -294,11 +279,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
             result_type = types.get_cast_type(left_type, right_type);
             if (left) {
                 // Pop left operand from stack and multiply with right operand
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_mov_reg_mem_rsp(3, 0);   // mov rbx, [rsp] (load left operand from stack)
-                } else {
-                    gen.emit_mov_reg_mem(3, 0);   // fallback for other backends
-                }
+                gen.emit_mov_reg_mem_rsp(3, 0);   // mov rbx, [rsp] (load left operand from stack)
                 gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                 gen.emit_mul_reg_reg(3, 0);   // imul rbx, rax (multiply left with right)
                 gen.emit_mov_reg_reg(0, 3);   // mov rax, rbx (result in rax)
@@ -315,11 +296,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
                 gen.emit_mov_reg_reg(6, 0);   // mov rsi, rax (exponent -> second argument)
                 
                 // Pop left operand from stack (base)
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_mov_reg_mem_rsp(7, 0);   // mov rdi, [rsp] (base -> first argument)
-                } else {
-                    gen.emit_mov_reg_mem(7, 0);   // fallback for other backends
-                }
+                gen.emit_mov_reg_mem_rsp(7, 0);   // mov rdi, [rsp] (base -> first argument)
                 gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                 
                 // Call the power function: __runtime_pow(base, exponent)
@@ -332,11 +309,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
             result_type = types.get_cast_type(left_type, right_type);
             if (left) {
                 // Pop left operand from stack and divide by right operand
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_mov_reg_mem_rsp(1, 0);   // mov rcx, [rsp] (load left operand from stack)
-                } else {
-                    gen.emit_mov_reg_mem(1, 0);   // fallback for other backends
-                }
+                gen.emit_mov_reg_mem_rsp(1, 0);   // mov rcx, [rsp] (load left operand from stack)
                 gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                 gen.emit_div_reg_reg(1, 0);   // div rcx by rax (divide left by right)
                 gen.emit_mov_reg_reg(0, 1);   // mov rax, rcx (result in rax)
@@ -351,11 +324,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
                 gen.emit_mov_reg_reg(6, 0);   // RSI = right operand (from RAX)
                 
                 // Pop left operand from stack directly to RDI (first argument)
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_mov_reg_mem_rsp(7, 0);   // RDI = left operand from [rsp]
-                } else {
-                    gen.emit_mov_reg_mem(7, 0);   // fallback for other backends
-                }
+                gen.emit_mov_reg_mem_rsp(7, 0);   // RDI = left operand from [rsp]
                 gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                 
                 // Call __runtime_modulo(left, right)
@@ -374,11 +343,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
             result_type = DataType::BOOLEAN;
             if (left) {
                 // Pop left operand from stack and compare with right operand (in RAX)
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_mov_reg_mem_rsp(1, 0);   // mov rcx, [rsp] (load left operand from stack)
-                } else {
-                    gen.emit_mov_reg_mem(1, 0);   // fallback for other backends
-                }
+                gen.emit_mov_reg_mem_rsp(1, 0);   // mov rcx, [rsp] (load left operand from stack)
                 gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                 
                 // Optimized comparison logic with string-specific handling
@@ -499,11 +464,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
                 std::string short_circuit_label = "__logic_short_" + std::to_string(logic_counter++);
                 
                 // Pop left operand from stack
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_mov_reg_mem_rsp(1, 0);   // mov rcx, [rsp] (load left operand from stack)
-                } else {
-                    gen.emit_mov_reg_mem(1, 0);   // fallback for other backends
-                }
+                gen.emit_mov_reg_mem_rsp(1, 0);   // mov rcx, [rsp] (load left operand from stack)
                 gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                 
                 if (op == TokenType::AND) {
@@ -599,11 +560,7 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
             for (int i = arguments.size() - 1; i >= 0; i--) {
                 arguments[i]->generate_code(gen, types);
                 gen.emit_sub_reg_imm(4, 8);  // sub rsp, 8
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_mov_mem_rsp_reg(0, 0);  // mov [rsp], rax
-                } else {
-                    gen.emit_mov_mem_reg(0, 0);  // fallback for other backends
-                }
+                gen.emit_mov_mem_rsp_reg(0, 0);  // mov [rsp], rax
             }
             
             // Now stack contains arguments in correct order: arg0, arg1, arg2...
@@ -740,11 +697,7 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
             gen.emit_call("__lookup_function_by_id");
             
             // RAX now contains the function address, call it
-            if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                x86_gen->emit_call_reg(0);  // call rax
-            } else {
-                gen.emit_call(name);  // fallback
-            }
+            gen.emit_call_reg(0);  // call rax
         } else {
             // Direct function call by name
             gen.emit_call(name);
@@ -1241,9 +1194,7 @@ void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types)
         
         if (is_goroutine) {
             // ULTRA-OPTIMIZED: Direct goroutine spawn with address
-            if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                x86_gen->emit_goroutine_spawn_direct(func_address);
-            }
+            gen.emit_goroutine_spawn_direct(func_address);
             result_type = DataType::PROMISE;
         } else {
             // ULTRA-OPTIMIZED: Direct function address return (no lookup needed)
@@ -1259,17 +1210,16 @@ void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types)
             
             if (is_goroutine) {
                 // Calculate function address as exec_memory_base + offset
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    // Use RIP-relative addressing to calculate function address
-                    // This is still very fast - just one LEA instruction
-                    x86_gen->emit_goroutine_spawn_with_offset(func_offset);
-                }
+                // Get executable memory base and add offset
+                gen.emit_call("__get_executable_memory_base");  // Result in RAX
+                gen.emit_add_reg_imm(0, func_offset);  // Add offset to RAX
+                gen.emit_mov_reg_reg(7, 0);  // Move address to RDI
+                gen.emit_call("__goroutine_spawn_func_ptr");  // Spawn with function pointer
                 result_type = DataType::PROMISE;
             } else {
                 // Calculate function address as exec_memory_base + offset  
-                if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                    x86_gen->emit_calculate_function_address_from_offset(func_offset);
-                }
+                gen.emit_call("__get_executable_memory_base");  // Result in RAX
+                gen.emit_add_reg_imm(0, func_offset);  // Add offset to get function address
                 result_type = DataType::FUNCTION;
             }
         } else {
@@ -1283,9 +1233,7 @@ void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types)
         
         if (is_goroutine) {
             // Fallback: Use fast spawn with function ID
-            if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-                x86_gen->emit_goroutine_spawn_fast(func_id);
-            }
+            gen.emit_goroutine_spawn_fast(func_id);
             result_type = DataType::PROMISE;
         } else {
             // Fallback: Use fast lookup with function ID
@@ -1994,7 +1942,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8 (allocate stack space)
         X86CodeGen* x86_gen = dynamic_cast<X86CodeGen*>(&gen);
         if (x86_gen) {
-            x86_gen->emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax (save object on stack)
+            x86_gen->emit_mov_mem_reg(0, 0);   // mov [rsp], rax (save object on stack)
         }
         
         // Generate code for the index expression
@@ -2011,7 +1959,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         
         // Pop object into RDI
         if (x86_gen) {
-            x86_gen->emit_mov_reg_mem_rsp(7, 0);   // mov rdi, [rsp] (load object from stack)
+            x86_gen->emit_mov_reg_mem(7, 0);   // mov rdi, [rsp] (load object from stack)
         }
         gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
         

@@ -1,6 +1,7 @@
 #include "console_log_overhaul.h"
 #include "runtime.h"
 #include "ultra_performance_array.h"
+#include "x86_codegen_v2.h"  // For advanced floating-point support
 #include <iostream>
 #include <iomanip>
 #include <mutex>
@@ -94,8 +95,20 @@ void TypeAwareConsoleLog::generate_typed_argument_code(
         // Argument result is already in RAX as a pointer
         gen.emit_mov_reg_reg(7, 0); // RDI = RAX
         gen.emit_call(func_name);
+    } else if (is_floating_point_type(arg_type)) {
+        // For floating-point types (FLOAT32, FLOAT64)
+        // Use proper x86-64 calling convention - value must go to XMM0
+        // Check if we have the advanced X86CodeGenV2 with floating-point support
+        if (auto x86_gen_v2 = dynamic_cast<X86CodeGenV2*>(&gen)) {
+            // Use high-performance floating-point calling convention
+            x86_gen_v2->emit_call_with_double_arg(func_name, 0);  // RAX contains the bit pattern
+        } else {
+            // Fallback for other code generators - pass as integer (will print wrong but won't crash)
+            gen.emit_mov_reg_reg(7, 0); // RDI = RAX
+            gen.emit_call(func_name);
+        }
     } else {
-        // For value types (INT*, UINT*, FLOAT*, BOOLEAN)
+        // For integer types (INT*, UINT*, BOOLEAN)
         // Argument result is already in RAX as the value
         gen.emit_mov_reg_reg(7, 0); // RDI = RAX  
         gen.emit_call(func_name);
@@ -127,6 +140,10 @@ bool TypeAwareConsoleLog::needs_special_handling(DataType type) {
            type == DataType::ARRAY || 
            type == DataType::CLASS_INSTANCE ||
            type == DataType::FUNCTION;
+}
+
+bool TypeAwareConsoleLog::is_floating_point_type(DataType type) {
+    return type == DataType::FLOAT32 || type == DataType::FLOAT64;
 }
 
 } // namespace ultraScript
@@ -193,6 +210,7 @@ extern "C" void __console_log_float32(float value) {
 
 extern "C" void __console_log_float64(double value) {
     std::lock_guard<std::mutex> lock(console_mutex);
+    std::cout << "[DEBUG] __console_log_float64 received: " << value << std::endl;
     std::cout << value;
     std::cout.flush();
 }

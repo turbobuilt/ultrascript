@@ -1016,8 +1016,15 @@ extern "C" void* __simple_array_zeros_typed_wrapper(int64_t size, void* dtype_pt
 }
 
 // DynamicValue allocation functions for ANY type variables
-extern "C" void* __dynamic_value_create_from_double(double value) {
-    DynamicValue* dyn_val = new DynamicValue(value);
+extern "C" void* __dynamic_value_create_from_double(int64_t double_bits) {
+    // Convert int64_t bit pattern back to double
+    union {
+        int64_t i;
+        double d;
+    } converter;
+    converter.i = double_bits;
+    
+    DynamicValue* dyn_val = new DynamicValue(converter.d);
     return static_cast<void*>(dyn_val);
 }
 

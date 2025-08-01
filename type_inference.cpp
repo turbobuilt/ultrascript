@@ -490,15 +490,15 @@ std::string TypeInference::extract_expression_string(ExpressionNode* node) {
     }
     
     // Handle different expression types
-    if (auto* literal = dynamic_cast<ultraScript::NumberLiteral*>(node)) {
+    if (auto* literal = dynamic_cast<NumberLiteral*>(node)) {
         return std::to_string(literal->value);
     }
     
-    if (auto* ident = dynamic_cast<ultraScript::Identifier*>(node)) {
+    if (auto* ident = dynamic_cast<Identifier*>(node)) {
         return ident->name;
     }
     
-    if (auto* binary_op = dynamic_cast<ultraScript::BinaryOp*>(node)) {
+    if (auto* binary_op = dynamic_cast<BinaryOp*>(node)) {
         std::string left_str = extract_expression_string(binary_op->left.get());
         std::string right_str = extract_expression_string(binary_op->right.get());
         std::string op_str = token_type_to_string(binary_op->op);

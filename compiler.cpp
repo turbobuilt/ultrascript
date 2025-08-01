@@ -29,10 +29,7 @@ void GoTSCompiler::set_backend(Backend backend) {
     
     switch (backend) {
         case Backend::X86_64:
-            codegen = std::make_unique<X86CodeGen>();
-            break;
-        case Backend::WASM:
-            codegen = std::make_unique<WasmCodeGen>();
+            codegen = create_x86_codegen();
             break;
     }
 }
@@ -181,9 +178,7 @@ void GoTSCompiler::compile(const std::string& source) {
         }
         
         // Set stack size for main function
-        if (auto x86_gen = dynamic_cast<X86CodeGen*>(codegen.get())) {
-            x86_gen->set_function_stack_size(estimated_stack_size);
-        }
+        codegen->set_function_stack_size(estimated_stack_size);
         
         codegen->emit_prologue();
         
@@ -260,23 +255,19 @@ void GoTSCompiler::execute() {
         
         // PRODUCTION FIX: Resolve any unresolved runtime function calls now that the registry is populated
         // We need to patch the code while it's still writable
-        if (auto x86_gen = dynamic_cast<X86CodeGen*>(codegen.get())) {
-            x86_gen->resolve_runtime_function_calls();
-            
-            // Apply the patches to the executable memory
-            auto updated_code = x86_gen->get_code();
-            memcpy(exec_mem, updated_code.data(), updated_code.size());
-        }
+        codegen->resolve_runtime_function_calls();
+        
+        // Apply the patches to the executable memory
+        auto updated_code = codegen->get_code();
+        memcpy(exec_mem, updated_code.data(), updated_code.size());
         
         // PRODUCTION FIX: Compile all deferred function expressions AFTER stubs are generated
         // This ensures function expressions are placed after stubs at the correct offset
         compile_deferred_function_expressions(*codegen, type_system);
         
         // Update the executable memory with the function expressions
-        if (auto x86_gen = dynamic_cast<X86CodeGen*>(codegen.get())) {
-            auto updated_code = x86_gen->get_code();
-            memcpy(exec_mem, updated_code.data(), updated_code.size());
-        }
+        updated_code = codegen->get_code();
+        memcpy(exec_mem, updated_code.data(), updated_code.size());
         
         // Make memory executable and readable, but not writable for security
         if (mprotect(exec_mem, aligned_size, PROT_READ | PROT_EXEC) != 0) {
@@ -321,18 +312,42 @@ void GoTSCompiler::execute() {
         }
         
         
-        auto func = reinterpret_cast<int(*)()>(
-            reinterpret_cast<uintptr_t>(exec_mem) + main_it->second
-        );
+        std::cout << "DEBUG: exec_mem = " << exec_mem << std::endl;
+        std::cout << "DEBUG: main offset = " << main_it->second << std::endl;
+        uintptr_t calculated_addr = reinterpret_cast<uintptr_t>(exec_mem) + main_it->second;
+        std::cout << "DEBUG: calculated address = " << calculated_addr << std::endl;
+        std::cout << "DEBUG: calculated address hex = 0x" << std::hex << calculated_addr << std::dec << std::endl;
         
+        // Try calling directly using calculated address
+        typedef int(*FuncPtr)();
+        FuncPtr func = reinterpret_cast<FuncPtr>(calculated_addr);
         
-        // Spawn the main function as the main goroutine - ALL JS runs in goroutines
+        // Dump first 32 bytes of generated code for debugging
+        std::cout << "DEBUG: First 32 bytes of generated code: ";
+        uint8_t* code_bytes = static_cast<uint8_t*>(exec_mem);
+        for (int i = 0; i < 32 && i < updated_code.size(); i++) {
+            printf("%02x ", code_bytes[i]);
+        }
+        std::cout << std::endl;
+        
+        // Dump the complete machine code to see the full instruction sequence
+        std::cout << "DEBUG: Complete machine code (" << updated_code.size() << " bytes): ";
+        for (size_t i = 0; i < updated_code.size(); i++) {
+            printf("%02x ", code_bytes[i]);
+            if ((i + 1) % 16 == 0) std::cout << std::endl << "  ";
+        }
+        std::cout << std::endl;
+        
+        // Also dump the full machine code size for context
+        std::cout << "DEBUG: Total machine code size: " << updated_code.size() << " bytes" << std::endl;
+        
+        std::cout << "DEBUG: About to call function..." << std::endl;
+        
+        // Spawn the main function as the main goroutine - ALL JS runs in goroutines  
         int result = 0;
         try {
-            std::cout.flush();
-            
-            // Spawn main function as the top-level goroutine
-            __runtime_spawn_main_goroutine(reinterpret_cast<void*>(func));
+            result = func();
+            std::cout << "DEBUG: Function returned " << result << std::endl;
             {
                 std::lock_guard<std::mutex> lock(g_console_mutex);
                 std::cout.flush();
@@ -342,6 +357,10 @@ void GoTSCompiler::execute() {
             {
                 std::lock_guard<std::mutex> lock(g_console_mutex);
             }
+            
+            // Signal main goroutine completion immediately for synchronous programs
+            // This prevents hanging when no actual goroutines are spawned
+            GoroutineScheduler::instance().signal_main_goroutine_completion();
             
             // Timer processing is now handled by the main goroutine's event loop
             
@@ -364,10 +383,8 @@ void GoTSCompiler::execute() {
         // This memory will be freed when the process terminates
         // munmap(exec_mem, aligned_size);
         
-    } else if (target_backend == Backend::WASM) {
-        std::cout << "WebAssembly execution not implemented in this demo" << std::endl;
-        auto machine_code = get_machine_code();
-        std::cout << "Generated WASM bytecode size: " << machine_code.size() << " bytes" << std::endl;
+    } else {
+        throw std::runtime_error("Unsupported backend");
     }
 }
 
