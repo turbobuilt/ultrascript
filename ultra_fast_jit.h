@@ -193,7 +193,7 @@ public:
         offset += 4;
         
         // Skip type checking if type is known at compile time
-        if (expected_type != DataType::UNKNOWN) {
+        if (expected_type != DataType::ANY) {
             // Type is guaranteed by static analysis
             return;
         }

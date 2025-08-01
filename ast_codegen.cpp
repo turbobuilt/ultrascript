@@ -3,6 +3,7 @@
 #include "runtime_object.h"
 #include "compilation_context.h"
 #include "function_compilation_manager.h"
+#include "console_log_overhaul.h"
 #include <iostream>
 #include <unordered_map>
 #include <cstring>
@@ -31,8 +32,23 @@ static std::vector<std::pair<std::string, FunctionExpression*>>& get_deferred_fu
 GoTSCompiler* ConstructorDecl::current_compiler_context = nullptr;
 
 void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference&) {
-    gen.emit_mov_reg_imm(0, static_cast<int64_t>(value));
-    result_type = DataType::NUMBER;  // JavaScript compatibility: number literals are number (float64)
+    // TEMPORARY FIX: For integer literals, store as double correctly
+    // The issue was casting double to int64_t loses the proper representation
+    std::cout << "[DEBUG] NumberLiteral::generate_code - value=" << value << std::endl;
+    std::cout.flush();
+    
+    // Convert the double to its proper bit representation
+    union {
+        double d;
+        int64_t i;
+    } converter;
+    converter.d = value;
+    
+    std::cout << "[DEBUG] NumberLiteral: double value " << value << " converts to int64 bits: " << converter.i << std::endl;
+    std::cout.flush();
+    
+    gen.emit_mov_reg_imm(0, converter.i);
+    result_type = DataType::FLOAT64;  // JavaScript compatibility: number literals are float64
 }
 
 void StringLiteral::generate_code(CodeGenerator& gen, TypeInference&) {
@@ -194,8 +210,8 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
         right->generate_code(gen, types);
     }
     
-    DataType left_type = left ? left->result_type : DataType::UNKNOWN;
-    DataType right_type = right ? right->result_type : DataType::UNKNOWN;
+    DataType left_type = left ? left->result_type : DataType::ANY;
+    DataType right_type = right ? right->result_type : DataType::ANY;
     
     switch (op) {
         case TokenType::PLUS:
@@ -541,7 +557,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
             break;
             
         default:
-            result_type = DataType::UNKNOWN;
+            result_type = DataType::ANY;
             break;
     }
 }
@@ -664,34 +680,18 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
             result_type = DataType::BOOLEAN; // Success/failure
             return;
         } else if (name == "console.log") {
-            // Handle console.log function calls in operator overloads - same as MethodCall handling
+            // Type-aware console.log implementation with specialized JIT code
+            // Generate specialized code for each argument based on its type
             
-            // Generate first string
-            if (arguments.size() >= 1) {
-                arguments[0]->generate_code(gen, types);
-                gen.emit_call("__console_log_string");
+            std::vector<ExpressionNode*> arg_ptrs;
+            for (const auto& arg : arguments) {
+                arg_ptrs.push_back(arg.get());
             }
             
-            // Generate remaining arguments with spaces between them
-            for (size_t i = 1; i < arguments.size(); i++) {
-                gen.emit_call("__console_log_space");
-                
-                arguments[i]->generate_code(gen, types);
-                
-                // Use type-aware console logging based on argument type
-                DataType arg_type = arguments[i]->result_type;
-                if (arg_type == DataType::STRING) {
-                    gen.emit_call("__console_log_string");
-                } else if (arg_type == DataType::NUMBER || arg_type == DataType::INT64 || arg_type == DataType::FLOAT64) {
-                    gen.emit_call("__console_log_number");
-                } else {
-                    gen.emit_call("__console_log_auto");
-                }
-            }
+            // Use the new type-aware console.log system
+            TypeAwareConsoleLog::generate_console_log_code(gen, types, arg_ptrs);
             
-            // Add newline at the end
-            gen.emit_call("__console_log_newline");
-            result_type = DataType::UNKNOWN;
+            result_type = DataType::VOID;
             return;
         }
         
@@ -758,12 +758,12 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                 result_type = func->return_type;
                 //           << static_cast<int>(result_type) << std::endl;
             } else {
-                // Function not found in registry, assume NUMBER for built-in functions
-                result_type = DataType::NUMBER;
+                // Function not found in registry, assume FLOAT64 for built-in functions
+                result_type = DataType::FLOAT64;
             }
         } else {
             // No compiler context, fall back to default
-            result_type = DataType::NUMBER;
+            result_type = DataType::FLOAT64;
         }
         
         // Clean up stack if we pushed arguments
@@ -783,56 +783,16 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Handle built-in methods
     if (object_name == "console") {
         if (method_name == "log") {
-            // Call console.log built-in function - handle all arguments
-            for (size_t i = 0; i < arguments.size(); i++) {
-                if (i > 0) {
-                    // Add space between arguments
-                    gen.emit_call("__console_log_space");
-                }
-                
-                arguments[i]->generate_code(gen, types);
-                
-                
-                // Check the type of each argument to call the appropriate console function
-                if (arguments[i]->result_type == DataType::TENSOR) {
-                    // For arrays, we need to get the array data and size
-                    gen.emit_mov_mem_reg(-8, 0); // Save array pointer on stack
-                    
-                    // Get array size first
-                    gen.emit_mov_reg_mem(7, -8); // RDI = array pointer from stack
-                    gen.emit_call("__array_size");
-                    gen.emit_mov_reg_reg(6, 0); // RSI = size
-                    
-                    // Get array data pointer
-                    gen.emit_mov_reg_mem(7, -8); // RDI = array pointer from stack
-                    gen.emit_call("__array_data");
-                    gen.emit_mov_reg_reg(7, 0); // RDI = data pointer
-                    
-                    // Call console.log_array with data pointer in RDI and size in RSI
-                    gen.emit_call("__console_log_array");
-                } else if (arguments[i]->result_type == DataType::STRING) {
-                    // Optimized string console.log - RAX contains GoTSString*
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (GoTSString*)
-                    gen.emit_call("__console_log_string");
-                } else if (arguments[i]->result_type == DataType::NUMBER || 
-                          arguments[i]->result_type == DataType::FLOAT64 ||
-                          arguments[i]->result_type == DataType::INT64) {
-                    // For numbers - handle all numeric types explicitly
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX
-                    gen.emit_call("__console_log_number");
-                } else if (arguments[i]->result_type == DataType::CLASS_INSTANCE) {
-                    // For objects - print them properly
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (object_id)
-                    gen.emit_call("__console_log_object");
-                } else {
-                    // For unknown types, use auto-detection to handle arrays or numbers
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX
-                    gen.emit_call("__console_log_auto");
-                }
+            // Type-aware console.log implementation with specialized JIT code
+            // Generate specialized code for each argument based on its type
+            
+            std::vector<ExpressionNode*> arg_ptrs;
+            for (const auto& arg : arguments) {
+                arg_ptrs.push_back(arg.get());
             }
             
-            // Print newline at the end
-            gen.emit_call("__console_log_newline");
+            // Use the new type-aware console.log system
+            TypeAwareConsoleLog::generate_console_log_code(gen, types, arg_ptrs);
             result_type = DataType::VOID;
         } else if (method_name == "time") {
             // Call console.time built-in function
@@ -926,16 +886,16 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                     // Load array pointer
                     gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
                     
-                    // Generate argument value
+                    // Generate argument value (this puts int64 bit pattern in RAX)
                     arguments[i]->generate_code(gen, types);
                     
-                    // Move argument to RSI (second parameter)
-                    gen.emit_mov_reg_reg(6, 0); // RSI = value (from RAX)
+                    // Move argument to RSI (second parameter) - RAX contains int64 bit pattern
+                    gen.emit_mov_reg_reg(6, 0); // RSI = int64 bit pattern
                     
-                    std::cout << "[DEBUG] AST: Calling __simple_array_push for argument " << i << std::endl;
+                    std::cout << "[DEBUG] AST: Calling __simple_array_push_int64 for argument " << i << std::endl;
                     std::cout.flush();
-                    // Call simplified array push
-                    gen.emit_call("__simple_array_push");
+                    // Call int64-based array push (consistent with ArrayLiteral)
+                    gen.emit_call("__simple_array_push_int64");
                 }
                 result_type = DataType::VOID;
             } else if (method_name == "pop") {
@@ -943,7 +903,7 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                 int64_t array_offset = types.get_variable_offset(object_name);
                 gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
                 gen.emit_call("__simple_array_pop");
-                result_type = DataType::NUMBER;
+                result_type = DataType::FLOAT64;
             } else if (method_name == "slice") {
                 // Get the array variable offset
                 int64_t array_offset = types.get_variable_offset(object_name);
@@ -990,25 +950,25 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                 int64_t array_offset = types.get_variable_offset(object_name);
                 gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
                 gen.emit_call("__simple_array_sum");
-                result_type = DataType::NUMBER;
+                result_type = DataType::FLOAT64;
             } else if (method_name == "mean") {
                 // Get the array variable offset
                 int64_t array_offset = types.get_variable_offset(object_name);
                 gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
                 gen.emit_call("__simple_array_mean");
-                result_type = DataType::NUMBER;
+                result_type = DataType::FLOAT64;
             } else if (method_name == "max") {
                 // Get the array variable offset
                 int64_t array_offset = types.get_variable_offset(object_name);
                 gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
                 gen.emit_call("__simple_array_max");
-                result_type = DataType::NUMBER;
+                result_type = DataType::FLOAT64;
             } else if (method_name == "min") {
                 // Get the array variable offset
                 int64_t array_offset = types.get_variable_offset(object_name);
                 gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
                 gen.emit_call("__simple_array_min");
-                result_type = DataType::NUMBER;
+                result_type = DataType::FLOAT64;
             } else {
                 throw std::runtime_error("Unknown Array method: " + method_name);
             }
@@ -1081,7 +1041,7 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
             } else {
                 throw std::runtime_error("Unknown string method: " + method_name);
             }
-        } else if (object_type == DataType::UNKNOWN) {
+        } else if (object_type == DataType::ANY) {
             // If object_name is not a variable, it might be a static method call
             // Generate static method call: ClassName.methodName()
             
@@ -1221,7 +1181,7 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
             // Call the static method
             gen.emit_call(static_method_label);
             
-            result_type = DataType::UNKNOWN; // TODO: Get actual return type from method signature
+            result_type = DataType::ANY; // TODO: Get actual return type from method signature
             
             // std::cout << object_name << "." << method_name << " at label " << static_method_label << std::endl;
         } else {
@@ -1242,14 +1202,14 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                 std::string method_label = "__method_" + method_name;
                 gen.emit_call(method_label);
                 
-                result_type = DataType::UNKNOWN; // TODO: Get actual return type from method signature
+                result_type = DataType::ANY; // TODO: Get actual return type from method signature
                 
                 // std::cout << class_name << "::" << object_name << "." << method_name << std::endl;
             } else {
                 // Unknown object type
                 gen.emit_mov_reg_imm(0, 0);
                 // std::cout << object_name << "." << method_name << std::endl;
-                result_type = DataType::UNKNOWN;
+                result_type = DataType::ANY;
             }
         }
     }
@@ -1530,7 +1490,7 @@ void ExpressionMethodCall::generate_code(CodeGenerator& gen, TypeInference& type
             } else if (sub_object == "timer" && (method_name == "clearTimeout" || method_name == "clearInterval" || method_name == "clearImmediate")) {
                 result_type = DataType::BOOLEAN; // Success/failure
             } else {
-                result_type = DataType::UNKNOWN;
+                result_type = DataType::ANY;
             }
             
             return; // Skip normal method call handling
@@ -1592,7 +1552,7 @@ void ExpressionMethodCall::generate_code(CodeGenerator& gen, TypeInference& type
                 gen.emit_mov_reg_mem(7, -8);  // RDI = string pointer  
                 gen.emit_mov_reg_reg(6, 0);   // RSI = regex pointer
                 gen.emit_call("__string_search");
-                result_type = DataType::NUMBER; // Index or -1
+                result_type = DataType::FLOAT64; // Index or -1
             } else {
                 throw std::runtime_error("String.search() requires a regex argument");
             }
@@ -1660,7 +1620,7 @@ void ExpressionMethodCall::generate_code(CodeGenerator& gen, TypeInference& type
         } else if (method_name == "pop") {
             gen.emit_mov_reg_reg(7, 0);   // RDI = array pointer
             gen.emit_call("__array_pop");
-            result_type = DataType::NUMBER; // Popped value
+            result_type = DataType::FLOAT64; // Popped value
         } else {
             throw std::runtime_error("Unknown array method: " + method_name);
         }
@@ -1692,7 +1652,7 @@ void ExpressionMethodCall::generate_code(CodeGenerator& gen, TypeInference& type
         }
         
         gen.emit_call(method_label);
-        result_type = DataType::UNKNOWN; // Unknown return type for dynamic calls
+        result_type = DataType::ANY; // Unknown return type for dynamic calls
     }
     
     if (is_awaited) {
@@ -1701,36 +1661,51 @@ void ExpressionMethodCall::generate_code(CodeGenerator& gen, TypeInference& type
 }
 
 void ArrayLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // Create empty array
-    gen.emit_mov_reg_imm(7, 0);  // RDI = 0 (empty array)
-    gen.emit_call("__simple_array_zeros");  // Creates empty array
+    std::cout << "[DEBUG] ArrayLiteral::generate_code - Creating array with " << elements.size() << " elements" << std::endl;
+    std::cout.flush();
     
-    // Save array pointer on stack
-    gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8
-    X86CodeGen* x86_gen = dynamic_cast<X86CodeGen*>(&gen);
-    if (x86_gen) {
-        x86_gen->emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax
-    }
-    
-    // Push each element into the array
-    for (const auto& element : elements) {
-        element->generate_code(gen, types);
-        gen.emit_mov_reg_reg(6, 0); // RSI = value to push
+    if (elements.size() == 0) {
+        // Empty array case - simple
+        gen.emit_mov_reg_imm(7, 0);  // RDI = 0 (empty array)
+        gen.emit_call("__simple_array_zeros");  // Creates empty array
+    } else {
+        // Non-empty array - use a safer approach
+        // First create empty array
+        gen.emit_mov_reg_imm(7, 0);  // RDI = 0 (empty array)
+        gen.emit_call("__simple_array_zeros");  // Creates empty array
         
-        // Get array pointer from stack
-        if (x86_gen) {
-            x86_gen->emit_mov_reg_mem_rsp(7, 0);   // mov rdi, [rsp]
+        // Store array pointer in a safe stack location (use a larger offset to avoid conflicts)
+        gen.emit_mov_mem_reg(-64, 0); // Save array pointer to stack[rbp-64]
+        
+        // Push each element into the array - use simpler approach
+        for (size_t i = 0; i < elements.size(); i++) {
+            std::cout << "[DEBUG] ArrayLiteral: Processing element " << i << std::endl;
+            std::cout.flush();
+            
+            // First, restore array pointer to a register
+            gen.emit_mov_reg_mem(3, -64); // RBX = array pointer from stack[rbp-64]
+            
+            // Generate the element value
+            elements[i]->generate_code(gen, types);
+            // RAX now contains the element value
+            
+            // Set up parameters for __simple_array_push(array_ptr, value)
+            gen.emit_mov_reg_reg(7, 3); // RDI = array pointer (from RBX)
+            gen.emit_mov_reg_reg(6, 0); // RSI = value (from RAX)
+            
+            std::cout << "[DEBUG] ArrayLiteral: Calling __simple_array_push_int64 for element " << i << std::endl;
+            std::cout.flush();
+            gen.emit_call("__simple_array_push_int64");
+            
+            // Note: __simple_array_push doesn't return the array pointer, so we keep using our saved one
         }
         
-        // Call __simple_array_push(array_ptr, value)
-        gen.emit_call("__simple_array_push");
+        // Return the array pointer in RAX
+        gen.emit_mov_reg_mem(0, -64); // RAX = array pointer from stack[rbp-64]
     }
     
-    // Return the array pointer in RAX
-    if (x86_gen) {
-        x86_gen->emit_mov_reg_mem_rsp(0, 0);   // mov rax, [rsp]
-    }
-    gen.emit_add_reg_imm(4, 8);   // add rsp, 8
+    std::cout << "[DEBUG] ArrayLiteral::generate_code complete" << std::endl;
+    std::cout.flush();
     
     result_type = DataType::ARRAY;
 }
@@ -1808,7 +1783,7 @@ void TypedArrayLiteral::generate_code(CodeGenerator& gen, TypeInference& types) 
             gen.emit_call("__typed_array_create_float32");
             break;
         case DataType::FLOAT64:
-        // Note: DataType::NUMBER is an alias for FLOAT64, so it's automatically handled here
+        // FLOAT64 is the standard numeric type (equivalent to JavaScript's number)
             gen.emit_call("__typed_array_create_float64");
             break;
         case DataType::UINT8:
@@ -1847,7 +1822,7 @@ void TypedArrayLiteral::generate_code(CodeGenerator& gen, TypeInference& types) 
                 gen.emit_call("__typed_array_push_float32");
                 break;
             case DataType::FLOAT64:
-            // Note: DataType::NUMBER is an alias for FLOAT64, so it's automatically handled here
+            // FLOAT64 is the standard numeric type (equivalent to JavaScript's number)
                 gen.emit_call("__typed_array_push_float64");
                 break;
             case DataType::UINT8:
@@ -1922,7 +1897,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
             }
             
             gen.emit_call("__simple_array_get");
-            result_type = DataType::NUMBER;
+            result_type = DataType::FLOAT64;
             
             return;
         }
@@ -2008,7 +1983,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
                 }
             }
         } else {
-            result_type = DataType::UNKNOWN;
+            result_type = DataType::ANY;
         }
     } else {
         // Standard array access
@@ -2044,7 +2019,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         gen.emit_call("__array_access");
         
         // Result is in RAX
-        result_type = DataType::UNKNOWN; // Array access returns unknown type for JavaScript compatibility
+        result_type = DataType::ANY; // Array access returns unknown type for JavaScript compatibility
     }
     
 }
@@ -2054,28 +2029,28 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
         value->generate_code(gen, types);
         
         DataType variable_type;
-        if (declared_type != DataType::UNKNOWN) {
+        if (declared_type != DataType::ANY) {
             // Explicitly typed variable - use the declared type for performance
             variable_type = declared_type;
         } else {
             // Untyped variable - infer type from value for arrays and other structured types
-            // For simple values, keep as UNKNOWN for JavaScript compatibility
+            // For simple values, keep as ANY for JavaScript compatibility
             if (value->result_type == DataType::TENSOR || value->result_type == DataType::STRING || 
                 value->result_type == DataType::REGEX || value->result_type == DataType::FUNCTION ||
                 value->result_type == DataType::ARRAY) {
                 // Arrays, tensors, strings, regex, and functions should preserve their type for proper method dispatch
                 variable_type = value->result_type;
             } else {
-                // Other types keep as UNKNOWN/ANY for JavaScript compatibility
+                // Other types keep as ANY for JavaScript compatibility
                 // This allows dynamic type changes but sacrifices some performance
-                variable_type = DataType::UNKNOWN;
+                variable_type = DataType::ANY;
             }
         }
         
         // Handle class instance assignments specially - robust object instance detection
         // std::cout << ", value->result_type: " << static_cast<int>(value->result_type) << std::endl;
         if (declared_type == DataType::CLASS_INSTANCE || 
-            (declared_type == DataType::UNKNOWN && value->result_type == DataType::CLASS_INSTANCE)) {
+            (declared_type == DataType::ANY && value->result_type == DataType::CLASS_INSTANCE)) {
             auto new_expr = dynamic_cast<NewExpression*>(value.get());
             if (new_expr) {
                 // Set the class type information for this variable
@@ -2089,8 +2064,40 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
         // Allocate or get the proper stack offset for this variable
         int64_t offset = types.allocate_variable(variable_name, variable_type);
         
+        // For ANY variables, create a DynamicValue structure instead of storing raw value
+        if (variable_type == DataType::ANY) {
+            // Value is already in RAX from value->generate_code()
+            // Determine what type of DynamicValue to create based on the source type
+            switch (value->result_type) {
+                case DataType::FLOAT64:  // JavaScript number type (double)
+                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
+                    gen.emit_call("__dynamic_value_create_from_double");
+                    break;
+                case DataType::INT64:
+                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
+                    gen.emit_call("__dynamic_value_create_from_int64");
+                    break;
+                case DataType::BOOLEAN:
+                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
+                    gen.emit_call("__dynamic_value_create_from_bool");
+                    break;
+                case DataType::STRING:
+                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
+                    gen.emit_call("__dynamic_value_create_from_string");
+                    break;
+                default:
+                    // For other types, treat as double for now
+                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
+                    gen.emit_call("__dynamic_value_create_from_double");
+                    break;
+            }
+            // Now RAX contains a pointer to the DynamicValue structure
+            gen.emit_mov_mem_reg(offset, 0);
+        } else {
+            // For non-ANY variables, store the raw value directly
+            gen.emit_mov_mem_reg(offset, 0);
+        }
         
-        gen.emit_mov_mem_reg(offset, 0);
         result_type = variable_type;
     }
 }
@@ -2195,7 +2202,7 @@ void FunctionDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     if (compiler) {
         Function func;
         func.name = name;
-        func.return_type = (return_type == DataType::UNKNOWN) ? DataType::NUMBER : return_type;
+        func.return_type = (return_type == DataType::ANY) ? DataType::FLOAT64 : return_type;
         func.parameters = parameters;
         func.stack_size = 0; // Will be filled during execution
         compiler->register_function(name, func);
@@ -2294,7 +2301,7 @@ void ForEachLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Arrays use INT64 indices, objects use STRING keys
     DataType index_type = (iterable->result_type == DataType::TENSOR) ? DataType::INT64 : DataType::STRING;
     int64_t user_index_offset = types.allocate_variable(index_var_name, index_type);
-    int64_t user_value_offset = types.allocate_variable(value_var_name, DataType::UNKNOWN);
+    int64_t user_value_offset = types.allocate_variable(value_var_name, DataType::ANY);
     
     gen.emit_label(loop_check);
     
@@ -2337,7 +2344,7 @@ void ForEachLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
                     gen.emit_call("__typed_array_get_float32_fast");
                     break;
                 case DataType::FLOAT64:
-                // Note: DataType::NUMBER is an alias for FLOAT64, so no separate case needed
+                // FLOAT64 is the standard numeric type (equivalent to JavaScript's number)
                     gen.emit_call("__typed_array_get_float64_fast");
                     break;
                 default:
@@ -2468,9 +2475,9 @@ void SwitchStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
             case_clause->value->generate_code(gen, types);
             DataType case_type = case_clause->value->result_type;
             
-            // ULTRA HIGH PERFORMANCE: Fast path for typed comparisons, slow path for ANY/UNKNOWN
-            if (discriminant_type != DataType::UNKNOWN && discriminant_type != DataType::ANY &&
-                case_type != DataType::UNKNOWN && case_type != DataType::ANY &&
+            // ULTRA HIGH PERFORMANCE: Fast path for typed comparisons, slow path for ANY
+            if (discriminant_type != DataType::ANY && discriminant_type != DataType::ANY &&
+                case_type != DataType::ANY && case_type != DataType::ANY &&
                 discriminant_type == case_type) {
                 
                 // FAST PATH: Both operands are the same known type - direct comparison
@@ -2481,8 +2488,8 @@ void SwitchStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
                 gen.emit_compare(1, 2); // Compare RCX with 0
                 gen.emit_jump_if_not_zero(case_label); // Jump if RCX != 0 (i.e., if equal)
                 
-            } else if (discriminant_type != DataType::UNKNOWN && discriminant_type != DataType::ANY &&
-                       case_type != DataType::UNKNOWN && case_type != DataType::ANY &&
+            } else if (discriminant_type != DataType::ANY && discriminant_type != DataType::ANY &&
+                       case_type != DataType::ANY && case_type != DataType::ANY &&
                        discriminant_type != case_type) {
                 
                 // FAST PATH: Both operands are known types but different - never equal
@@ -2490,7 +2497,7 @@ void SwitchStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
                 
             } else {
                 
-                // SLOW PATH: At least one operand is ANY/UNKNOWN - use type-aware comparison
+                // SLOW PATH: At least one operand is ANY - use type-aware comparison
                 // Prepare arguments for __runtime_js_equal(left_value, left_type, right_value, right_type)
                 gen.emit_mov_reg_mem(7, discriminant_offset); // RDI = discriminant value from stack
                 gen.emit_mov_reg_mem(6, discriminant_type_offset); // RSI = discriminant type from stack
@@ -2577,7 +2584,7 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         gen.emit_call("__object_get_property");
         // Result will be in RAX
         
-        result_type = DataType::UNKNOWN; // TODO: Get actual property type
+        result_type = DataType::ANY; // TODO: Get actual property type
     } else {
         // Handle regular object.property access
         // Check if the object exists as a variable first
@@ -2600,7 +2607,7 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
             gen.emit_mov_reg_imm(6, property_index);  // RSI = property_index
             gen.emit_call("__object_get_property");
             // Result will be in RAX
-            result_type = DataType::UNKNOWN; // TODO: Get actual property type
+            result_type = DataType::ANY; // TODO: Get actual property type
         } else {
             // Object not found as variable - might be static property access (ClassName.property)
             // Setup string pooling for class name and property name
@@ -2626,7 +2633,7 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
             gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property_name
             gen.emit_call("__static_get_property");
             // Result will be in RAX
-            result_type = DataType::UNKNOWN; // TODO: Get actual property type
+            result_type = DataType::ANY; // TODO: Get actual property type
         }
     }
 }
@@ -2653,7 +2660,7 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
             // String object is now in RAX, get its length
             gen.emit_mov_reg_reg(7, 0);  // RDI = string pointer
             gen.emit_call("__string_length");
-            result_type = DataType::NUMBER;
+            result_type = DataType::FLOAT64;
         } else {
             throw std::runtime_error("Unknown string property: " + property_name);
         }
@@ -2662,12 +2669,12 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
         if (property_name == "length") {
             gen.emit_mov_reg_reg(7, 0);  // RDI = array pointer
             gen.emit_call("__array_size");
-            result_type = DataType::NUMBER;
+            result_type = DataType::FLOAT64;
         } else if (property_name == "index") {
             // JavaScript match result property - lazily computed
             gen.emit_mov_reg_reg(7, 0);  // RDI = match array pointer
             gen.emit_call("__match_result_get_index");
-            result_type = DataType::NUMBER;
+            result_type = DataType::FLOAT64;
         } else if (property_name == "input") {
             // JavaScript match result property - lazily computed
             gen.emit_mov_reg_reg(7, 0);  // RDI = match array pointer
@@ -2677,7 +2684,7 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
             // JavaScript match result property - always undefined for basic matches
             gen.emit_mov_reg_reg(7, 0);  // RDI = match array pointer
             gen.emit_call("__match_result_get_groups");
-            result_type = DataType::UNKNOWN; // undefined
+            result_type = DataType::ANY; // undefined
         } else {
             throw std::runtime_error("Unknown array property: " + property_name);
         }
@@ -2686,7 +2693,7 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
         if (property_name == "length") {
             gen.emit_mov_reg_reg(7, 0);  // RDI = array pointer
             gen.emit_call("__simple_array_length");
-            result_type = DataType::NUMBER;
+            result_type = DataType::FLOAT64;
         } else if (property_name == "shape") {
             gen.emit_mov_reg_reg(7, 0);  // RDI = array pointer
             gen.emit_call("__simple_array_shape");
@@ -2733,7 +2740,7 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
         gen.emit_mov_reg_mem(7, -8);  // RDI = object pointer
         gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property name
         gen.emit_call("__dynamic_get_property");
-        result_type = DataType::UNKNOWN; // Unknown return type for dynamic access
+        result_type = DataType::ANY; // Unknown return type for dynamic access
     }
 }
 
@@ -3161,7 +3168,7 @@ void SuperMethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::string parent_method_label = "__parent_method_" + method_name;
     gen.emit_call(parent_method_label);
     
-    result_type = DataType::UNKNOWN; // TODO: Get actual return type from method signature
+    result_type = DataType::ANY; // TODO: Get actual return type from method signature
 }
 
 void ImportStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
@@ -3191,7 +3198,7 @@ void ImportStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
         if (is_namespace_import) {
             // Create a namespace object containing all exports from the module
             // This would require runtime module loading and export collection
-            types.set_variable_type(namespace_name, DataType::UNKNOWN);
+            types.set_variable_type(namespace_name, DataType::ANY);
         } else {
             for (const auto& spec : specifiers) {
                 
@@ -3244,7 +3251,7 @@ void ImportStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
         std::cerr << "Error loading module " << module_path << ": " << e.what() << std::endl;
         // Fall back to registering as unknown type
         for (const auto& spec : specifiers) {
-            types.set_variable_type(spec.local_name, DataType::UNKNOWN);
+            types.set_variable_type(spec.local_name, DataType::ANY);
         }
     }
 }
@@ -3275,7 +3282,7 @@ void OperatorOverloadDecl::generate_code(CodeGenerator& gen, TypeInference& type
     std::string param_signature = "";
     for (size_t i = 0; i < parameters.size(); ++i) {
         if (i > 0) param_signature += "_";
-        if (parameters[i].type == DataType::UNKNOWN) {
+        if (parameters[i].type == DataType::ANY) {
             param_signature += "any";
         } else {
             param_signature += std::to_string(static_cast<int>(parameters[i].type));

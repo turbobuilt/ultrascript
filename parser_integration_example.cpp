@@ -15,7 +15,7 @@ public:
     // Determine array type from variable declaration
     static DataType infer_from_variable_declaration(const std::string& type_annotation) {
         if (type_annotation.empty()) {
-            return DataType::UNKNOWN;  // Will become dynamic array
+            return DataType::ANY;  // Will become dynamic array
         }
         
         // Parse type annotations like [int64], [float32], etc.
@@ -34,14 +34,14 @@ public:
             if (element_type == "float64") return DataType::FLOAT64;
         }
         
-        return DataType::UNKNOWN;
+        return DataType::ANY;
     }
     
     // Determine array type from factory method call
     static DataType infer_from_factory_call(const std::map<std::string, std::string>& options) {
         auto it = options.find("dtype");
         if (it == options.end()) {
-            return DataType::UNKNOWN;  // No dtype specified = dynamic array
+            return DataType::ANY;  // No dtype specified = dynamic array
         }
         
         const std::string& dtype_str = it->second;
@@ -56,7 +56,7 @@ public:
         if (dtype_str == "float32") return DataType::FLOAT32;
         if (dtype_str == "float64") return DataType::FLOAT64;
         
-        return DataType::UNKNOWN;
+        return DataType::ANY;
     }
 };
 
@@ -79,7 +79,7 @@ public:
         // Check if we're in a typed variable declaration context
         DataType element_type = ArrayTypeInference::infer_from_variable_declaration(current_variable_type_annotation_);
         
-        if (element_type != DataType::UNKNOWN) {
+        if (element_type != DataType::ANY) {
             // TYPED ARRAY PATH - Ultra performance
             auto typed_array = std::make_unique<TypedArrayLiteral>(element_type);
             typed_array->elements_ = std::move(elements);
@@ -101,7 +101,7 @@ public:
         
         DataType element_type = ArrayTypeInference::infer_from_factory_call(options);
         
-        if (element_type != DataType::UNKNOWN) {
+        if (element_type != DataType::ANY) {
             // TYPED ARRAY FACTORY - Ultra performance
             auto typed_factory = std::make_unique<TypedArrayFactoryCall>(method, element_type);
             typed_factory->shape_args_ = std::move(shape_args);
@@ -171,7 +171,7 @@ public:
             // Store element type for later array operations
             DataType element_type = ArrayTypeInference::infer_from_variable_declaration(
                 current_variable_type_annotation_);
-            if (element_type != DataType::UNKNOWN) {
+            if (element_type != DataType::ANY) {
                 variable_element_types_[var_name] = element_type;
             }
         } else {
@@ -238,7 +238,7 @@ private:
     DataType infer_expression_type(ExpressionNode* expr) {
         // Infer the type of an expression
         // This would check variable types, return types of method calls, etc.
-        return DataType::UNKNOWN;
+        return DataType::ANY;
     }
     
     bool is_typed_array(DataType type) {
@@ -259,7 +259,7 @@ private:
             case static_cast<DataType>(107): return DataType::UINT64;
             case static_cast<DataType>(108): return DataType::FLOAT32;
             case static_cast<DataType>(109): return DataType::FLOAT64;
-            default: return DataType::UNKNOWN;
+            default: return DataType::ANY;
         }
     }
     

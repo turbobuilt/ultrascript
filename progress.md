@@ -103,7 +103,7 @@
        785 +      TokenType operator_type;  // The operator being overloaded (+, -, 
            + *, /, [], etc.)
        786 +      std::vector<Variable> parameters;  // Parameters for the operator
-       787 +      DataType return_type = DataType::UNKNOWN;
+       787 +      DataType return_type = DataType::ANY;
        788 +      std::vector<std::unique_ptr<ASTNode>> body;
        789 +      std::string class_name;  // Class this operator belongs to
        790 +      OperatorOverloadDecl(TokenType op, const std::string& class_name) 
@@ -399,7 +399,7 @@
        1650 +          if (match(TokenType::COLON)) {
        1651 +              param.type = parse_type();
        1652 +          } else {
-       1653 +              param.type = DataType::UNKNOWN; // Untyped parameter
+       1653 +              param.type = DataType::ANY; // Untyped parameter
        1654 +          }
        1655 +          
        1656 +          param.is_mutable = true;

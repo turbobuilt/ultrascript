@@ -103,7 +103,7 @@ enum class TokenType {
 };
 
 enum class DataType {
-    UNKNOWN, VOID,
+    ANY, VOID,
     INT8, INT16, INT32, INT64,
     UINT8, UINT16, UINT32, UINT64,
     FLOAT32, FLOAT64,
@@ -111,8 +111,7 @@ enum class DataType {
     TENSOR, PROMISE, FUNCTION, SLICE, ARRAY,
     CLASS_INSTANCE,  // For class instances
     RUNTIME_OBJECT,  // For runtime.x property access optimization
-    NUMBER = FLOAT64,  // JavaScript compatibility: number is float64
-    ANY = UNKNOWN     // ANY is an alias for UNKNOWN (untyped variables)
+    UNKNOWN = ANY     // UNKNOWN is an alias for ANY (untyped variables)
 };
 
 struct Token {
@@ -486,7 +485,7 @@ struct ASTNode {
 };
 
 struct ExpressionNode : ASTNode {
-    DataType result_type = DataType::UNKNOWN;
+    DataType result_type = DataType::ANY;
 };
 
 struct NumberLiteral : ExpressionNode {
@@ -542,7 +541,7 @@ struct FunctionCall : ExpressionNode {
 struct FunctionExpression : ExpressionNode {
     std::string name;  // Optional name for debugging/recursion
     std::vector<Variable> parameters;
-    DataType return_type = DataType::UNKNOWN;
+    DataType return_type = DataType::ANY;
     std::vector<std::unique_ptr<ASTNode>> body;
     bool is_goroutine = false;
     
@@ -640,7 +639,7 @@ struct OperatorCall : ExpressionNode {
 struct Assignment : ExpressionNode {
     std::string variable_name;
     std::unique_ptr<ExpressionNode> value;
-    DataType declared_type = DataType::UNKNOWN;
+    DataType declared_type = DataType::ANY;
     Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val)
         : variable_name(name), value(std::move(val)) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
@@ -679,7 +678,7 @@ struct PostfixDecrement : ExpressionNode {
 struct FunctionDecl : ASTNode {
     std::string name;
     std::vector<Variable> parameters;
-    DataType return_type = DataType::UNKNOWN;
+    DataType return_type = DataType::ANY;
     std::vector<std::unique_ptr<ASTNode>> body;
     FunctionDecl(const std::string& n) : name(n) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
@@ -823,7 +822,7 @@ struct ConstructorDecl : ASTNode {
 struct MethodDecl : ASTNode {
     std::string name;
     std::vector<Variable> parameters;
-    DataType return_type = DataType::UNKNOWN;
+    DataType return_type = DataType::ANY;
     std::vector<std::unique_ptr<ASTNode>> body;
     bool is_static = false;
     bool is_private = false;
@@ -860,7 +859,7 @@ struct ClassDecl : ASTNode {
 struct OperatorOverloadDecl : ASTNode {
     TokenType operator_type;  // The operator being overloaded (+, -, *, /, [], etc.)
     std::vector<Variable> parameters;  // Parameters for the operator
-    DataType return_type = DataType::UNKNOWN;
+    DataType return_type = DataType::ANY;
     std::vector<std::unique_ptr<ASTNode>> body;
     std::string class_name;  // Class this operator belongs to
     OperatorOverloadDecl(TokenType op, const std::string& class_name) 

@@ -89,7 +89,7 @@ void GoTSCompiler::compile(const std::string& source) {
                     std::string param_signature = "";
                     for (size_t i = 0; i < op_overload->parameters.size(); ++i) {
                         if (i > 0) param_signature += "_";
-                        if (op_overload->parameters[i].type == DataType::UNKNOWN) {
+                        if (op_overload->parameters[i].type == DataType::ANY) {
                             param_signature += "any";
                         } else {
                             param_signature += std::to_string(static_cast<int>(op_overload->parameters[i].type));
@@ -670,7 +670,7 @@ void GoTSCompiler::prepare_partial_exports(Module& module) {
                     // Create placeholder variables for now
                     Variable placeholder;
                     placeholder.name = spec.exported_name;
-                    placeholder.type = DataType::UNKNOWN;  // Will be determined later
+                    placeholder.type = DataType::ANY;  // Will be determined later
                     module.exports[spec.exported_name] = placeholder;
                 }
             }
@@ -770,7 +770,7 @@ const OperatorOverload* GoTSCompiler::find_best_operator_overload(const std::str
             DataType param_type = overload.parameters[i].type;
             DataType arg_type = arg_types[i];
             
-            if (param_type == DataType::UNKNOWN) {
+            if (param_type == DataType::ANY) {
                 // Untyped parameter matches anything
                 score += 1;
             } else if (param_type == arg_type) {

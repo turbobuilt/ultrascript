@@ -11,13 +11,13 @@ DataType TypeInference::infer_type(const std::string& expression) {
         return variable_types[expression];
     }
     
-    // For JavaScript compatibility, all numeric literals default to number (float64)
+    // For JavaScript compatibility, all numeric literals default to float64
     if (std::regex_match(expression, std::regex(R"(\d+)"))) {
-        return DataType::NUMBER;  // JavaScript compatibility: integer literals are number (float64)
+        return DataType::FLOAT64;  // JavaScript compatibility: integer literals are float64
     }
     
     if (std::regex_match(expression, std::regex(R"(\d+\.\d+)"))) {
-        return DataType::NUMBER;  // JavaScript compatibility: decimal literals are number (float64)
+        return DataType::FLOAT64;  // JavaScript compatibility: decimal literals are float64
     }
     
     if (expression == "true" || expression == "false") {
@@ -28,14 +28,14 @@ DataType TypeInference::infer_type(const std::string& expression) {
         return DataType::STRING;
     }
     
-    return DataType::UNKNOWN;
+    return DataType::ANY;
 }
 
 DataType TypeInference::infer_operator_index_type(const std::string& class_name, const std::string& index_expression) {
     
     auto* compiler = get_current_compiler();
     if (!compiler) {
-        return DataType::UNKNOWN;
+        return DataType::ANY;
     }
     
     // Check if the index expression is deterministic
@@ -45,11 +45,11 @@ DataType TypeInference::infer_operator_index_type(const std::string& class_name,
         // For deterministic expressions, infer the type based on the expression
         DataType inferred_type = infer_expression_type(index_expression);
         
-        if (inferred_type != DataType::UNKNOWN) {
+        if (inferred_type != DataType::ANY) {
             // For numeric literals, try priority ordering
             if (is_numeric_literal(index_expression)) {
                 DataType best_numeric_type = get_best_numeric_operator_type(class_name, index_expression);
-                if (best_numeric_type != DataType::UNKNOWN) {
+                if (best_numeric_type != DataType::ANY) {
                     std::vector<DataType> operand_types = {best_numeric_type};
                     const auto* overload = compiler->find_best_operator_overload(class_name, TokenType::LBRACKET, operand_types);
                     if (overload) {
@@ -89,7 +89,7 @@ DataType TypeInference::infer_operator_index_type(const std::string& class_name,
         return any_overload->return_type;
     }
     
-    return DataType::UNKNOWN;
+    return DataType::ANY;
 }
 
 bool TypeInference::is_numeric_literal(const std::string& expression) {
@@ -196,7 +196,7 @@ DataType TypeInference::infer_expression_type(const std::string& expression) {
     
     // Handle complex expressions with operators
     DataType complex_type = infer_complex_expression_type(expression);
-    if (complex_type != DataType::UNKNOWN) {
+    if (complex_type != DataType::ANY) {
         return complex_type;
     }
     
@@ -238,14 +238,14 @@ DataType TypeInference::infer_complex_expression_type(const std::string& express
         }
     }
     
-    return DataType::UNKNOWN;
+    return DataType::ANY;
 }
 
 DataType TypeInference::get_best_numeric_operator_type(const std::string& class_name, const std::string& numeric_literal) {
     
     auto* compiler = get_current_compiler();
     if (!compiler) {
-        return DataType::UNKNOWN;
+        return DataType::ANY;
     }
     
     // Parse the numeric literal
@@ -287,12 +287,12 @@ DataType TypeInference::get_best_numeric_operator_type(const std::string& class_
         }
     }
     
-    return DataType::UNKNOWN;
+    return DataType::ANY;
 }
 
 DataType TypeInference::get_cast_type(DataType t1, DataType t2) {
-    if (t1 == DataType::UNKNOWN || t2 == DataType::UNKNOWN) {
-        return DataType::UNKNOWN;
+    if (t1 == DataType::ANY || t2 == DataType::ANY) {
+        return DataType::ANY;
     }
     
     if (t1 == t2) {
@@ -313,8 +313,8 @@ DataType TypeInference::get_cast_type(DataType t1, DataType t2) {
     };
     
     auto is_float = [&](DataType t) {
-        // NUMBER is identical to FLOAT64 for performance
-        return t == DataType::NUMBER || std::find(float_hierarchy.begin(), float_hierarchy.end(), t) != float_hierarchy.end();
+        // Check if type is in float hierarchy
+        return std::find(float_hierarchy.begin(), float_hierarchy.end(), t) != float_hierarchy.end();
     };
     
     auto get_integer_rank = [&](DataType t) {
@@ -323,8 +323,7 @@ DataType TypeInference::get_cast_type(DataType t1, DataType t2) {
     };
     
     auto get_float_rank = [&](DataType t) -> int {
-        // NUMBER is identical to FLOAT64 for performance - same rank
-        if (t == DataType::NUMBER) return 1; // Same rank as FLOAT64
+        // Get rank within float hierarchy
         auto it = std::find(float_hierarchy.begin(), float_hierarchy.end(), t);
         return it != float_hierarchy.end() ? static_cast<int>(it - float_hierarchy.begin()) : -1;
     };
@@ -344,12 +343,12 @@ DataType TypeInference::get_cast_type(DataType t1, DataType t2) {
         return DataType::STRING;
     }
     
-    return DataType::UNKNOWN;
+    return DataType::ANY;
 }
 
 bool TypeInference::needs_casting(DataType from, DataType to) {
     if (from == to) return false;
-    if (from == DataType::UNKNOWN || to == DataType::UNKNOWN) return true;
+    if (from == DataType::ANY || to == DataType::ANY) return true;
     
     std::vector<DataType> widening_casts[] = {
         {DataType::INT8, DataType::INT16, DataType::INT32, DataType::INT64},
@@ -379,7 +378,7 @@ void TypeInference::set_variable_type(const std::string& name, DataType type) {
 
 DataType TypeInference::get_variable_type(const std::string& name) {
     auto it = variable_types.find(name);
-    return it != variable_types.end() ? it->second : DataType::UNKNOWN;
+    return it != variable_types.end() ? it->second : DataType::ANY;
 }
 
 void TypeInference::set_variable_offset(const std::string& name, int64_t offset) {
@@ -457,12 +456,12 @@ DataType TypeInference::infer_operator_result_type(const std::string& class_name
                                                    const std::vector<DataType>& operand_types) {
     auto* compiler = get_current_compiler();
     if (!compiler) {
-        return DataType::UNKNOWN;
+        return DataType::ANY;
     }
     
     const auto* overloads = compiler->get_operator_overloads(class_name, operator_type);
     if (!overloads || overloads->empty()) {
-        return DataType::UNKNOWN;
+        return DataType::ANY;
     }
     
     // Find the best matching overload based on parameter types
@@ -471,7 +470,7 @@ DataType TypeInference::infer_operator_result_type(const std::string& class_name
         return best_overload->return_type;
     }
     
-    return DataType::UNKNOWN;
+    return DataType::ANY;
 }
 
 bool TypeInference::can_use_operator_overload(const std::string& class_name, TokenType operator_type, 

@@ -156,7 +156,7 @@ void declare_typed_array_variable(const std::string& name, DataType element_type
 void declare_dynamic_array_variable(const std::string& name) {
     VariableInfo info;
     info.base_type = DataType::DYNAMIC_ARRAY;
-    info.element_type = DataType::UNKNOWN;
+    info.element_type = DataType::ANY;
     info.is_mutable = true;
     
     current_scope_->variables[name] = info;

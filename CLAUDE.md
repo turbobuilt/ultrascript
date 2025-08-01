@@ -48,7 +48,7 @@ let result = await go x();
 
 The problem with javascript is that it is slow due dynamic typing. Therefore UltraScript natively uses static typing when specified.
 
-Unlike javascript where "number" is a float64 by default, UltraScript allows specifying not only `number`, but also all types from 32 bit to 64 bit. Additional support will be added later.
+Like JavaScript where "number" is a float64 by default, UltraScript treats all `number` type annotations as `float64`. UltraScript also allows specifying specific types from 32 bit to 64 bit. Additional support will be added later.
 
 Types autocast. This is complicated to reason about, but the compiler will compute the types in each computation prior to execution of the program. Then the proper casting will take place. Types "cast up". float32*int32 casts up to float64 due to precision loss or size loss between float32 and int32.  int64*float64 casts up to float64 trading precision for ability to handle decimals (allowing tiny numbers).
 
@@ -276,7 +276,7 @@ var x = 5;
 x += "world";
 ```
 
-Here the compiler would infer that x starts as a number and converts to a string. If this happens, first it will store next to the value of x that x is a float64 (default number in js), and then it will store next to it that it is a string after added.
+Here the compiler would infer that x starts as a float64 and converts to a string. If this happens, first it will store next to the value of x that x is a float64 (the standard numeric type), and then it will store next to it that it is a string after added.
 
 The code will support eval, compiling internally.
 
@@ -364,4 +364,4 @@ const server = runtime.http.createServer((req, res) => {
 });
 ```
 
-Use all cores when building
+Use all cores when building make -j$(nproc)

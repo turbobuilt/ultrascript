@@ -1,4 +1,5 @@
 // Ultra-performance path
+console.log("Program started!");
 console.log("starting typed")
 var matrix = Array.zeros([1000], "float64");
 console.log("Matrix is", matrix);

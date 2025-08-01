@@ -1,5 +1,6 @@
 #include "compiler.h"
 #include "runtime.h"
+#include "console_log_overhaul.h"
 #include <iostream>
 #include <cstring>
 #include <algorithm>
@@ -255,6 +256,7 @@ extern "C" {
     extern void* __simple_array_zeros(int64_t size);
     extern void* __simple_array_ones(int64_t size);
     extern void __simple_array_push(void* array, double value);
+    extern void __simple_array_push_int64(void* array, int64_t value_bits);
     extern double __simple_array_pop(void* array);
     extern double __simple_array_get(void* array, int64_t index);
     extern void __simple_array_set(void* array, int64_t index, double value);
@@ -292,6 +294,12 @@ extern "C" {
     extern int64_t __typed_array_sum_int64(void* array);
     extern void* __simple_array_zeros_typed(int64_t size, const char* dtype);
     extern void* __simple_array_zeros_typed_wrapper(int64_t size, void* dtype_ptr);
+    
+    // DynamicValue allocation functions for ANY type variables
+    extern void* __dynamic_value_create_from_double(double value);
+    extern void* __dynamic_value_create_from_int64(int64_t value);
+    extern void* __dynamic_value_create_from_bool(bool value);
+    extern void* __dynamic_value_create_from_string(void* string_ptr);
 }
 
 static void initialize_runtime_function_table() {
@@ -304,6 +312,26 @@ static void initialize_runtime_function_table() {
     g_runtime_function_table["__console_log_string"] = (void*)__console_log;
     g_runtime_function_table["__console_log_auto"] = (void*)__console_log_auto;
     g_runtime_function_table["__gots_string_to_cstr"] = (void*)__gots_string_to_cstr;
+    
+    // Type-specific console.log functions - new type-aware system
+    g_runtime_function_table["__console_log_int8"] = (void*)__console_log_int8;
+    g_runtime_function_table["__console_log_int16"] = (void*)__console_log_int16;
+    g_runtime_function_table["__console_log_int32"] = (void*)__console_log_int32;
+    g_runtime_function_table["__console_log_int64"] = (void*)__console_log_int64;
+    g_runtime_function_table["__console_log_uint8"] = (void*)__console_log_uint8;
+    g_runtime_function_table["__console_log_uint16"] = (void*)__console_log_uint16;
+    g_runtime_function_table["__console_log_uint32"] = (void*)__console_log_uint32;
+    g_runtime_function_table["__console_log_uint64"] = (void*)__console_log_uint64;
+    g_runtime_function_table["__console_log_float32"] = (void*)__console_log_float32;
+    g_runtime_function_table["__console_log_float64"] = (void*)__console_log_float64;
+    g_runtime_function_table["__console_log_boolean"] = (void*)__console_log_boolean;
+    g_runtime_function_table["__console_log_string_ptr"] = (void*)__console_log_string_ptr;
+    g_runtime_function_table["__console_log_array_ptr"] = (void*)__console_log_array_ptr;
+    g_runtime_function_table["__console_log_object_ptr"] = (void*)__console_log_object_ptr;
+    g_runtime_function_table["__console_log_function_ptr"] = (void*)__console_log_function_ptr;
+    g_runtime_function_table["__console_log_space_separator"] = (void*)__console_log_space_separator;
+    g_runtime_function_table["__console_log_final_newline"] = (void*)__console_log_final_newline;
+    g_runtime_function_table["__console_log_any_value_inspect"] = (void*)__console_log_any_value_inspect;
     
     // High-performance goroutine spawn functions
     g_runtime_function_table["__goroutine_spawn_fast"] = (void*)__goroutine_spawn_fast;
@@ -362,6 +390,7 @@ static void initialize_runtime_function_table() {
     g_runtime_function_table["__simple_array_zeros"] = (void*)__simple_array_zeros;
     g_runtime_function_table["__simple_array_ones"] = (void*)__simple_array_ones;
     g_runtime_function_table["__simple_array_push"] = (void*)__simple_array_push;
+    g_runtime_function_table["__simple_array_push_int64"] = (void*)__simple_array_push_int64;
     g_runtime_function_table["__simple_array_pop"] = (void*)__simple_array_pop;
     g_runtime_function_table["__simple_array_get"] = (void*)__simple_array_get;
     g_runtime_function_table["__simple_array_set"] = (void*)__simple_array_set;
@@ -373,6 +402,8 @@ static void initialize_runtime_function_table() {
     g_runtime_function_table["__simple_array_slice"] = (void*)__simple_array_slice;
     g_runtime_function_table["__simple_array_slice_all"] = (void*)__simple_array_slice_all;
     g_runtime_function_table["__console_log_number"] = (void*)__console_log_number;
+    g_runtime_function_table["__console_log_double_bits"] = (void*)__console_log_double_bits;
+    g_runtime_function_table["__console_log_universal"] = (void*)__console_log_universal;
     g_runtime_function_table["__dynamic_method_toString"] = (void*)__dynamic_method_toString;
     g_runtime_function_table["__simple_array_get_first_dimension"] = (void*)__simple_array_get_first_dimension;
     
@@ -400,6 +431,12 @@ static void initialize_runtime_function_table() {
     g_runtime_function_table["__typed_array_sum_int64"] = (void*)__typed_array_sum_int64;
     g_runtime_function_table["__simple_array_zeros_typed"] = (void*)__simple_array_zeros_typed;
     g_runtime_function_table["__simple_array_zeros_typed_wrapper"] = (void*)__simple_array_zeros_typed_wrapper;
+    
+    // DynamicValue allocation functions for ANY type variables
+    g_runtime_function_table["__dynamic_value_create_from_double"] = (void*)__dynamic_value_create_from_double;
+    g_runtime_function_table["__dynamic_value_create_from_int64"] = (void*)__dynamic_value_create_from_int64;
+    g_runtime_function_table["__dynamic_value_create_from_bool"] = (void*)__dynamic_value_create_from_bool;
+    g_runtime_function_table["__dynamic_value_create_from_string"] = (void*)__dynamic_value_create_from_string;
     
     std::cout << "[DEBUG] Runtime function table initialized with " << g_runtime_function_table.size() << " functions" << std::endl;
     std::cout << "[DEBUG] __simple_array_zeros_typed registered at: " << g_runtime_function_table["__simple_array_zeros_typed"] << std::endl;

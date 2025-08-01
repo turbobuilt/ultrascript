@@ -104,7 +104,7 @@ private:
         else if constexpr (std::is_same_v<T, double>) return DataType::FLOAT64;
         else if constexpr (std::is_same_v<T, bool>) return DataType::BOOLEAN;
         else if constexpr (std::is_same_v<T, std::string>) return DataType::STRING;
-        else return DataType::UNKNOWN;
+        else return DataType::ANY;
     }
     
     template<typename T>

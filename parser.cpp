@@ -739,7 +739,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 
                 Variable param;
                 param.name = current_token().value;
-                param.type = DataType::UNKNOWN;  // Type inference will handle this
+                param.type = DataType::ANY;  // Type inference will handle this
                 advance();
                 
                 // Check for type annotation: param: type
@@ -919,7 +919,7 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
             std::string param_name = tokens[pos - 1].value;
             Variable param;
             param.name = param_name;
-            param.type = DataType::UNKNOWN;
+            param.type = DataType::ANY;
             
             if (match(TokenType::COLON)) {
                 param.type = parse_type();
@@ -961,7 +961,7 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
     }
     
     std::string var_name = tokens[pos - 1].value;
-    DataType type = DataType::UNKNOWN;
+    DataType type = DataType::ANY;
     
     if (match(TokenType::COLON)) {
         type = parse_type();
@@ -1059,7 +1059,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
             }
             
             std::string var_name = tokens[pos - 1].value;
-            DataType type = DataType::UNKNOWN;
+            DataType type = DataType::ANY;
             
             if (match(TokenType::COLON)) {
                 type = parse_type();
@@ -1315,7 +1315,7 @@ DataType Parser::parse_type() {
     if (type_name == "void") return DataType::VOID;
     if (type_name == "any") return DataType::ANY;
     
-    return DataType::UNKNOWN;
+    return DataType::ANY;
 }
 
 std::unique_ptr<ASTNode> Parser::parse_class_declaration() {
@@ -1450,7 +1450,7 @@ std::unique_ptr<MethodDecl> Parser::parse_method_declaration() {
         if (match(TokenType::COLON)) {
             param.type = parse_type();
         } else {
-            param.type = DataType::UNKNOWN;
+            param.type = DataType::ANY;
         }
         
         method->parameters.push_back(param);
@@ -1509,7 +1509,7 @@ std::unique_ptr<ConstructorDecl> Parser::parse_constructor_declaration(const std
         if (match(TokenType::COLON)) {
             param.type = parse_type();
         } else {
-            param.type = DataType::UNKNOWN;
+            param.type = DataType::ANY;
         }
         
         constructor->parameters.push_back(param);
@@ -1770,7 +1770,7 @@ std::unique_ptr<OperatorOverloadDecl> Parser::parse_operator_overload_declaratio
         if (match(TokenType::COLON)) {
             param.type = parse_type();
         } else {
-            param.type = DataType::UNKNOWN; // Untyped parameter
+            param.type = DataType::ANY; // Untyped parameter
         }
         
         param.is_mutable = true;

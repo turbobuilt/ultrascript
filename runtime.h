@@ -631,12 +631,40 @@ extern "C" {
     void __console_log_space();
     void __console_log_array(int64_t* array, int64_t size);
     void __console_log_number(int64_t value);
+    void __console_log_double_bits(int64_t double_bits);
+    void __console_log_universal(int64_t value);
     void __console_log_auto(int64_t value);
     void __console_log_smart(int64_t value);
     const char* __gots_string_to_cstr(void* gots_string_ptr);
     bool __is_array_pointer(int64_t value);
     void __console_time(const char* label);
+    
+    // Type-specific console.log functions - new type-aware system
+    void __console_log_int8(int8_t value);
+    void __console_log_int16(int16_t value);
+    void __console_log_int32(int32_t value);
+    void __console_log_int64(int64_t value);
+    void __console_log_uint8(uint8_t value);
+    void __console_log_uint16(uint16_t value);
+    void __console_log_uint32(uint32_t value);
+    void __console_log_uint64(uint64_t value);
+    void __console_log_float32(float value);
+    void __console_log_float64(double value);
+    void __console_log_boolean(bool value);
+    void __console_log_string_ptr(void* string_ptr);
+    void __console_log_array_ptr(void* array_ptr);
+    void __console_log_object_ptr(void* object_ptr);
+    void __console_log_function_ptr(void* function_ptr);
+    void __console_log_space_separator();
+    void __console_log_final_newline();
+    void __console_log_any_value_inspect(void* dynamic_value_ptr);
     void __console_timeEnd(const char* label);
+    
+    // DynamicValue allocation functions for ANY type variables
+    void* __dynamic_value_create_from_double(double value);
+    void* __dynamic_value_create_from_int64(int64_t value);
+    void* __dynamic_value_create_from_bool(bool value);
+    void* __dynamic_value_create_from_string(void* string_ptr);
     
     // Promise functions
     void* __promise_all(void* promises_array);
