@@ -1,4 +1,5 @@
 #include "compiler.h"
+#include "x86_codegen_v2.h"  // For X86CodeGenV2 validation
 #include "runtime.h"
 #include "runtime_syscalls.h"
 #include "goroutine_system.h"
@@ -208,6 +209,12 @@ void GoTSCompiler::compile(const std::string& source) {
         // Generate function epilogue
         codegen->emit_epilogue();
         
+        // CRITICAL: Validate code generation before proceeding
+        auto* x86_codegen = dynamic_cast<X86CodeGenV2*>(codegen.get());
+        if (x86_codegen && !x86_codegen->validate_code_generation()) {
+            throw std::runtime_error("Code generation validation failed - aborting compilation");
+        }
+        
         std::cout << "Code generation completed. Machine code size: " 
                   << codegen->get_code().size() << " bytes" << std::endl;
         
@@ -342,10 +349,13 @@ void GoTSCompiler::execute() {
         std::cout << "DEBUG: Total machine code size: " << updated_code.size() << " bytes" << std::endl;
         
         std::cout << "DEBUG: About to call function..." << std::endl;
+        std::cout.flush();
         
         // Spawn the main function as the main goroutine - ALL JS runs in goroutines  
         int result = 0;
         try {
+            std::cout << "DEBUG: Calling function at address 0x" << std::hex << calculated_addr << std::dec << std::endl;
+            std::cout.flush();
             result = func();
             std::cout << "DEBUG: Function returned " << result << std::endl;
             {

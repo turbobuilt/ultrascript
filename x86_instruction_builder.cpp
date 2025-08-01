@@ -2,6 +2,9 @@
 #include <cassert>
 #include <algorithm>
 #include <cstring>
+#include <cstdio>
+#include <stdexcept>
+#include <climits>
 
 namespace ultraScript {
 
@@ -707,46 +710,157 @@ void X86InstructionBuilder::emit_bytes(const std::vector<uint8_t>& bytes) {
 }
 
 // =============================================================================
-// Label Management
+// Label Management - Instance-Based for Reliability and Thread Safety
 // =============================================================================
 
-// Simple label management - would need proper implementation for production
-static std::unordered_map<std::string, size_t> g_label_addresses;
-static std::unordered_map<std::string, std::vector<size_t>> g_unresolved_labels;
-
 void X86InstructionBuilder::emit_label_placeholder(const std::string& label) {
-    auto it = g_label_addresses.find(label);
-    if (it != g_label_addresses.end()) {
-        // Label already resolved
-        int32_t offset = static_cast<int32_t>(it->second - (code_buffer.size() + 4));
+    // Critical validation: Check for empty labels to prevent silent failures
+    if (label.empty()) {
+        printf("ERROR: Attempted to emit placeholder for empty label!\n");
+        throw std::runtime_error("Empty label name in emit_label_placeholder");
+    }
+    
+    auto it = label_addresses_.find(label);
+    if (it != label_addresses_.end()) {
+        // Label already resolved - calculate displacement immediately
+        size_t target_address = it->second;
+        size_t instruction_end = code_buffer.size() + 4;  // Jump instruction + 4-byte displacement
+        
+        // Validate displacement range for 32-bit relative jump
+        if (target_address > instruction_end) {
+            size_t forward_distance = target_address - instruction_end;
+            if (forward_distance > static_cast<size_t>(INT32_MAX)) {
+                printf("ERROR: Forward jump distance %zu exceeds INT32_MAX for label %s\n", 
+                       forward_distance, label.c_str());
+                throw std::runtime_error("Jump displacement too large");
+            }
+        } else {
+            size_t backward_distance = instruction_end - target_address;
+            if (backward_distance > static_cast<size_t>(INT32_MAX)) {
+                printf("ERROR: Backward jump distance %zu exceeds INT32_MAX for label %s\n", 
+                       backward_distance, label.c_str());
+                throw std::runtime_error("Jump displacement too large");
+            }
+        }
+        
+        int32_t offset = static_cast<int32_t>(target_address - instruction_end);
+        
+        // Emit displacement in little-endian format
         for (int i = 0; i < 4; i++) {
             code_buffer.push_back((offset >> (i * 8)) & 0xFF);
         }
+        
+        printf("[LABEL] Resolved forward reference to '%s' with displacement %d\n", 
+               label.c_str(), offset);
     } else {
-        // Store location for later resolution
-        g_unresolved_labels[label].push_back(code_buffer.size());
+        // Label not yet resolved - store location for later patching
+        unresolved_labels_[label].push_back(code_buffer.size());
+        
+        // Emit placeholder bytes (will be patched later)
         code_buffer.push_back(0x00);
         code_buffer.push_back(0x00);
         code_buffer.push_back(0x00);
         code_buffer.push_back(0x00);
+        
+        printf("[LABEL] Added unresolved reference to '%s' at position %zu\n", 
+               label.c_str(), code_buffer.size() - 4);
     }
 }
 
 void X86InstructionBuilder::resolve_label(const std::string& label, size_t address) {
-    g_label_addresses[label] = address;
+    // Critical validation: Check for empty labels and address validity
+    if (label.empty()) {
+        printf("ERROR: Attempted to resolve empty label!\n");
+        throw std::runtime_error("Empty label name in resolve_label");
+    }
     
-    // Patch all unresolved references
-    auto it = g_unresolved_labels.find(label);
-    if (it != g_unresolved_labels.end()) {
+    if (address > code_buffer.size()) {
+        printf("ERROR: Label address %zu exceeds code buffer size %zu for label %s\n", 
+               address, code_buffer.size(), label.c_str());
+        throw std::runtime_error("Invalid label address");
+    }
+    
+    // Check for duplicate label definition
+    if (label_addresses_.find(label) != label_addresses_.end()) {
+        printf("WARNING: Label '%s' already defined, overwriting\n", label.c_str());
+    }
+    
+    // Store the label address
+    label_addresses_[label] = address;
+    
+    printf("[LABEL] Defining label '%s' at address %zu\n", label.c_str(), address);
+    
+    // Patch all unresolved references to this label
+    auto it = unresolved_labels_.find(label);
+    if (it != unresolved_labels_.end()) {
+        printf("[LABEL] Patching %zu unresolved references to '%s'\n", 
+               it->second.size(), label.c_str());
+        
         for (size_t location : it->second) {
-            int32_t offset = static_cast<int32_t>(address - (location + 4));
+            // Validate that we're patching within the buffer bounds
+            if (location + 3 >= code_buffer.size()) {
+                printf("ERROR: Patch location %zu exceeds buffer bounds %zu for label %s\n", 
+                       location, code_buffer.size(), label.c_str());
+                throw std::runtime_error("Invalid patch location");
+            }
+            
+            // Calculate relative displacement
+            size_t instruction_end = location + 4;  // Location + 4 bytes for displacement
+            
+            // Validate displacement range
+            if (address > instruction_end) {
+                size_t forward_distance = address - instruction_end;
+                if (forward_distance > static_cast<size_t>(INT32_MAX)) {
+                    printf("ERROR: Forward patch distance %zu exceeds INT32_MAX for label %s\n", 
+                           forward_distance, label.c_str());
+                    throw std::runtime_error("Patch displacement too large");
+                }
+            } else {
+                size_t backward_distance = instruction_end - address;
+                if (backward_distance > static_cast<size_t>(INT32_MAX)) {
+                    printf("ERROR: Backward patch distance %zu exceeds INT32_MAX for label %s\n", 
+                           backward_distance, label.c_str());
+                    throw std::runtime_error("Patch displacement too large");
+                }
+            }
+            
+            int32_t offset = static_cast<int32_t>(address - instruction_end);
+            
+            // Patch the displacement in little-endian format
             code_buffer[location] = offset & 0xFF;
             code_buffer[location + 1] = (offset >> 8) & 0xFF;
             code_buffer[location + 2] = (offset >> 16) & 0xFF;
             code_buffer[location + 3] = (offset >> 24) & 0xFF;
+            
+            printf("[LABEL] Patched reference at %zu with displacement %d\n", location, offset);
         }
-        g_unresolved_labels.erase(it);
+        
+        // Remove from unresolved list
+        unresolved_labels_.erase(it);
     }
+}
+
+void X86InstructionBuilder::clear_label_state() {
+    printf("[LABEL] Clearing label state - %zu resolved labels, %zu unresolved label groups\n", 
+           label_addresses_.size(), unresolved_labels_.size());
+    
+    label_addresses_.clear();
+    unresolved_labels_.clear();
+}
+
+bool X86InstructionBuilder::validate_all_labels_resolved() const {
+    if (!unresolved_labels_.empty()) {
+        printf("ERROR: %zu unresolved label groups remain:\n", unresolved_labels_.size());
+        
+        for (const auto& pair : unresolved_labels_) {
+            printf("  - Label '%s' has %zu unresolved references\n", 
+                   pair.first.c_str(), pair.second.size());
+        }
+        return false;
+    }
+    
+    printf("[LABEL] All labels successfully resolved (%zu total)\n", label_addresses_.size());
+    return true;
 }
 
 // =============================================================================

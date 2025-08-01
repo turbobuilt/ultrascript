@@ -974,6 +974,10 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
     
     auto assignment = std::make_unique<Assignment>(var_name, std::move(value));
     assignment->declared_type = type;
+    assignment->declared_element_type = last_parsed_array_element_type;
+    
+    // Clear the element type after use
+    last_parsed_array_element_type = DataType::ANY;
     
     if (match(TokenType::SEMICOLON)) {
         // Optional semicolon
@@ -1286,10 +1290,27 @@ DataType Parser::parse_type() {
             throw std::runtime_error("Expected ']' after array element type");
         }
         
-        // For now, all typed arrays return ARRAY type
-        // The element type information would be stored elsewhere in a full implementation
+        // Store the element type for the Assignment to access
+        if (element_type == "int8") last_parsed_array_element_type = DataType::INT8;
+        else if (element_type == "int16") last_parsed_array_element_type = DataType::INT16;
+        else if (element_type == "int32") last_parsed_array_element_type = DataType::INT32;
+        else if (element_type == "int64") last_parsed_array_element_type = DataType::INT64;
+        else if (element_type == "uint8") last_parsed_array_element_type = DataType::UINT8;
+        else if (element_type == "uint16") last_parsed_array_element_type = DataType::UINT16;
+        else if (element_type == "uint32") last_parsed_array_element_type = DataType::UINT32;
+        else if (element_type == "uint64") last_parsed_array_element_type = DataType::UINT64;
+        else if (element_type == "float32") last_parsed_array_element_type = DataType::FLOAT32;
+        else if (element_type == "float64" || element_type == "number") last_parsed_array_element_type = DataType::FLOAT64;
+        else if (element_type == "boolean") last_parsed_array_element_type = DataType::BOOLEAN;
+        else if (element_type == "string") last_parsed_array_element_type = DataType::STRING;
+        else last_parsed_array_element_type = DataType::ANY;
+        
+        // Always return DataType::ARRAY for array types
         return DataType::ARRAY;
     }
+    
+    // Clear element type for non-array types
+    last_parsed_array_element_type = DataType::ANY;
     
     if (!match(TokenType::IDENTIFIER)) {
         throw std::runtime_error("Expected type name");

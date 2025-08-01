@@ -527,4 +527,26 @@ std::string TypeInference::token_type_to_string(TokenType token) {
     }
 }
 
+// Assignment context tracking for type-aware array creation
+void TypeInference::set_current_assignment_target_type(DataType type) {
+    current_assignment_target_type = type;
+}
+
+DataType TypeInference::get_current_assignment_target_type() const {
+    return current_assignment_target_type;
+}
+
+void TypeInference::set_current_assignment_array_element_type(DataType element_type) {
+    current_assignment_array_element_type = element_type;
+}
+
+DataType TypeInference::get_current_assignment_array_element_type() const {
+    return current_assignment_array_element_type;
+}
+
+void TypeInference::clear_assignment_context() {
+    current_assignment_target_type = DataType::ANY;
+    current_assignment_array_element_type = DataType::ANY;
+}
+
 }

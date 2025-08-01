@@ -677,6 +677,28 @@ extern "C" {
     int64_t __array_access(void* array, int64_t index);
     int64_t* __array_data(void* array);
     
+    // Type-aware array creation functions - know type at creation time
+    void* __array_create_dynamic(int64_t size);
+    void* __array_create_int64(int64_t size);
+    void* __array_create_float64(int64_t size);
+    void* __array_create_int32(int64_t size);
+    void* __array_create_float32(int64_t size);
+    
+    // Type-aware array push functions - no type guessing needed
+    void __array_push_dynamic(void* array, int64_t value_bits);
+    void __array_push_int64_typed(void* array, int64_t value);
+    void __array_push_float64_typed(void* array, double value);
+    void __array_push_int32_typed(void* array, int32_t value);
+    void __array_push_float32_typed(void* array, float value);
+    
+    // Array factory functions for specific use cases
+    void* __array_zeros_typed(int64_t size, void* dtype_string);
+    void* __array_ones_dynamic(int64_t size);
+    void* __array_ones_int64(int64_t size);
+    void* __array_ones_float64(int64_t size);
+    void* __array_ones_int32(int64_t size);
+    void* __array_ones_float32(int64_t size);
+    
     // Typed Array functions for maximum performance
     void* __typed_array_create_int32(int64_t initial_capacity);
     void* __typed_array_create_int64(int64_t initial_capacity);
@@ -744,7 +766,7 @@ extern "C" {
     
     // Dynamic property access (for runtime property access)
     void __dynamic_set_property(int64_t object_id, const char* property_name, int64_t value);
-    int64_t __dynamic_get_property(int64_t object_id, const char* property_name);
+    void* __dynamic_get_property(void* dynamic_value_ptr, const char* property_name);
     
     // Property name management for iteration
     void __object_set_property_name(int64_t object_id, int64_t property_index, const char* property_name);
@@ -778,6 +800,14 @@ extern "C" {
     // String comparison - JIT optimized
     bool __string_equals(void* str1, void* str2);
     bool __string_equals_cstr(void* str1, const char* str2);
+    
+    // Array functions
+    void* __array_create(int64_t initial_capacity);
+    void __array_push(void* array, int64_t value);
+    int64_t __array_pop(void* array);
+    int64_t __array_size(void* array);
+    int64_t __array_access(void* array, int64_t index);
+    int64_t* __array_data(void* array);
     int64_t __string_compare(void* str1, void* str2);
     
     // String access
@@ -891,7 +921,7 @@ extern "C" {
     // Regex functions
     void* __regex_create(const char* pattern, const char* flags);
     void* __regex_create_simple(const char* pattern);
-    void* __regex_create_by_id(int pattern_id);
+    void* __regex_create_by_id(int64_t pattern_id);
     void __regex_destroy(void* regex_ptr);
     bool __regex_test(void* regex_ptr, const char* text);
     void* __regex_exec(void* regex_ptr, const char* text);
@@ -918,7 +948,7 @@ extern "C" {
     void* __static_stringify(void* value, int64_t type);
     
     // Pattern registry
-    int64_t __register_regex_pattern(const char* pattern);
+    void* __register_regex_pattern(const char* pattern);
 }
 
 template<typename F, typename... Args>

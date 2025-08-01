@@ -196,6 +196,10 @@ private:
     // Function parameter tracking for keyword arguments
     std::unordered_map<std::string, std::vector<std::string>> function_param_names;
     
+    // Assignment context tracking for type-aware array creation
+    DataType current_assignment_target_type = DataType::ANY;
+    DataType current_assignment_array_element_type = DataType::ANY;  // For [type] arrays
+    
 public:
     DataType infer_type(const std::string& expression);
     DataType get_cast_type(DataType t1, DataType t2);
@@ -214,6 +218,13 @@ public:
     void exit_scope();
     void reset_for_function();
     void reset_for_function_with_params(int param_count);
+    
+    // Assignment context tracking for type-aware array creation
+    void set_current_assignment_target_type(DataType type);
+    DataType get_current_assignment_target_type() const;
+    void set_current_assignment_array_element_type(DataType element_type);
+    DataType get_current_assignment_array_element_type() const;
+    void clear_assignment_context();
     
     // Function parameter tracking for keyword arguments
     void register_function_params(const std::string& func_name, const std::vector<std::string>& param_names);
@@ -401,6 +412,7 @@ struct Assignment : ExpressionNode {
     std::string variable_name;
     std::unique_ptr<ExpressionNode> value;
     DataType declared_type = DataType::ANY;
+    DataType declared_element_type = DataType::ANY;  // For [element_type] arrays
     Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val)
         : variable_name(name), value(std::move(val)) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
@@ -657,6 +669,7 @@ private:
     std::vector<Token> tokens;
     size_t pos = 0;
     ErrorReporter* error_reporter = nullptr;
+    DataType last_parsed_array_element_type = DataType::ANY;  // Track element type from [type] syntax
     
     Token& current_token();
     Token& peek_token(int offset = 1);

@@ -123,6 +123,9 @@ public:
     std::vector<uint8_t> get_code() const override { return code_buffer; }
     void clear() override;
     
+    // Validation for robust code generation
+    bool validate_code_generation() const;  // Validate all labels resolved and code is ready
+    
     // High-Performance Floating-Point Operations
     // These provide direct XMM register access for maximum performance
     void emit_movq_xmm_gpr(int xmm_reg, int gpr_reg);  // Move 64-bit from GPR to XMM

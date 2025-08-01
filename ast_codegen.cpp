@@ -845,17 +845,17 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                     // Move argument to RSI (second parameter) - RAX contains int64 bit pattern
                     gen.emit_mov_reg_reg(6, 0); // RSI = int64 bit pattern
                     
-                    std::cout << "[DEBUG] AST: Calling __simple_array_push_int64 for argument " << i << std::endl;
+                    std::cout << "[DEBUG] AST: Calling __array_push for argument " << i << std::endl;
                     std::cout.flush();
                     // Call int64-based array push (consistent with ArrayLiteral)
-                    gen.emit_call("__simple_array_push_int64");
+                    gen.emit_call("__array_push");
                 }
                 result_type = DataType::VOID;
             } else if (method_name == "pop") {
                 // Get the array variable offset
                 int64_t array_offset = types.get_variable_offset(object_name);
                 gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
-                gen.emit_call("__simple_array_pop");
+                gen.emit_call("__array_pop");
                 result_type = DataType::FLOAT64;
             } else if (method_name == "slice") {
                 // Get the array variable offset
@@ -884,44 +884,26 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                     gen.emit_mov_reg_imm(1, 1); // RCX = 1 (default step)
                 }
                 
-                gen.emit_call("__simple_array_slice");
-                result_type = DataType::ARRAY;
+                // TODO: Implement array slice method for new DynamicArray system
+                throw std::runtime_error("Array.slice() method not yet implemented for new array system");
             } else if (method_name == "slice_all") {
-                // Get the array variable offset
-                int64_t array_offset = types.get_variable_offset(object_name);
-                gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
-                gen.emit_call("__simple_array_slice_all");
-                result_type = DataType::ARRAY;
+                // TODO: Implement array slice_all method for new DynamicArray system
+                throw std::runtime_error("Array.slice_all() method not yet implemented for new array system");
             } else if (method_name == "toString") {
-                // Get the array variable offset
-                int64_t array_offset = types.get_variable_offset(object_name);
-                gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
-                gen.emit_call("__simple_array_tostring");
-                result_type = DataType::STRING;
+                // TODO: Implement array toString method for new DynamicArray system
+                throw std::runtime_error("Array.toString() method not yet implemented for new array system");
             } else if (method_name == "sum") {
-                // Get the array variable offset
-                int64_t array_offset = types.get_variable_offset(object_name);
-                gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
-                gen.emit_call("__simple_array_sum");
-                result_type = DataType::FLOAT64;
+                // TODO: Implement array sum method for new DynamicArray system
+                throw std::runtime_error("Array.sum() method not yet implemented for new array system");
             } else if (method_name == "mean") {
-                // Get the array variable offset
-                int64_t array_offset = types.get_variable_offset(object_name);
-                gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
-                gen.emit_call("__simple_array_mean");
-                result_type = DataType::FLOAT64;
+                // TODO: Implement array mean method for new DynamicArray system
+                throw std::runtime_error("Array.mean() method not yet implemented for new array system");
             } else if (method_name == "max") {
-                // Get the array variable offset
-                int64_t array_offset = types.get_variable_offset(object_name);
-                gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
-                gen.emit_call("__simple_array_max");
-                result_type = DataType::FLOAT64;
+                // TODO: Implement array max method for new DynamicArray system
+                throw std::runtime_error("Array.max() method not yet implemented for new array system");
             } else if (method_name == "min") {
-                // Get the array variable offset
-                int64_t array_offset = types.get_variable_offset(object_name);
-                gen.emit_mov_reg_mem(7, array_offset); // RDI = array pointer
-                gen.emit_call("__simple_array_min");
-                result_type = DataType::FLOAT64;
+                // TODO: Implement array min method for new DynamicArray system
+                throw std::runtime_error("Array.min() method not yet implemented for new array system");
             } else {
                 throw std::runtime_error("Unknown Array method: " + method_name);
             }
@@ -1012,54 +994,138 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                         arguments[0]->generate_code(gen, types);
                         // RAX now contains the shape array, extract first dimension
                         gen.emit_mov_reg_reg(7, 0); // RDI = shape array
-                        std::cout << "[DEBUG] AST: Calling __simple_array_get_first_dimension" << std::endl;
+                        std::cout << "[DEBUG] AST: Calling __array_size to get first dimension" << std::endl;
                         std::cout.flush();
-                        gen.emit_call("__simple_array_get_first_dimension");
+                        gen.emit_call("__array_size"); // Get array size (first dimension)
                         gen.emit_mov_mem_reg(-40, 0); // Save size (RAX) to stack
                         
                         // Check if dtype argument is provided
                         if (arguments.size() >= 2) {
-                            std::cout << "[DEBUG] AST: Generating dtype argument" << std::endl;
+                            std::cout << "[DEBUG] AST: Generating dtype argument for Array.zeros" << std::endl;
                             std::cout.flush();
-                            // Generate the dtype argument (string)
-                            arguments[1]->generate_code(gen, types);
-                            gen.emit_mov_reg_reg(6, 0); // RSI = dtype string
                             
-                            // Restore size to RDI
-                            gen.emit_mov_reg_mem(7, -40); // RDI = size
-                            std::cout << "[DEBUG] AST: Calling __simple_array_zeros_typed_wrapper with size and dtype" << std::endl;
-                            std::cout.flush();
-                            gen.emit_call("__simple_array_zeros_typed_wrapper");
+                            // Check if the dtype is a string literal for compile-time optimization
+                            StringLiteral* dtype_literal = dynamic_cast<StringLiteral*>(arguments[1].get());
+                            if (dtype_literal) {
+                                // ULTRA-FAST PATH: Compile-time dtype detection, emit direct typed calls
+                                std::string dtype = dtype_literal->value;
+                                std::cout << "[DEBUG] AST: Compile-time dtype detected: " << dtype << std::endl;
+                                std::cout.flush();
+                                
+                                // Restore size to RDI
+                                gen.emit_mov_reg_mem(7, -40); // RDI = size
+                                
+                                // Emit direct call to specific typed array creation function
+                                if (dtype == "int64") {
+                                    gen.emit_call("__array_create_int64");
+                                    std::cout << "[DEBUG] AST: Direct call to __array_create_int64" << std::endl;
+                                } else if (dtype == "float64") {
+                                    gen.emit_call("__array_create_float64");
+                                    std::cout << "[DEBUG] AST: Direct call to __array_create_float64" << std::endl;
+                                } else if (dtype == "int32") {
+                                    gen.emit_call("__array_create_int32");
+                                    std::cout << "[DEBUG] AST: Direct call to __array_create_int32" << std::endl;
+                                } else if (dtype == "float32") {
+                                    gen.emit_call("__array_create_float32");
+                                    std::cout << "[DEBUG] AST: Direct call to __array_create_float32" << std::endl;
+                                } else {
+                                    // Unknown dtype, fallback to dynamic
+                                    gen.emit_call("__array_create_dynamic");
+                                    std::cout << "[DEBUG] AST: Unknown dtype, fallback to dynamic array" << std::endl;
+                                }
+                            } else {
+                                // SLOW PATH: Runtime dtype resolution (only for dynamic dtypes)
+                                std::cout << "[DEBUG] AST: Runtime dtype resolution required" << std::endl;
+                                std::cout.flush();
+                                // Generate the dtype argument (string)
+                                arguments[1]->generate_code(gen, types);
+                                gen.emit_mov_reg_reg(6, 0); // RSI = dtype string
+                                
+                                // Restore size to RDI
+                                gen.emit_mov_reg_mem(7, -40); // RDI = size
+                                // Call runtime dtype resolver (slow path)
+                                gen.emit_call("__array_zeros_typed");
+                            }
                         } else {
-                            std::cout << "[DEBUG] AST: No dtype, calling __simple_array_zeros" << std::endl;
+                            std::cout << "[DEBUG] AST: No dtype, calling __array_create_dynamic" << std::endl;
                             std::cout.flush();
-                            // No dtype, use regular zeros function  
+                            // No dtype, create dynamic array with zeros
                             gen.emit_mov_reg_mem(7, -40); // RDI = size
-                            gen.emit_call("__simple_array_zeros");
+                            gen.emit_call("__array_create_dynamic");
                         }
                     } else {
-                        std::cout << "[DEBUG] AST: No arguments, creating empty array" << std::endl;
+                        std::cout << "[DEBUG] AST: No arguments, creating empty dynamic array" << std::endl;
                         std::cout.flush();
                         gen.emit_mov_reg_imm(7, 0); // RDI = 0 (empty array)
-                        gen.emit_call("__simple_array_zeros");
+                        gen.emit_call("__array_create_dynamic");
                     }
                     result_type = DataType::ARRAY;
                     std::cout << "[DEBUG] AST: Array.zeros code generation complete" << std::endl;
                     std::cout.flush();
                     return;
                 } else if (method_name == "ones") {
-                    // Handle Array.ones([shape])
+                    // Handle Array.ones([shape], dtype) - supports both 1 and 2 arguments
                     if (arguments.size() >= 1) {
                         // Generate the shape array argument
                         arguments[0]->generate_code(gen, types);
                         // RAX now contains the shape array, extract first dimension
                         gen.emit_mov_reg_reg(7, 0); // RDI = shape array
-                        gen.emit_call("__simple_array_get_first_dimension");
-                        gen.emit_mov_reg_reg(7, 0); // RDI = first dimension size
+                        gen.emit_call("__array_size"); // Get array size (first dimension)
+                        gen.emit_mov_mem_reg(-40, 0); // Save size (RAX) to stack
+                        
+                        // Check if dtype argument is provided
+                        if (arguments.size() >= 2) {
+                            std::cout << "[DEBUG] AST: Generating dtype argument for Array.ones" << std::endl;
+                            std::cout.flush();
+                            
+                            // Check if the dtype is a string literal for compile-time optimization
+                            StringLiteral* dtype_literal = dynamic_cast<StringLiteral*>(arguments[1].get());
+                            if (dtype_literal) {
+                                // ULTRA-FAST PATH: Compile-time dtype detection, emit direct typed calls
+                                std::string dtype = dtype_literal->value;
+                                std::cout << "[DEBUG] AST: Compile-time dtype detected for ones: " << dtype << std::endl;
+                                std::cout.flush();
+                                
+                                // Restore size to RDI
+                                gen.emit_mov_reg_mem(7, -40); // RDI = size
+                                
+                                // Emit direct call to specific typed array ones function
+                                if (dtype == "int64") {
+                                    gen.emit_call("__array_ones_int64");
+                                    std::cout << "[DEBUG] AST: Direct call to __array_ones_int64" << std::endl;
+                                } else if (dtype == "float64") {
+                                    gen.emit_call("__array_ones_float64");
+                                    std::cout << "[DEBUG] AST: Direct call to __array_ones_float64" << std::endl;
+                                } else if (dtype == "int32") {
+                                    gen.emit_call("__array_ones_int32");
+                                    std::cout << "[DEBUG] AST: Direct call to __array_ones_int32" << std::endl;
+                                } else if (dtype == "float32") {
+                                    gen.emit_call("__array_ones_float32");
+                                    std::cout << "[DEBUG] AST: Direct call to __array_ones_float32" << std::endl;
+                                } else {
+                                    // Unknown dtype, fallback to dynamic
+                                    gen.emit_call("__array_ones_dynamic");
+                                    std::cout << "[DEBUG] AST: Unknown dtype for ones, fallback to dynamic array" << std::endl;
+                                }
+                            } else {
+                                // SLOW PATH: Runtime dtype resolution - not implemented for ones yet
+                                std::cout << "[DEBUG] AST: Runtime dtype resolution for ones not implemented, using dynamic" << std::endl;
+                                std::cout.flush();
+                                // Restore size to RDI
+                                gen.emit_mov_reg_mem(7, -40); // RDI = size
+                                gen.emit_call("__array_ones_dynamic");
+                            }
+                        } else {
+                            std::cout << "[DEBUG] AST: No dtype for ones, calling __array_ones_dynamic" << std::endl;
+                            std::cout.flush();
+                            // No dtype, create dynamic array with ones
+                            gen.emit_mov_reg_mem(7, -40); // RDI = size
+                            gen.emit_call("__array_ones_dynamic");
+                        }
                     } else {
                         gen.emit_mov_reg_imm(7, 0); // RDI = 0 (empty array)
+                        gen.emit_call("__array_ones_dynamic");
                     }
-                    gen.emit_call("__simple_array_ones");
                     result_type = DataType::ARRAY;
                     return;
                 } else if (method_name == "arange") {
@@ -1080,7 +1146,8 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                             gen.emit_mov_reg_imm(2, 1); // RDX = 1 (default step)
                         }
                         
-                        gen.emit_call("__simple_array_arange");
+                        // TODO: Implement Array.arange for new DynamicArray system
+                        throw std::runtime_error("Array.arange() not yet implemented for new array system");
                         result_type = DataType::ARRAY;
                         return;
                     }
@@ -1102,7 +1169,8 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                             gen.emit_mov_reg_imm(2, 50); // RDX = 50 (default)
                         }
                         
-                        gen.emit_call("__simple_array_linspace");
+                        // TODO: Implement Array.linspace for new DynamicArray system
+                        throw std::runtime_error("Array.linspace() not yet implemented for new array system");
                         result_type = DataType::ARRAY;
                         return;
                     }
@@ -1270,9 +1338,7 @@ void FunctionExpression::compile_function_body(CodeGenerator& gen, TypeInference
     }
     
     // Set stack size for this function
-    if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-        x86_gen->set_function_stack_size(estimated_stack_size);
-    }
+    gen.set_function_stack_size(estimated_stack_size);
     
     gen.emit_prologue();
     
@@ -1612,20 +1678,123 @@ void ArrayLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout << "[DEBUG] ArrayLiteral::generate_code - Creating array with " << elements.size() << " elements" << std::endl;
     std::cout.flush();
     
+    // Check if this array literal is being assigned to a typed array variable
+    DataType target_type = types.get_current_assignment_target_type();
+    DataType element_type = types.get_current_assignment_array_element_type();
+    
+    // Determine if we should use typed arrays:
+    // - Must have a specific element type (not ANY)
+    // - Element type must NOT be STRING (they use dynamic arrays)
+    bool is_typed_array = (target_type == DataType::ARRAY && 
+                          element_type != DataType::ANY && 
+                          element_type != DataType::STRING);
+    
     if (elements.size() == 0) {
-        // Empty array case - simple
+        // Empty array case
         gen.emit_mov_reg_imm(7, 0);  // RDI = 0 (empty array)
-        gen.emit_call("__simple_array_zeros");  // Creates empty array
-    } else {
-        // Non-empty array - use a safer approach
-        // First create empty array
-        gen.emit_mov_reg_imm(7, 0);  // RDI = 0 (empty array)
-        gen.emit_call("__simple_array_zeros");  // Creates empty array
         
-        // Store array pointer in a safe stack location (use a larger offset to avoid conflicts)
+        if (is_typed_array) {
+            // Create typed array based on element type
+            switch (element_type) {
+                case DataType::INT64:
+                    gen.emit_call("__array_create_int64");
+                    std::cout << "[DEBUG] ArrayLiteral: Created int64 typed array" << std::endl;
+                    break;
+                case DataType::FLOAT64:
+                    gen.emit_call("__array_create_float64");
+                    std::cout << "[DEBUG] ArrayLiteral: Created float64 typed array" << std::endl;
+                    break;
+                case DataType::INT32:
+                    gen.emit_call("__array_create_int32");
+                    std::cout << "[DEBUG] ArrayLiteral: Created int32 typed array" << std::endl;
+                    break;
+                case DataType::FLOAT32:
+                    gen.emit_call("__array_create_float32");
+                    std::cout << "[DEBUG] ArrayLiteral: Created float32 typed array" << std::endl;
+                    break;
+                case DataType::INT8:
+                case DataType::UINT8:
+                    // Use int32 creation function for 8-bit types (will be converted)
+                    gen.emit_call("__array_create_int32");
+                    std::cout << "[DEBUG] ArrayLiteral: Created int8/uint8 typed array (using int32)" << std::endl;
+                    break;
+                case DataType::INT16:
+                case DataType::UINT16:
+                    // Use int32 creation function for 16-bit types (will be converted)
+                    gen.emit_call("__array_create_int32");
+                    std::cout << "[DEBUG] ArrayLiteral: Created int16/uint16 typed array (using int32)" << std::endl;
+                    break;
+                case DataType::UINT32:
+                    gen.emit_call("__array_create_int32");
+                    std::cout << "[DEBUG] ArrayLiteral: Created uint32 typed array (using int32)" << std::endl;
+                    break;
+                case DataType::UINT64:
+                    gen.emit_call("__array_create_int64");
+                    std::cout << "[DEBUG] ArrayLiteral: Created uint64 typed array (using int64)" << std::endl;
+                    break;
+                case DataType::STRING:
+                    // Strings always use dynamic arrays for flexibility
+                    gen.emit_call("__array_create_dynamic");
+                    std::cout << "[DEBUG] ArrayLiteral: Created dynamic array for string type" << std::endl;
+                    break;
+                default:
+                    // Fallback to dynamic array
+                    gen.emit_call("__array_create_dynamic");
+                    std::cout << "[DEBUG] ArrayLiteral: Created dynamic array (fallback)" << std::endl;
+                    break;
+            }
+        } else {
+            // Create dynamic array (mixed types)
+            gen.emit_call("__array_create_dynamic");
+            std::cout << "[DEBUG] ArrayLiteral: Created dynamic array" << std::endl;
+        }
+    } else {
+        // Non-empty array
+        gen.emit_mov_reg_imm(7, 0);  // RDI = 0 (empty array)
+        
+        if (is_typed_array) {
+            // Create typed array based on element type
+            switch (element_type) {
+                case DataType::INT64:
+                    gen.emit_call("__array_create_int64");
+                    break;
+                case DataType::FLOAT64:
+                    gen.emit_call("__array_create_float64");
+                    break;
+                case DataType::INT32:
+                    gen.emit_call("__array_create_int32");
+                    break;
+                case DataType::FLOAT32:
+                    gen.emit_call("__array_create_float32");
+                    break;
+                case DataType::INT8:
+                case DataType::UINT8:
+                case DataType::INT16:
+                case DataType::UINT16:
+                case DataType::UINT32:
+                    gen.emit_call("__array_create_int32");
+                    break;
+                case DataType::UINT64:
+                    gen.emit_call("__array_create_int64");
+                    break;
+                case DataType::STRING:
+                    // Strings always use dynamic arrays for flexibility
+                    gen.emit_call("__array_create_dynamic");
+                    break;
+                default:
+                    // Fallback to dynamic array
+                    gen.emit_call("__array_create_dynamic");
+                    break;
+            }
+        } else {
+            // Create dynamic array (mixed types)
+            gen.emit_call("__array_create_dynamic");
+        }
+        
+        // Store array pointer in a safe stack location
         gen.emit_mov_mem_reg(-64, 0); // Save array pointer to stack[rbp-64]
         
-        // Push each element into the array - use simpler approach
+        // Push each element into the array
         for (size_t i = 0; i < elements.size(); i++) {
             std::cout << "[DEBUG] ArrayLiteral: Processing element " << i << std::endl;
             std::cout.flush();
@@ -1637,15 +1806,50 @@ void ArrayLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
             elements[i]->generate_code(gen, types);
             // RAX now contains the element value
             
-            // Set up parameters for __simple_array_push(array_ptr, value)
+            // Set up parameters for appropriate push function
             gen.emit_mov_reg_reg(7, 3); // RDI = array pointer (from RBX)
             gen.emit_mov_reg_reg(6, 0); // RSI = value (from RAX)
             
-            std::cout << "[DEBUG] ArrayLiteral: Calling __simple_array_push_int64 for element " << i << std::endl;
-            std::cout.flush();
-            gen.emit_call("__simple_array_push_int64");
-            
-            // Note: __simple_array_push doesn't return the array pointer, so we keep using our saved one
+            if (is_typed_array) {
+                // Use typed push function
+                switch (element_type) {
+                    case DataType::INT64:
+                        gen.emit_call("__array_push_int64_typed");
+                        break;
+                    case DataType::FLOAT64:
+                        gen.emit_call("__array_push_float64_typed");
+                        break;
+                    case DataType::INT32:
+                        gen.emit_call("__array_push_int32_typed");
+                        break;
+                    case DataType::FLOAT32:
+                        gen.emit_call("__array_push_float32_typed");
+                        break;
+                    case DataType::INT8:
+                    case DataType::UINT8:
+                    case DataType::INT16:
+                    case DataType::UINT16:
+                    case DataType::UINT32:
+                        gen.emit_call("__array_push_int32_typed");
+                        break;
+                    case DataType::UINT64:
+                        gen.emit_call("__array_push_int64_typed");
+                        break;
+                    case DataType::STRING:
+                        // Strings always use dynamic push
+                        gen.emit_call("__array_push_dynamic");
+                        break;
+                    default:
+                        // Fallback to dynamic push
+                        gen.emit_call("__array_push_dynamic");
+                        break;
+                }
+                std::cout << "[DEBUG] ArrayLiteral: Called typed push for element " << i << std::endl;
+            } else {
+                // Use dynamic push function
+                gen.emit_call("__array_push_dynamic");
+                std::cout << "[DEBUG] ArrayLiteral: Called dynamic push for element " << i << std::endl;
+            }
         }
         
         // Return the array pointer in RAX
@@ -1844,7 +2048,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
                 gen.emit_mov_reg_imm(6, 0); // RSI = 0 (default index)
             }
             
-            gen.emit_call("__simple_array_get");
+            gen.emit_call("__array_access"); // Use new array access function
             result_type = DataType::FLOAT64;
             
             return;
@@ -1940,10 +2144,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         
         // Save object on stack
         gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8 (allocate stack space)
-        X86CodeGen* x86_gen = dynamic_cast<X86CodeGen*>(&gen);
-        if (x86_gen) {
-            x86_gen->emit_mov_mem_reg(0, 0);   // mov [rsp], rax (save object on stack)
-        }
+        gen.emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax (save object on stack)
         
         // Generate code for the index expression
         if (index) {
@@ -1958,9 +2159,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         gen.emit_mov_reg_reg(6, 0); // Move index to RSI
         
         // Pop object into RDI
-        if (x86_gen) {
-            x86_gen->emit_mov_reg_mem(7, 0);   // mov rdi, [rsp] (load object from stack)
-        }
+        gen.emit_mov_reg_mem(7, 0);   // mov rdi, [rsp] (load object from stack)
         gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
         
         // Call array access function
@@ -1974,7 +2173,21 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
 
 void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
     if (value) {
+        // Set the assignment context for type-aware array creation
+        if (declared_type != DataType::ANY) {
+            types.set_current_assignment_target_type(declared_type);
+            if (declared_type == DataType::ARRAY && declared_element_type != DataType::ANY) {
+                // This is a typed array like [int64], store the element type
+                types.set_current_assignment_array_element_type(declared_element_type);
+            }
+        } else {
+            types.clear_assignment_context();
+        }
+        
         value->generate_code(gen, types);
+        
+        // Clear assignment context after generation
+        types.clear_assignment_context();
         
         DataType variable_type;
         if (declared_type != DataType::ANY) {
@@ -2095,9 +2308,7 @@ void FunctionDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     }
     
     // Set stack size for this function
-    if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-        x86_gen->set_function_stack_size(estimated_stack_size);
-    }
+    gen.set_function_stack_size(estimated_stack_size);
     
     gen.emit_prologue();
     
@@ -2640,12 +2851,12 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
         // Handle simplified Array properties
         if (property_name == "length") {
             gen.emit_mov_reg_reg(7, 0);  // RDI = array pointer
-            gen.emit_call("__simple_array_length");
+            gen.emit_call("__array_size"); // Use new array size function
             result_type = DataType::FLOAT64;
         } else if (property_name == "shape") {
             gen.emit_mov_reg_reg(7, 0);  // RDI = array pointer
-            gen.emit_call("__simple_array_shape");
-            result_type = DataType::ARRAY;
+            // TODO: Implement shape property for new DynamicArray system
+            throw std::runtime_error("Array.shape property not yet implemented for new array system");
         } else {
             throw std::runtime_error("Unknown Array property: " + property_name);
         }
@@ -2780,9 +2991,7 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
         estimated_stack_size += 16 - (estimated_stack_size % 16);
     }
     
-    if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-        x86_gen->set_function_stack_size(estimated_stack_size);
-    }
+    gen.set_function_stack_size(estimated_stack_size);
     
     gen.emit_prologue();
     
@@ -2855,9 +3064,7 @@ void MethodDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
         estimated_stack_size += 16 - (estimated_stack_size % 16);
     }
     
-    if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-        x86_gen->set_function_stack_size(estimated_stack_size);
-    }
+    gen.set_function_stack_size(estimated_stack_size);
     
     gen.emit_prologue();
     
@@ -2915,7 +3122,6 @@ void MethodDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     }
     
     gen.emit_function_return();
-    
 }
 
 void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types) {
@@ -3312,4 +3518,4 @@ void SliceExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
     result_type = DataType::SLICE;
 }
 
-}
+} // namespace ultraScript

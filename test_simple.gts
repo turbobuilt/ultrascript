@@ -1,1 +1,1 @@
-console.log("Program started!");
+console.log(42);

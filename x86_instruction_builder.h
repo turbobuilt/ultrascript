@@ -196,9 +196,11 @@ public:
     void nop();
     void int3();  // Debug breakpoint
     
-    // Label management (forward declarations)
+    // Label management - instance-based for thread safety and reliability
     void emit_label_placeholder(const std::string& label);
     void resolve_label(const std::string& label, size_t address);
+    void clear_label_state();  // Clear all label state for new compilation
+    bool validate_all_labels_resolved() const;  // Validation before execution
     
     // Direct byte emission for special cases
     void emit_byte(uint8_t byte) { code_buffer.push_back(byte); }
@@ -210,6 +212,11 @@ public:
     
     // Get current position for label resolution
     size_t get_current_position() const { return code_buffer.size(); }
+
+private:
+    // Instance-based label management for thread safety and reliability
+    std::unordered_map<std::string, size_t> label_addresses_;
+    std::unordered_map<std::string, std::vector<size_t>> unresolved_labels_;
 };
 
 // High-level instruction patterns for common operations

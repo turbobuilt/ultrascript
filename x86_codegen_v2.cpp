@@ -4,6 +4,10 @@
 #include <cassert>
 #include <iostream>
 #include <iomanip>
+#include <cstdio>
+#include <execinfo.h>  // For backtrace
+#include <unistd.h>    // For STDOUT_FILENO
+#include <ostream>
 
 namespace ultraScript {
 
@@ -45,6 +49,9 @@ static X86Reg int_to_x86reg(int reg_id) {
 X86CodeGenV2::X86CodeGenV2() {
     instruction_builder = std::make_unique<X86InstructionBuilder>(code_buffer);
     pattern_builder = std::make_unique<X86PatternBuilder>(*instruction_builder);
+    
+    // CRITICAL: Initialize with clean label state to prevent cross-compilation pollution
+    instruction_builder->clear_label_state();
 }
 
 X86Reg X86CodeGenV2::allocate_register() {
@@ -84,6 +91,11 @@ void X86CodeGenV2::clear() {
     unresolved_jumps.clear();
     reg_state = RegisterState();
     stack_frame = StackFrame();
+    
+    // CRITICAL: Clear label state in instruction builder to prevent label corruption
+    if (instruction_builder) {
+        instruction_builder->clear_label_state();
+    }
 }
 
 // =============================================================================
@@ -199,22 +211,32 @@ void X86CodeGenV2::emit_mul_reg_reg(int dst, int src) {
 }
 
 void X86CodeGenV2::emit_div_reg_reg(int dst, int src) {
-    X86Reg dst_reg = get_register_for_int(dst);
-    X86Reg src_reg = get_register_for_int(src);
+    // CRITICAL ERROR DETECTION: This function should NEVER be called for console.log!
+    std::cout << "[FATAL] emit_div_reg_reg called with dst=" << dst << " src=" << src << std::endl;
+    std::cout << "[FATAL] This indicates a serious bug - printing stack trace:" << std::endl;
+    std::cout.flush();
     
-    // Set up division: move dividend to RAX, sign extend, divide
-    if (dst_reg != X86Reg::RAX) {
-        instruction_builder->mov(X86Reg::RAX, dst_reg);
+    // Print a stack trace to help debug
+    void *array[10];
+    size_t size = backtrace(array, 10);
+    char **strings = backtrace_symbols(array, size);
+    if (strings != nullptr) {
+        for (size_t i = 0; i < size; i++) {
+            std::cout << "[TRACE] " << i << ": " << strings[i] << std::endl;
+        }
+        free(strings);
     }
-    instruction_builder->cqo();  // Sign extend RAX into RDX:RAX
-    instruction_builder->idiv(src_reg);
     
-    if (dst_reg != X86Reg::RAX) {
-        instruction_builder->mov(dst_reg, X86Reg::RAX);  // Move quotient back
-    }
+    // ABORT INSTEAD OF GENERATING BAD CODE
+    std::cout << "[FATAL] Aborting to prevent code corruption!" << std::endl;
+    std::cout.flush();
+    abort();
 }
 
 void X86CodeGenV2::emit_mod_reg_reg(int dst, int src) {
+    std::cout << "[DEBUG] ERROR: emit_mod_reg_reg called unexpectedly! dst=" << dst << " src=" << src << std::endl;
+    std::cout.flush();
+    
     X86Reg dst_reg = get_register_for_int(dst);
     X86Reg src_reg = get_register_for_int(src);
     
@@ -252,6 +274,7 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__dynamic_value_create_from_int64", reinterpret_cast<void*>(__dynamic_value_create_from_int64)},
         {"__get_executable_memory_base", reinterpret_cast<void*>(__get_executable_memory_base)},
         {"__goroutine_spawn_func_ptr", reinterpret_cast<void*>(__goroutine_spawn_func_ptr)},
+        {"__string_intern", reinterpret_cast<void*>(__string_intern)},
         
         // Console.log runtime functions for maximum performance
         {"__console_log_int8", reinterpret_cast<void*>(__console_log_int8)},
@@ -272,6 +295,59 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__console_log_space_separator", reinterpret_cast<void*>(__console_log_space_separator)},
         {"__console_log_final_newline", reinterpret_cast<void*>(__console_log_final_newline)},
         {"__console_log_any_value_inspect", reinterpret_cast<void*>(__console_log_any_value_inspect)},
+        {"__console_time", reinterpret_cast<void*>(__console_time)},
+        {"__console_timeEnd", reinterpret_cast<void*>(__console_timeEnd)},
+        
+        // String functions
+        {"__string_concat", reinterpret_cast<void*>(__string_concat)},
+        {"__string_match", reinterpret_cast<void*>(__string_match)},
+        
+        // Array functions (legacy - use type-aware versions below)
+        {"__array_create", reinterpret_cast<void*>(__array_create)},
+        {"__array_push", reinterpret_cast<void*>(__array_push)},
+        {"__array_pop", reinterpret_cast<void*>(__array_pop)},
+        {"__array_size", reinterpret_cast<void*>(__array_size)},
+        {"__array_access", reinterpret_cast<void*>(__array_access)},
+        
+        // Type-aware array creation functions  
+        {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},
+        {"__array_create_int64", reinterpret_cast<void*>(__array_create_int64)},
+        {"__array_create_float64", reinterpret_cast<void*>(__array_create_float64)},
+        {"__array_create_int32", reinterpret_cast<void*>(__array_create_int32)},
+        {"__array_create_float32", reinterpret_cast<void*>(__array_create_float32)},
+        
+        // Type-aware array push functions
+        {"__array_push_dynamic", reinterpret_cast<void*>(__array_push_dynamic)},
+        {"__array_push_int64_typed", reinterpret_cast<void*>(__array_push_int64_typed)},
+        {"__array_push_float64_typed", reinterpret_cast<void*>(__array_push_float64_typed)},
+        {"__array_push_int32_typed", reinterpret_cast<void*>(__array_push_int32_typed)},
+        {"__array_push_float32_typed", reinterpret_cast<void*>(__array_push_float32_typed)},
+        
+        // Array factory functions
+        {"__array_zeros_typed", reinterpret_cast<void*>(__array_zeros_typed)},
+        {"__array_ones_dynamic", reinterpret_cast<void*>(__array_ones_dynamic)},
+        {"__array_ones_int64", reinterpret_cast<void*>(__array_ones_int64)},
+        {"__array_ones_float64", reinterpret_cast<void*>(__array_ones_float64)},
+        {"__array_ones_int32", reinterpret_cast<void*>(__array_ones_int32)},
+        {"__array_ones_float32", reinterpret_cast<void*>(__array_ones_float32)},
+        
+        // Object functions
+        {"__object_create", reinterpret_cast<void*>(__object_create)},
+        {"__object_set_property", reinterpret_cast<void*>(__object_set_property)},
+        {"__object_set_property_name", reinterpret_cast<void*>(__object_set_property_name)},
+        {"__object_get_property", reinterpret_cast<void*>(__object_get_property)},
+        {"__object_get_property_name", reinterpret_cast<void*>(__object_get_property_name)},
+        {"__dynamic_get_property", reinterpret_cast<void*>(__dynamic_get_property)},
+        
+        // Promise functions
+        {"__promise_all", reinterpret_cast<void*>(__promise_all)},
+        {"__promise_await", reinterpret_cast<void*>(__promise_await)},
+        
+        // Regex functions
+        {"__register_regex_pattern", reinterpret_cast<void*>(__register_regex_pattern)},
+        {"__regex_create_by_id", reinterpret_cast<void*>(__regex_create_by_id)},
+        
+        // Goroutine functions (dynamic name patterns need special handling)
         // All console.log functions resolved to direct pointers for ZERO overhead
     };
     
@@ -282,6 +358,15 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
                   reinterpret_cast<uintptr_t>(it->second) << std::dec << ")" << std::endl;
         return it->second;
     }
+    
+    // Handle dynamic goroutine spawn functions
+    if (function_name.find("__goroutine_spawn_with_args_") == 0) {
+        // This is a dynamically generated goroutine spawn function
+        // We need to use the general goroutine spawn mechanism
+        std::cout << "[DEBUG] Using generic goroutine spawn for: " << function_name << std::endl;
+        return reinterpret_cast<void*>(__goroutine_spawn_func_ptr);
+    }
+    
     return nullptr;
 }
 
@@ -368,9 +453,40 @@ void X86CodeGenV2::emit_label(const std::string& label) {
 // =============================================================================
 
 void X86CodeGenV2::emit_goroutine_spawn(const std::string& function_name) {
-    // High-level goroutine spawning using pattern builder
-    pattern_builder->setup_function_call({});  // No arguments for simple spawn
-    instruction_builder->call("__goroutine_spawn_" + function_name);
+    // MAXIMUM PERFORMANCE - NO FALLBACKS
+    // If the function isn't found, that's a compilation error that should fail immediately
+    
+    pattern_builder->setup_function_call({X86Reg::RDI, X86Reg::RSI});
+    
+    // Function MUST be already resolved - no fallbacks, no compromises
+    auto it = label_offsets.find(function_name);
+    if (it == label_offsets.end()) {
+        // FAIL FAST: This is a compilation error, not something to work around
+        printf("[FATAL] Function '%s' not found for goroutine spawn - this is a compilation bug!\n", 
+               function_name.c_str());
+        abort();
+    }
+    
+    int64_t func_offset = it->second;
+    
+    // Sanity check: ensure offset is reasonable
+    if (func_offset < 0 || func_offset >= 1024*1024) {
+        printf("[FATAL] Invalid function offset %ld for '%s' - compilation corrupted!\n", 
+               func_offset, function_name.c_str());
+        abort();
+    }
+    
+    // MAXIMUM PERFORMANCE PATH: Direct address calculation
+    emit_call("__get_executable_memory_base");  // Returns base in RAX
+    instruction_builder->add(X86Reg::RAX, ImmediateOperand(func_offset));
+    instruction_builder->mov(X86Reg::RDI, X86Reg::RAX);
+    
+    // Set RSI to null (no arguments)
+    instruction_builder->mov(X86Reg::RSI, ImmediateOperand(static_cast<int64_t>(0)));
+    
+    // Direct call to goroutine spawn
+    emit_call("__goroutine_spawn_func_ptr");
+    
     pattern_builder->cleanup_function_call(0);
 }
 
@@ -707,6 +823,32 @@ bool X86CodeGenTester::validate_instruction_encoding(const std::vector<uint8_t>&
         if (byte == 0x00 && i > 0) return false;  // Unexpected null byte
     }
     
+    return true;
+}
+
+bool X86CodeGenV2::validate_code_generation() const {
+    printf("[VALIDATION] Validating code generation...\n");
+    
+    // Critical validation: Ensure all labels are resolved
+    if (!instruction_builder->validate_all_labels_resolved()) {
+        printf("ERROR: Unresolved labels detected in code generation!\n");
+        return false;
+    }
+    
+    // Validate code buffer is not empty
+    if (code_buffer.empty()) {
+        printf("ERROR: Code buffer is empty after generation!\n");
+        return false;
+    }
+    
+    // Validate instruction stream integrity
+    if (!instruction_builder->validate_instruction_stream()) {
+        printf("ERROR: Invalid instruction stream detected!\n");
+        return false;
+    }
+    
+    printf("[VALIDATION] Code generation validation successful - %zu bytes generated\n", 
+           code_buffer.size());
     return true;
 }
 
