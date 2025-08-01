@@ -309,6 +309,12 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__array_size", reinterpret_cast<void*>(__array_size)},
         {"__array_access", reinterpret_cast<void*>(__array_access)},
         
+        // Typed array access functions for maximum performance
+        {"__array_access_int64", reinterpret_cast<void*>(__array_access_int64)},
+        {"__array_access_float64", reinterpret_cast<void*>(__array_access_float64)},
+        {"__array_access_int32", reinterpret_cast<void*>(__array_access_int32)},
+        {"__array_access_float32", reinterpret_cast<void*>(__array_access_float32)},
+        
         // Type-aware array creation functions  
         {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},
         {"__array_create_int64", reinterpret_cast<void*>(__array_create_int64)},

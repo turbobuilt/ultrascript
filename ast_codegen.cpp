@@ -31,24 +31,65 @@ static std::vector<std::pair<std::string, FunctionExpression*>>& get_deferred_fu
 // Static member definition
 GoTSCompiler* ConstructorDecl::current_compiler_context = nullptr;
 
-void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference&) {
-    // TEMPORARY FIX: For integer literals, store as double correctly
-    // The issue was casting double to int64_t loses the proper representation
+void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout << "[DEBUG] NumberLiteral::generate_code - value=" << value << std::endl;
     std::cout.flush();
     
-    // Convert the double to its proper bit representation
-    union {
-        double d;
-        int64_t i;
-    } converter;
-    converter.d = value;
+    // Check if we're in an array element context with a specific type
+    DataType element_context = types.get_current_element_type_context();
     
-    std::cout << "[DEBUG] NumberLiteral: double value " << value << " converts to int64 bits: " << converter.i << std::endl;
+    if (element_context != DataType::ANY) {
+        // We're in a typed array context - generate the value according to the element type
+        switch (element_context) {
+            case DataType::INT64:
+            case DataType::UINT64: {
+                // Convert to int64
+                int64_t int_value = static_cast<int64_t>(value);
+                std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to int64: " << int_value << std::endl;
+                gen.emit_mov_reg_imm(0, int_value);
+                result_type = element_context;
+                break;
+            }
+            case DataType::INT32:
+            case DataType::UINT32: {
+                // Convert to int32
+                int32_t int_value = static_cast<int32_t>(value);
+                std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to int32: " << int_value << std::endl;
+                gen.emit_mov_reg_imm(0, static_cast<int64_t>(int_value));
+                result_type = element_context;
+                break;
+            }
+            case DataType::FLOAT32: {
+                // Convert to float32
+                float float_value = static_cast<float>(value);
+                union { float f; int32_t i; } converter32;
+                converter32.f = float_value;
+                std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to float32: " << float_value << std::endl;
+                gen.emit_mov_reg_imm(0, static_cast<int64_t>(converter32.i));
+                result_type = DataType::FLOAT32;
+                break;
+            }
+            case DataType::FLOAT64:
+            default: {
+                // Default float64 behavior (original behavior)
+                union { double d; int64_t i; } converter;
+                converter.d = value;
+                std::cout << "[DEBUG] NumberLiteral: double value " << value << " converts to int64 bits: " << converter.i << std::endl;
+                gen.emit_mov_reg_imm(0, converter.i);
+                result_type = DataType::FLOAT64;
+                break;
+            }
+        }
+    } else {
+        // Original behavior for non-array contexts
+        union { double d; int64_t i; } converter;
+        converter.d = value;
+        std::cout << "[DEBUG] NumberLiteral: double value " << value << " converts to int64 bits: " << converter.i << std::endl;
+        gen.emit_mov_reg_imm(0, converter.i);
+        result_type = DataType::FLOAT64;  // JavaScript compatibility: number literals are float64
+    }
+    
     std::cout.flush();
-    
-    gen.emit_mov_reg_imm(0, converter.i);
-    result_type = DataType::FLOAT64;  // JavaScript compatibility: number literals are float64
 }
 
 void StringLiteral::generate_code(CodeGenerator& gen, TypeInference&) {
@@ -1802,9 +1843,19 @@ void ArrayLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
             // First, restore array pointer to a register
             gen.emit_mov_reg_mem(3, -64); // RBX = array pointer from stack[rbp-64]
             
+            // Set element type context for typed arrays
+            if (is_typed_array) {
+                types.set_current_element_type_context(element_type);
+            } else {
+                types.clear_element_type_context();
+            }
+            
             // Generate the element value
             elements[i]->generate_code(gen, types);
             // RAX now contains the element value
+            
+            // Clear element type context after generation
+            types.clear_element_type_context();
             
             // Set up parameters for appropriate push function
             gen.emit_mov_reg_reg(7, 3); // RDI = array pointer (from RBX)
@@ -2048,8 +2099,38 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
                 gen.emit_mov_reg_imm(6, 0); // RSI = 0 (default index)
             }
             
-            gen.emit_call("__array_access"); // Use new array access function
-            result_type = DataType::FLOAT64;
+            // Check if this is a typed array and use the appropriate access function
+            DataType element_type = types.get_variable_array_element_type(var_expr->name);
+            if (element_type != DataType::ANY) {
+                // This is a typed array, use the appropriate typed access function
+                switch (element_type) {
+                    case DataType::INT64:
+                        gen.emit_call("__array_access_int64");
+                        result_type = DataType::INT64;
+                        break;
+                    case DataType::FLOAT64:
+                        gen.emit_call("__array_access_float64");
+                        result_type = DataType::FLOAT64;
+                        break;
+                    case DataType::INT32:
+                        gen.emit_call("__array_access_int32");
+                        result_type = DataType::INT32;
+                        break;
+                    case DataType::FLOAT32:
+                        gen.emit_call("__array_access_float32");
+                        result_type = DataType::FLOAT32;
+                        break;
+                    default:
+                        // Error for unsupported types - should not happen with proper type checking
+                        throw std::runtime_error("Unsupported array element type for typed array access: " + 
+                                                std::to_string(static_cast<int>(element_type)));
+                        break;
+                }
+            } else {
+                // Dynamic array, use generic access
+                gen.emit_call("__array_access");
+                result_type = DataType::FLOAT64;
+            }
             
             return;
         }
@@ -2224,6 +2305,11 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
         
         // Allocate or get the proper stack offset for this variable
         int64_t offset = types.allocate_variable(variable_name, variable_type);
+        
+        // Store array element type for typed arrays
+        if (declared_type == DataType::ARRAY && declared_element_type != DataType::ANY) {
+            types.set_variable_array_element_type(variable_name, declared_element_type);
+        }
         
         // For ANY variables, create a DynamicValue structure instead of storing raw value
         if (variable_type == DataType::ANY) {

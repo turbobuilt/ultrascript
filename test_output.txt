@@ -1,0 +1,156 @@
+DEBUG: Starting UltraScript with simplified timer system
+DEBUG: run_program() - Starting
+DEBUG: run_program() - Calling __runtime_init()
+DEBUG: run_program() - __runtime_init() completed
+DEBUG: run_program() - Reading file: test_arrays.gts
+DEBUG: run_program() - File read completed, size: 212 bytes
+DEBUG: run_program() - Creating compiler
+DEBUG: GoTSCompiler constructor starting
+[LABEL] Clearing label state - 0 resolved labels, 0 unresolved label groups
+DEBUG: GoTSCompiler constructor completed
+DEBUG: run_program() - Compiler created, setting current file
+DEBUG: set_current_file() called with: test_arrays.gts
+DEBUG: current_file_path before assignment: 
+DEBUG: current_file_path after assignment: test_arrays.gts
+DEBUG: run_program() - Current file set, starting compilation
+Tokens generated: 91
+AST nodes: 8
+[LABEL] Clearing label state - 0 resolved labels, 0 unresolved label groups
+[LABEL] Defining label '__main' at address 0
+[DEBUG] ArrayLiteral::generate_code - Creating array with 3 elements
+[DEBUG] DIRECT FUNCTION POINTER: __array_create_int64 -> 0x60a61e2b54a2 (0x60a61e2b54a2)
+[DEBUG] ArrayLiteral: Processing element 0
+[DEBUG] NumberLiteral::generate_code - value=1
+[DEBUG] NumberLiteral: Converting 1 to int64: 1
+[DEBUG] DIRECT FUNCTION POINTER: __array_push_int64_typed -> 0x60a61e2b5a0b (0x60a61e2b5a0b)
+[DEBUG] ArrayLiteral: Called typed push for element 0
+[DEBUG] ArrayLiteral: Processing element 1
+[DEBUG] NumberLiteral::generate_code - value=2
+[DEBUG] NumberLiteral: Converting 2 to int64: 2
+[DEBUG] DIRECT FUNCTION POINTER: __array_push_int64_typed -> 0x60a61e2b5a0b (0x60a61e2b5a0b)
+[DEBUG] ArrayLiteral: Called typed push for element 1
+[DEBUG] ArrayLiteral: Processing element 2
+[DEBUG] NumberLiteral::generate_code - value=3
+[DEBUG] NumberLiteral: Converting 3 to int64: 3
+[DEBUG] DIRECT FUNCTION POINTER: __array_push_int64_typed -> 0x60a61e2b5a0b (0x60a61e2b5a0b)
+[DEBUG] ArrayLiteral: Called typed push for element 2
+[DEBUG] ArrayLiteral::generate_code complete
+[DEBUG] NumberLiteral::generate_code - value=0
+[DEBUG] NumberLiteral: double value 0 converts to int64 bits: 0
+[DEBUG] DIRECT FUNCTION POINTER: __array_access_int64 -> 0x60a61e2b4ae1 (0x60a61e2b4ae1)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_int64 -> 0x60a61e353f7a (0x60a61e353f7a)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_final_newline -> 0x60a61e354997 (0x60a61e354997)
+[DEBUG] NumberLiteral::generate_code - value=1
+[DEBUG] NumberLiteral: double value 1 converts to int64 bits: 4607182418800017408
+[DEBUG] DIRECT FUNCTION POINTER: __array_access_int64 -> 0x60a61e2b4ae1 (0x60a61e2b4ae1)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_int64 -> 0x60a61e353f7a (0x60a61e353f7a)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_final_newline -> 0x60a61e354997 (0x60a61e354997)
+[DEBUG] NumberLiteral::generate_code - value=2
+[DEBUG] NumberLiteral: double value 2 converts to int64 bits: 4611686018427387904
+[DEBUG] DIRECT FUNCTION POINTER: __array_access_int64 -> 0x60a61e2b4ae1 (0x60a61e2b4ae1)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_int64 -> 0x60a61e353f7a (0x60a61e353f7a)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_final_newline -> 0x60a61e354997 (0x60a61e354997)
+[DEBUG] ArrayLiteral::generate_code - Creating array with 3 elements
+[DEBUG] DIRECT FUNCTION POINTER: __array_create_float64 -> 0x60a61e2b55eb (0x60a61e2b55eb)
+[DEBUG] ArrayLiteral: Processing element 0
+[DEBUG] NumberLiteral::generate_code - value=1.5
+[DEBUG] NumberLiteral: double value 1.5 converts to int64 bits: 4609434218613702656
+[DEBUG] DIRECT FUNCTION POINTER: __array_push_float64_typed -> 0x60a61e2b5a46 (0x60a61e2b5a46)
+[DEBUG] ArrayLiteral: Called typed push for element 0
+[DEBUG] ArrayLiteral: Processing element 1
+[DEBUG] NumberLiteral::generate_code - value=2.7
+[DEBUG] NumberLiteral: double value 2.7 converts to int64 bits: 4613262278296967578
+[DEBUG] DIRECT FUNCTION POINTER: __array_push_float64_typed -> 0x60a61e2b5a46 (0x60a61e2b5a46)
+[DEBUG] ArrayLiteral: Called typed push for element 1
+[DEBUG] ArrayLiteral: Processing element 2
+[DEBUG] NumberLiteral::generate_code - value=3.14
+[DEBUG] NumberLiteral: double value 3.14 converts to int64 bits: 4614253070214989087
+[DEBUG] DIRECT FUNCTION POINTER: __array_push_float64_typed -> 0x60a61e2b5a46 (0x60a61e2b5a46)
+[DEBUG] ArrayLiteral: Called typed push for element 2
+[DEBUG] ArrayLiteral::generate_code complete
+[DEBUG] NumberLiteral::generate_code - value=0
+[DEBUG] NumberLiteral: double value 0 converts to int64 bits: 0
+[DEBUG] DIRECT FUNCTION POINTER: __array_access_float64 -> 0x60a61e2b4b53 (0x60a61e2b4b53)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_float64 -> 0x60a61e3543b7 (0x60a61e3543b7)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_final_newline -> 0x60a61e354997 (0x60a61e354997)
+[DEBUG] NumberLiteral::generate_code - value=1
+[DEBUG] NumberLiteral: double value 1 converts to int64 bits: 4607182418800017408
+[DEBUG] DIRECT FUNCTION POINTER: __array_access_float64 -> 0x60a61e2b4b53 (0x60a61e2b4b53)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_float64 -> 0x60a61e3543b7 (0x60a61e3543b7)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_final_newline -> 0x60a61e354997 (0x60a61e354997)
+[DEBUG] NumberLiteral::generate_code - value=2
+[DEBUG] NumberLiteral: double value 2 converts to int64 bits: 4611686018427387904
+[DEBUG] DIRECT FUNCTION POINTER: __array_access_float64 -> 0x60a61e2b4b53 (0x60a61e2b4b53)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_float64 -> 0x60a61e3543b7 (0x60a61e3543b7)
+[DEBUG] DIRECT FUNCTION POINTER: __console_log_final_newline -> 0x60a61e354997 (0x60a61e354997)
+[LABEL] Added unresolved reference to '__main_epilogue' at position 593
+[LABEL] Defining label '__main_epilogue' at address 597
+[LABEL] Patching 1 unresolved references to '__main_epilogue'
+[LABEL] Patched reference at 593 with displacement 0
+[VALIDATION] Validating code generation...
+[LABEL] All labels successfully resolved (2 total)
+[VALIDATION] Code generation validation successful - 613 bytes generated
+Code generation completed. Machine code size: 613 bytes
+DEBUG: run_program() - Compilation completed, starting execution
+  __main_epilogue -> 597
+  __main -> 0
+DEBUG: exec_mem = 0x7a5254c16000
+DEBUG: main offset = 0
+DEBUG: calculated address = 134494027866112
+DEBUG: calculated address hex = 0x7a5254c16000
+DEBUG: First 32 bytes of generated code: 55 48 89 e5 48 81 ec 50 01 00 00 48 c7 c7 00 00 00 00 48 b8 a2 54 2b 1e a6 60 00 00 ff d0 48 89 
+DEBUG: Complete machine code (613 bytes): 55 48 89 e5 48 81 ec 50 01 00 00 48 c7 c7 00 00 
+  00 00 48 b8 a2 54 2b 1e a6 60 00 00 ff d0 48 89 
+  45 c0 48 8b 5d c0 48 c7 c0 01 00 00 00 48 89 df 
+  48 89 c6 48 b8 0b 5a 2b 1e a6 60 00 00 ff d0 48 
+  8b 5d c0 48 c7 c0 02 00 00 00 48 89 df 48 89 c6 
+  48 b8 0b 5a 2b 1e a6 60 00 00 ff d0 48 8b 5d c0 
+  48 c7 c0 03 00 00 00 48 89 df 48 89 c6 48 b8 0b 
+  5a 2b 1e a6 60 00 00 ff d0 48 8b 45 c0 48 89 45 
+  f8 48 8b 7d f8 48 c7 c0 00 00 00 00 48 89 c6 48 
+  b8 e1 4a 2b 1e a6 60 00 00 ff d0 48 89 c7 48 b8 
+  7a 3f 35 1e a6 60 00 00 ff d0 48 b8 97 49 35 1e 
+  a6 60 00 00 ff d0 48 8b 7d f8 48 b8 00 00 00 00 
+  00 00 f0 3f 48 89 c6 48 b8 e1 4a 2b 1e a6 60 00 
+  00 ff d0 48 89 c7 48 b8 7a 3f 35 1e a6 60 00 00 
+  ff d0 48 b8 97 49 35 1e a6 60 00 00 ff d0 48 8b 
+  7d f8 48 b8 00 00 00 00 00 00 00 40 48 89 c6 48 
+  b8 e1 4a 2b 1e a6 60 00 00 ff d0 48 89 c7 48 b8 
+  7a 3f 35 1e a6 60 00 00 ff d0 48 b8 97 49 35 1e 
+  a6 60 00 00 ff d0 48 c7 c7 00 00 00 00 48 b8 eb 
+  55 2b 1e a6 60 00 00 ff d0 48 89 45 c0 48 8b 5d 
+  c0 48 b8 00 00 00 00 00 00 f8 3f 48 89 df 48 89 
+  c6 48 b8 46 5a 2b 1e a6 60 00 00 ff d0 48 8b 5d 
+  c0 48 b8 9a 99 99 99 99 99 05 40 48 89 df 48 89 
+  c6 48 b8 46 5a 2b 1e a6 60 00 00 ff d0 48 8b 5d 
+  c0 48 b8 1f 85 eb 51 b8 1e 09 40 48 89 df 48 89 
+  c6 48 b8 46 5a 2b 1e a6 60 00 00 ff d0 48 8b 45 
+  c0 48 89 45 f0 48 8b 7d f0 48 c7 c0 00 00 00 00 
+  48 89 c6 48 b8 53 4b 2b 1e a6 60 00 00 ff d0 66 
+  48 0f 6e c0 48 b8 b7 43 35 1e a6 60 00 00 ff d0 
+  48 b8 97 49 35 1e a6 60 00 00 ff d0 48 8b 7d f0 
+  48 b8 00 00 00 00 00 00 f0 3f 48 89 c6 48 b8 53 
+  4b 2b 1e a6 60 00 00 ff d0 66 48 0f 6e c0 48 b8 
+  b7 43 35 1e a6 60 00 00 ff d0 48 b8 97 49 35 1e 
+  a6 60 00 00 ff d0 48 8b 7d f0 48 b8 00 00 00 00 
+  00 00 00 40 48 89 c6 48 b8 53 4b 2b 1e a6 60 00 
+  00 ff d0 66 48 0f 6e c0 48 b8 b7 43 35 1e a6 60 
+  00 00 ff d0 48 b8 97 49 35 1e a6 60 00 00 ff d0 
+  e9 00 00 00 00 48 c7 c0 00 00 00 00 48 81 c4 50 
+  01 00 00 5d c3 
+DEBUG: Total machine code size: 613 bytes
+DEBUG: About to call function...
+DEBUG: Calling function at address 0x7a5254c16000
+1
+0
+0
+[DEBUG] __console_log_float64 received: 0
+0
+[DEBUG] __console_log_float64 received: 0
+0
+[DEBUG] __console_log_float64 received: 0
+0
+DEBUG: Function returned 0
+DEBUG: run_program() - Execution completed
+DEBUG: Main execution completed, waiting for active work...
+timeout: the monitored command dumped core

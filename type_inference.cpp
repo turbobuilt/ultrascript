@@ -443,6 +443,15 @@ std::string TypeInference::get_variable_class_name(const std::string& name) {
     return (it != variable_class_names.end()) ? it->second : "";
 }
 
+void TypeInference::set_variable_array_element_type(const std::string& name, DataType element_type) {
+    variable_array_element_types[name] = element_type;
+}
+
+DataType TypeInference::get_variable_array_element_type(const std::string& name) {
+    auto it = variable_array_element_types.find(name);
+    return (it != variable_array_element_types.end()) ? it->second : DataType::ANY;
+}
+
 void TypeInference::register_function_params(const std::string& func_name, const std::vector<std::string>& param_names) {
     function_param_names[func_name] = param_names;
 }
@@ -547,6 +556,19 @@ DataType TypeInference::get_current_assignment_array_element_type() const {
 void TypeInference::clear_assignment_context() {
     current_assignment_target_type = DataType::ANY;
     current_assignment_array_element_type = DataType::ANY;
+    current_element_type_context = DataType::ANY;  // Also clear element context
+}
+
+void TypeInference::set_current_element_type_context(DataType element_type) {
+    current_element_type_context = element_type;
+}
+
+DataType TypeInference::get_current_element_type_context() const {
+    return current_element_type_context;
+}
+
+void TypeInference::clear_element_type_context() {
+    current_element_type_context = DataType::ANY;
 }
 
 }

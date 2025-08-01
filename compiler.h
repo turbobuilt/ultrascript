@@ -190,6 +190,7 @@ class TypeInference {
 private:
     std::unordered_map<std::string, DataType> variable_types;
     std::unordered_map<std::string, std::string> variable_class_names;  // For CLASS_INSTANCE variables
+    std::unordered_map<std::string, DataType> variable_array_element_types;  // For ARRAY variables
     std::unordered_map<std::string, int64_t> variable_offsets;
     int64_t current_offset = -8; // Start at -8 (RBP-8)
     
@@ -199,6 +200,7 @@ private:
     // Assignment context tracking for type-aware array creation
     DataType current_assignment_target_type = DataType::ANY;
     DataType current_assignment_array_element_type = DataType::ANY;  // For [type] arrays
+    DataType current_element_type_context = DataType::ANY;  // For array element type inference
     
 public:
     DataType infer_type(const std::string& expression);
@@ -208,6 +210,10 @@ public:
     void set_variable_class_type(const std::string& name, const std::string& class_name);
     DataType get_variable_type(const std::string& name);
     std::string get_variable_class_name(const std::string& name);
+    
+    // Array element type tracking for typed arrays
+    void set_variable_array_element_type(const std::string& name, DataType element_type);
+    DataType get_variable_array_element_type(const std::string& name);
     
     // Variable storage management
     void set_variable_offset(const std::string& name, int64_t offset);
@@ -225,6 +231,11 @@ public:
     void set_current_assignment_array_element_type(DataType element_type);
     DataType get_current_assignment_array_element_type() const;
     void clear_assignment_context();
+    
+    // Element type context for array literals
+    void set_current_element_type_context(DataType element_type);
+    DataType get_current_element_type_context() const;
+    void clear_element_type_context();
     
     // Function parameter tracking for keyword arguments
     void register_function_params(const std::string& func_name, const std::vector<std::string>& param_names);
@@ -777,6 +788,7 @@ private:
     
 public:
     GoTSCompiler(Backend backend = Backend::X86_64);
+    ~GoTSCompiler();  // Add explicit destructor for debugging
     void compile(const std::string& source);
     void compile_file(const std::string& file_path);
     std::vector<uint8_t> get_machine_code();
@@ -787,7 +799,7 @@ public:
     std::string resolve_module_path(const std::string& module_path, const std::string& current_file = "");
     Module* load_module(const std::string& module_path);
     void create_synthetic_default_export(Module& module);
-    void set_current_file(const std::string& file_path) { current_file_path = file_path; }
+    void set_current_file(const std::string& file_path);
     const std::string& get_current_file() const { return current_file_path; }
     
     // Enhanced lazy loading system

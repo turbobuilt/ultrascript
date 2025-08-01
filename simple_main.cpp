@@ -175,16 +175,27 @@ public:
 
 void run_program(const std::string& filename) {
     try {
+        std::cout << "DEBUG: run_program() - Starting" << std::endl;
+        
         // Initialize the new goroutine system
+        std::cout << "DEBUG: run_program() - Calling __runtime_init()" << std::endl;
         __runtime_init();
+        std::cout << "DEBUG: run_program() - __runtime_init() completed" << std::endl;
         
         // Read and execute program normally on main thread
+        std::cout << "DEBUG: run_program() - Reading file: " << filename << std::endl;
         std::string program = read_file(filename);
+        std::cout << "DEBUG: run_program() - File read completed, size: " << program.size() << " bytes" << std::endl;
         
+        std::cout << "DEBUG: run_program() - Creating compiler" << std::endl;
         GoTSCompiler compiler(Backend::X86_64);
+        std::cout << "DEBUG: run_program() - Compiler created, setting current file" << std::endl;
         compiler.set_current_file(filename);
+        std::cout << "DEBUG: run_program() - Current file set, starting compilation" << std::endl;
         compiler.compile(program);
+        std::cout << "DEBUG: run_program() - Compilation completed, starting execution" << std::endl;
         compiler.execute();
+        std::cout << "DEBUG: run_program() - Execution completed" << std::endl;
         
         // After main execution, wait for active goroutines and timers using new system
         std::cout << "DEBUG: Main execution completed, waiting for active work..." << std::endl;

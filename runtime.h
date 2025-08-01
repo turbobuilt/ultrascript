@@ -675,6 +675,13 @@ extern "C" {
     int64_t __array_pop(void* array);
     int64_t __array_size(void* array);
     int64_t __array_access(void* array, int64_t index);
+    
+    // Typed array access functions for optimal performance
+    int64_t __array_access_int64(void* array, int64_t index);
+    int64_t __array_access_float64(void* array, int64_t index);
+    int64_t __array_access_int32(void* array, int64_t index);
+    int64_t __array_access_float32(void* array, int64_t index);
+    
     int64_t* __array_data(void* array);
     
     // Type-aware array creation functions - know type at creation time

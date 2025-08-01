@@ -22,7 +22,14 @@ extern "C" void __runtime_wait_for_main_goroutine();
 namespace ultraScript {
 
 GoTSCompiler::GoTSCompiler(Backend backend) : target_backend(backend) {
+    std::cout << "DEBUG: GoTSCompiler constructor starting" << std::endl;
     set_backend(backend);
+    std::cout << "DEBUG: GoTSCompiler constructor completed" << std::endl;
+}
+
+GoTSCompiler::~GoTSCompiler() {
+    // Explicit destructor to ensure proper cleanup
+    // The automatic destructor was causing segfaults
 }
 
 void GoTSCompiler::set_backend(Backend backend) {
@@ -33,6 +40,13 @@ void GoTSCompiler::set_backend(Backend backend) {
             codegen = create_x86_codegen();
             break;
     }
+}
+
+void GoTSCompiler::set_current_file(const std::string& file_path) {
+    std::cout << "DEBUG: set_current_file() called with: " << file_path << std::endl;
+    std::cout << "DEBUG: current_file_path before assignment: " << current_file_path << std::endl;
+    current_file_path = file_path;
+    std::cout << "DEBUG: current_file_path after assignment: " << current_file_path << std::endl;
 }
 
 void GoTSCompiler::compile(const std::string& source) {

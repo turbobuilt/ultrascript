@@ -332,6 +332,52 @@ int64_t __array_access(void* array, int64_t index) {
     return converter.i;
 }
 
+// Typed array access functions for maximum performance
+extern "C" int64_t __array_access_int64(void* array, int64_t index) {
+    if (!array) return 0;
+    Int64Array* arr = static_cast<Int64Array*>(array);
+    if (index < 0 || index >= static_cast<int64_t>(arr->size())) return 0;
+    return (*arr)[index];
+}
+
+extern "C" int64_t __array_access_float64(void* array, int64_t index) {
+    if (!array) return 0;
+    Float64Array* arr = static_cast<Float64Array*>(array);
+    if (index < 0 || index >= static_cast<int64_t>(arr->size())) return 0;
+    
+    double value = (*arr)[index];
+    // Convert double to int64_t bit pattern for return
+    union {
+        int64_t i;
+        double d;
+    } converter;
+    converter.d = value;
+    return converter.i;
+}
+
+extern "C" int64_t __array_access_int32(void* array, int64_t index) {
+    if (!array) return 0;
+    Int32Array* arr = static_cast<Int32Array*>(array);
+    if (index < 0 || index >= static_cast<int64_t>(arr->size())) return 0;
+    return static_cast<int64_t>((*arr)[index]);
+}
+
+extern "C" int64_t __array_access_float32(void* array, int64_t index) {
+    if (!array) return 0;
+    Float32Array* arr = static_cast<Float32Array*>(array);
+    if (index < 0 || index >= static_cast<int64_t>(arr->size())) return 0;
+    
+    float value = (*arr)[index];
+    // Convert float to double, then to int64_t bit pattern
+    union {
+        int64_t i;
+        double d;
+    } converter;
+    converter.d = static_cast<double>(value);
+    return converter.i;
+}
+}
+
 // Array raw data access (returns pointer to first element)
 int64_t* __array_data(void* array) {
     if (!array) return nullptr;
@@ -667,7 +713,6 @@ extern "C" void* __array_ones_float32(int64_t size) {
         array->push(1.0f);
     }
     return array;
-}
 }
 
 // All deprecated simple array functions removed - use __array_* functions instead
