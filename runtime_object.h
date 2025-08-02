@@ -3,12 +3,34 @@
 #include <cstdint>
 #include <unordered_map>
 #include <string>
+#include "stdlib/torch/torch_ffi.h"
 
 namespace ultraScript {
 
 // Runtime object structure designed for JIT optimization
 // The JIT compiler recognizes these constant paths and converts them to direct function calls
-// For example: runtime.time.now() -> __runtime_time_now_millis() with zero overhead
+// For example: runtime.ti    // System modules - isolated module instances per namespace
+    ChildProcessObject child_process;
+    ConsoleObject console;
+    CryptoObject crypto;
+    
+    // High-performance timer object
+    TimerObject timer;
+    
+    // High-performance VM object
+    VMObject vm;
+    
+    // High-performance buffer object
+    BufferObject buffer;
+    
+    // High-performance torch object for deep learning
+    TorchObject torch;
+};
+
+// Macro for JIT to use when generating code
+// This allows the JIT to emit a direct CALL instruction instead of property lookups
+#define RUNTIME_METHOD_ADDRESS(obj, method) 
+    ((void*)&global_runtime->obj.method)ow() -> __runtime_time_now_millis() with zero overhead
 
 struct RuntimeObject {
     // Each sub-object is a constant structure with function pointers
@@ -130,6 +152,109 @@ struct RuntimeObject {
         void* from;
         void* concat;
         void* isBuffer;
+    };
+    
+    struct TorchObject {
+        static constexpr const char* OBJECT_NAME = "torch";
+        
+        // Core functions
+        void* init;
+        void* cleanup;
+        void* version;
+        void* set_seed;
+        void* manual_seed;
+        
+        // Device functions
+        void* device_cpu;
+        void* device_cuda;
+        void* cuda_is_available;
+        void* cuda_device_count;
+        void* cuda_empty_cache;
+        
+        // Data type functions
+        void* dtype_float32;
+        void* dtype_float64;
+        void* dtype_int32;
+        void* dtype_int64;
+        void* dtype_bool;
+        
+        // Tensor creation functions
+        void* tensor_empty;
+        void* tensor_zeros;
+        void* tensor_ones;
+        void* tensor_randn;
+        void* tensor_rand;
+        void* tensor_from_blob;
+        void* tensor_from_array_float32;
+        void* tensor_from_array_float64;
+        void* tensor_from_array_int32;
+        void* tensor_from_array_int64;
+        
+        // Tensor property functions
+        void* tensor_ndim;
+        void* tensor_size;
+        void* tensor_numel;
+        void* tensor_dtype;
+        void* tensor_device;
+        void* tensor_data_ptr;
+        
+        // Tensor arithmetic operations
+        void* tensor_add;
+        void* tensor_sub;
+        void* tensor_mul;
+        void* tensor_div;
+        void* tensor_matmul;
+        void* tensor_add_scalar;
+        void* tensor_sub_scalar;
+        void* tensor_mul_scalar;
+        void* tensor_div_scalar;
+        
+        // Tensor mathematical functions
+        void* tensor_sin;
+        void* tensor_cos;
+        void* tensor_tan;
+        void* tensor_exp;
+        void* tensor_log;
+        void* tensor_sqrt;
+        void* tensor_abs;
+        void* tensor_neg;
+        
+        // Tensor shape operations
+        void* tensor_reshape;
+        void* tensor_view;
+        void* tensor_transpose;
+        void* tensor_permute;
+        void* tensor_squeeze;
+        void* tensor_unsqueeze;
+        
+        // Tensor memory management
+        void* tensor_free;
+        void* tensor_clone;
+        void* tensor_detach;
+        void* tensor_to;
+        
+        // Neural network operations
+        void* nn_linear;
+        void* nn_conv2d;
+        void* nn_relu;
+        void* nn_sigmoid;
+        void* nn_softmax;
+        void* nn_cross_entropy;
+        
+        // Autograd operations
+        void* tensor_backward;
+        void* tensor_grad;
+        void* tensor_set_requires_grad;
+        void* tensor_requires_grad;
+        
+        // I/O operations
+        void* save_tensor;
+        void* load_tensor;
+        
+        // Utilities
+        void* print_tensor;
+        void* last_error;
+        void* clear_error;
     };
     
     struct OSObject {

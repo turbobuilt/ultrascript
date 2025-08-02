@@ -1930,6 +1930,104 @@ void initialize_runtime_object() {
     global_runtime->http.responseHtml = reinterpret_cast<void*>(__runtime_http_response_html);
     global_runtime->http.responseSendFile = reinterpret_cast<void*>(__runtime_http_response_send_file);
     
+    // Initialize torch object function pointers
+    global_runtime->torch.init = reinterpret_cast<void*>(torch_init);
+    global_runtime->torch.cleanup = reinterpret_cast<void*>(torch_cleanup);
+    global_runtime->torch.version = reinterpret_cast<void*>(torch_version);
+    global_runtime->torch.set_seed = reinterpret_cast<void*>(torch_set_seed);
+    global_runtime->torch.manual_seed = reinterpret_cast<void*>(torch_manual_seed);
+    
+    // Device functions
+    global_runtime->torch.device_cpu = reinterpret_cast<void*>(torch_device_cpu);
+    global_runtime->torch.device_cuda = reinterpret_cast<void*>(torch_device_cuda);
+    global_runtime->torch.cuda_is_available = reinterpret_cast<void*>(torch_cuda_is_available);
+    global_runtime->torch.cuda_device_count = reinterpret_cast<void*>(torch_cuda_device_count);
+    global_runtime->torch.cuda_empty_cache = reinterpret_cast<void*>(torch_cuda_empty_cache);
+    
+    // Data type functions
+    global_runtime->torch.dtype_float32 = reinterpret_cast<void*>(torch_dtype_float32);
+    global_runtime->torch.dtype_float64 = reinterpret_cast<void*>(torch_dtype_float64);
+    global_runtime->torch.dtype_int32 = reinterpret_cast<void*>(torch_dtype_int32);
+    global_runtime->torch.dtype_int64 = reinterpret_cast<void*>(torch_dtype_int64);
+    global_runtime->torch.dtype_bool = reinterpret_cast<void*>(torch_dtype_bool);
+    
+    // Tensor creation functions
+    global_runtime->torch.tensor_empty = reinterpret_cast<void*>(torch_tensor_empty);
+    global_runtime->torch.tensor_zeros = reinterpret_cast<void*>(torch_tensor_zeros);
+    global_runtime->torch.tensor_ones = reinterpret_cast<void*>(torch_tensor_ones);
+    global_runtime->torch.tensor_randn = reinterpret_cast<void*>(torch_tensor_randn);
+    global_runtime->torch.tensor_rand = reinterpret_cast<void*>(torch_tensor_rand);
+    global_runtime->torch.tensor_from_blob = reinterpret_cast<void*>(torch_tensor_from_blob);
+    global_runtime->torch.tensor_from_array_float32 = reinterpret_cast<void*>(torch_tensor_from_array_float32);
+    global_runtime->torch.tensor_from_array_float64 = reinterpret_cast<void*>(torch_tensor_from_array_float64);
+    global_runtime->torch.tensor_from_array_int32 = reinterpret_cast<void*>(torch_tensor_from_array_int32);
+    global_runtime->torch.tensor_from_array_int64 = reinterpret_cast<void*>(torch_tensor_from_array_int64);
+    
+    // Tensor property functions
+    global_runtime->torch.tensor_ndim = reinterpret_cast<void*>(torch_tensor_ndim);
+    global_runtime->torch.tensor_size = reinterpret_cast<void*>(torch_tensor_size);
+    global_runtime->torch.tensor_numel = reinterpret_cast<void*>(torch_tensor_numel);
+    global_runtime->torch.tensor_dtype = reinterpret_cast<void*>(torch_tensor_dtype);
+    global_runtime->torch.tensor_device = reinterpret_cast<void*>(torch_tensor_device);
+    global_runtime->torch.tensor_data_ptr = reinterpret_cast<void*>(torch_tensor_data_ptr);
+    
+    // Tensor arithmetic operations
+    global_runtime->torch.tensor_add = reinterpret_cast<void*>(torch_tensor_add);
+    global_runtime->torch.tensor_sub = reinterpret_cast<void*>(torch_tensor_sub);
+    global_runtime->torch.tensor_mul = reinterpret_cast<void*>(torch_tensor_mul);
+    global_runtime->torch.tensor_div = reinterpret_cast<void*>(torch_tensor_div);
+    global_runtime->torch.tensor_matmul = reinterpret_cast<void*>(torch_tensor_matmul);
+    global_runtime->torch.tensor_add_scalar = reinterpret_cast<void*>(torch_tensor_add_scalar);
+    global_runtime->torch.tensor_sub_scalar = reinterpret_cast<void*>(torch_tensor_sub_scalar);
+    global_runtime->torch.tensor_mul_scalar = reinterpret_cast<void*>(torch_tensor_mul_scalar);
+    global_runtime->torch.tensor_div_scalar = reinterpret_cast<void*>(torch_tensor_div_scalar);
+    
+    // Tensor mathematical functions
+    global_runtime->torch.tensor_sin = reinterpret_cast<void*>(torch_tensor_sin);
+    global_runtime->torch.tensor_cos = reinterpret_cast<void*>(torch_tensor_cos);
+    global_runtime->torch.tensor_exp = reinterpret_cast<void*>(torch_tensor_exp);
+    global_runtime->torch.tensor_log = reinterpret_cast<void*>(torch_tensor_log);
+    global_runtime->torch.tensor_sqrt = reinterpret_cast<void*>(torch_tensor_sqrt);
+    global_runtime->torch.tensor_abs = reinterpret_cast<void*>(torch_tensor_abs);
+    global_runtime->torch.tensor_neg = reinterpret_cast<void*>(torch_tensor_neg);
+    
+    // Tensor shape operations
+    global_runtime->torch.tensor_reshape = reinterpret_cast<void*>(torch_tensor_reshape);
+    global_runtime->torch.tensor_view = reinterpret_cast<void*>(torch_tensor_view);
+    global_runtime->torch.tensor_transpose = reinterpret_cast<void*>(torch_tensor_transpose);
+    global_runtime->torch.tensor_permute = reinterpret_cast<void*>(torch_tensor_permute);
+    global_runtime->torch.tensor_squeeze = reinterpret_cast<void*>(torch_tensor_squeeze);
+    global_runtime->torch.tensor_unsqueeze = reinterpret_cast<void*>(torch_tensor_unsqueeze);
+    
+    // Tensor memory management
+    global_runtime->torch.tensor_free = reinterpret_cast<void*>(torch_tensor_free);
+    global_runtime->torch.tensor_clone = reinterpret_cast<void*>(torch_tensor_clone);
+    global_runtime->torch.tensor_detach = reinterpret_cast<void*>(torch_tensor_detach);
+    global_runtime->torch.tensor_to = reinterpret_cast<void*>(torch_tensor_to);
+    
+    // Neural network operations
+    global_runtime->torch.nn_linear = reinterpret_cast<void*>(torch_nn_linear);
+    global_runtime->torch.nn_conv2d = reinterpret_cast<void*>(torch_nn_conv2d);
+    global_runtime->torch.nn_relu = reinterpret_cast<void*>(torch_nn_relu);
+    global_runtime->torch.nn_sigmoid = reinterpret_cast<void*>(torch_nn_sigmoid);
+    global_runtime->torch.nn_softmax = reinterpret_cast<void*>(torch_nn_softmax);
+    global_runtime->torch.nn_cross_entropy = reinterpret_cast<void*>(torch_nn_cross_entropy);
+    
+    // Autograd operations
+    global_runtime->torch.tensor_backward = reinterpret_cast<void*>(torch_tensor_backward);
+    global_runtime->torch.tensor_grad = reinterpret_cast<void*>(torch_tensor_grad);
+    global_runtime->torch.tensor_set_requires_grad = reinterpret_cast<void*>(torch_tensor_set_requires_grad);
+    global_runtime->torch.tensor_requires_grad = reinterpret_cast<void*>(torch_tensor_requires_grad);
+    
+    // I/O operations
+    global_runtime->torch.save_tensor = reinterpret_cast<void*>(torch_save_tensor);
+    global_runtime->torch.load_tensor = reinterpret_cast<void*>(torch_load_tensor);
+    
+    // Utilities
+    global_runtime->torch.print_tensor = reinterpret_cast<void*>(torch_print_tensor);
+    global_runtime->torch.last_error = reinterpret_cast<void*>(torch_last_error);
+    global_runtime->torch.clear_error = reinterpret_cast<void*>(torch_clear_error);
+    
     // Register all methods for JIT optimization
     runtime_method_registry["time.now"] = {"time.now", global_runtime->time.now_millis, false, 0};
     runtime_method_registry["time.nowNanos"] = {"time.nowNanos", global_runtime->time.now_nanos, false, 0};

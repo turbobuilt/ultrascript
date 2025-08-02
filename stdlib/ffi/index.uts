@@ -1,0 +1,329 @@
+// UltraScript Foreign Function Interface (FFI)
+// High-performance generic system for calling native C libraries directly from UltraScript
+// Optimized for zero-overhead calls with compile-time specialization
+
+import { 
+    ffi_dlopen, ffi_dlsym, ffi_dlclose, ffi_call_void, ffi_call_int64, 
+    ffi_call_double, ffi_call_ptr, ffi_set_arg_int64, ffi_set_arg_double, 
+    ffi_set_arg_ptr, ffi_clear_args, ffi_call_direct_void, ffi_call_direct_int64,
+    ffi_call_direct_double, ffi_call_direct_ptr
+} from "./ffi_syscalls";
+
+// FFI Library class for managing shared libraries with performance optimizations
+class FFILibrary {
+    private handle: any;
+    private functions: Map<string, FFIFunction> = new Map();
+    private specialized_cache: Map<string, any> = new Map();
+    
+    constructor(path: string) {
+        this.handle = ffi_dlopen(path);
+        if (!this.handle) {
+            throw new Error(`Failed to load library: ${path}`);
+        }
+    }
+    
+    // Get a function from the library with caching
+    func(name: string): FFIFunction {
+        if (this.functions.has(name)) {
+            return this.functions.get(name)!;
+        }
+        
+        const symbol = ffi_dlsym(this.handle, name);
+        if (!symbol) {
+            throw new Error(`Function '${name}' not found in library`);
+        }
+        
+        const func = new FFIFunction(symbol);
+        this.functions.set(name, func);
+        return func;
+    }
+    
+    // Get a specialized function for maximum performance
+    // This creates a highly optimized wrapper that the JIT can inline
+    func_specialized(name: string, signature: string): (...args: any[]) => any {
+        const cache_key = `${name}:${signature}`;
+        if (this.specialized_cache.has(cache_key)) {
+            return this.specialized_cache.get(cache_key);
+        }
+        
+        const func = this.func(name);
+        const specialized = func.specialize(signature);
+        this.specialized_cache.set(cache_key, specialized);
+        return specialized;
+    }
+    
+    // Batch load multiple functions with signatures for optimal performance
+    load_functions(specs: Array<{name: string, signature?: string}>): Map<string, any> {
+        const loaded = new Map<string, any>();
+        
+        for (const spec of specs) {
+            if (spec.signature) {
+                loaded.set(spec.name, this.func_specialized(spec.name, spec.signature));
+            } else {
+                loaded.set(spec.name, this.func(spec.name));
+            }
+        }
+        
+        return loaded;
+    }
+    
+    // Close the library
+    close(): void {
+        if (this.handle) {
+            ffi_dlclose(this.handle);
+            this.handle = null;
+            this.functions.clear();
+            this.specialized_cache.clear();
+        }
+    }
+    
+    [Symbol.dispose](): void {
+        this.close();
+    }
+}
+
+// FFI Function class for calling native functions with maximum performance
+class FFIFunction {
+    private symbol: any;
+    private cached_signature: string | null = null;
+    
+    constructor(symbol: any) {
+        this.symbol = symbol;
+    }
+    
+    // Ultra-fast direct calls for known signatures (JIT-optimizable)
+    // These bypass argument marshalling for maximum performance
+    
+    // Direct call with no arguments, void return
+    call_direct_void(): void {
+        ffi_call_direct_void(this.symbol);
+    }
+    
+    // Direct call with 1 int64 arg, void return
+    call_direct_void_i64(arg0: number): void {
+        ffi_call_direct_void(this.symbol, arg0);
+    }
+    
+    // Direct call with 2 int64 args, void return
+    call_direct_void_i64_i64(arg0: number, arg1: number): void {
+        ffi_call_direct_void(this.symbol, arg0, arg1);
+    }
+    
+    // Direct call with no args, int64 return
+    call_direct_i64(): number {
+        return ffi_call_direct_int64(this.symbol);
+    }
+    
+    // Direct call with 1 int64 arg, int64 return
+    call_direct_i64_i64(arg0: number): number {
+        return ffi_call_direct_int64(this.symbol, arg0);
+    }
+    
+    // Direct call with 2 int64 args, int64 return
+    call_direct_i64_i64_i64(arg0: number, arg1: number): number {
+        return ffi_call_direct_int64(this.symbol, arg0, arg1);
+    }
+    
+    // Direct call with 3 int64 args, int64 return
+    call_direct_i64_i64_i64_i64(arg0: number, arg1: number, arg2: number): number {
+        return ffi_call_direct_int64(this.symbol, arg0, arg1, arg2);
+    }
+    
+    // Direct call with pointer args, pointer return
+    call_direct_ptr_ptr(arg0: any): any {
+        return ffi_call_direct_ptr(this.symbol, arg0);
+    }
+    
+    call_direct_ptr_ptr_ptr(arg0: any, arg1: any): any {
+        return ffi_call_direct_ptr(this.symbol, arg0, arg1);
+    }
+    
+    // Direct call with mixed args - most common patterns
+    call_direct_ptr_ptr_i64(arg0: any, arg1: any, arg2: number): any {
+        return ffi_call_direct_ptr(this.symbol, arg0, arg1, arg2);
+    }
+    
+    call_direct_i64_ptr_i64(arg0: number, arg1: any, arg2: number): number {
+        return ffi_call_direct_int64(this.symbol, arg0, arg1, arg2);
+    }
+    
+    // Legacy flexible calls (slightly slower but more convenient)
+    
+    // Call function with no return value
+    call_void(...args: any[]): void {
+        if (args.length === 0) {
+            return this.call_direct_void();
+        }
+        if (args.length === 1 && typeof args[0] === "number") {
+            return this.call_direct_void_i64(args[0]);
+        }
+        if (args.length === 2 && typeof args[0] === "number" && typeof args[1] === "number") {
+            return this.call_direct_void_i64_i64(args[0], args[1]);
+        }
+        
+        // Fallback to generic call
+        this.setArgs(args);
+        ffi_call_void(this.symbol);
+        ffi_clear_args();
+    }
+    
+    // Call function returning int64
+    call_int64(...args: any[]): number {
+        if (args.length === 0) {
+            return this.call_direct_i64();
+        }
+        if (args.length === 1 && typeof args[0] === "number") {
+            return this.call_direct_i64_i64(args[0]);
+        }
+        if (args.length === 2 && typeof args[0] === "number" && typeof args[1] === "number") {
+            return this.call_direct_i64_i64_i64(args[0], args[1]);
+        }
+        if (args.length === 3 && typeof args[0] === "number" && typeof args[1] === "number" && typeof args[2] === "number") {
+            return this.call_direct_i64_i64_i64_i64(args[0], args[1], args[2]);
+        }
+        
+        // Fallback to generic call
+        this.setArgs(args);
+        const result = ffi_call_int64(this.symbol);
+        ffi_clear_args();
+        return result;
+    }
+    
+    // Call function returning double
+    call_double(...args: any[]): number {
+        this.setArgs(args);
+        const result = ffi_call_double(this.symbol);
+        ffi_clear_args();
+        return result;
+    }
+    
+    // Call function returning pointer
+    call_ptr(...args: any[]): any {
+        if (args.length === 1 && typeof args[0] !== "number") {
+            return this.call_direct_ptr_ptr(args[0]);
+        }
+        if (args.length === 2 && typeof args[0] !== "number" && typeof args[1] !== "number") {
+            return this.call_direct_ptr_ptr_ptr(args[0], args[1]);
+        }
+        
+        // Fallback to generic call
+        this.setArgs(args);
+        const result = ffi_call_ptr(this.symbol);
+        ffi_clear_args();
+        return result;
+    }
+    
+    // Generic call - auto-detect return type (defaults to int64)
+    call(...args: any[]): any {
+        return this.call_int64(...args);
+    }
+    
+    // Performance optimization: cache argument setting for repeated calls
+    private setArgs(args: any[]): void {
+        for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+            if (typeof arg === "number") {
+                if (Number.isInteger(arg)) {
+                    ffi_set_arg_int64(i, arg);
+                } else {
+                    ffi_set_arg_double(i, arg);
+                }
+            } else {
+                // Assume pointer/object
+                ffi_set_arg_ptr(i, arg);
+            }
+        }
+    }
+    
+    // Create a specialized wrapper for a known function signature
+    // This allows the JIT to optimize the call completely
+    specialize(signature: string): (...args: any[]) => any {
+        this.cached_signature = signature;
+        
+        switch (signature) {
+            case "void()":
+                return () => this.call_direct_void();
+            case "void(i64)":
+                return (a: number) => this.call_direct_void_i64(a);
+            case "void(i64,i64)":
+                return (a: number, b: number) => this.call_direct_void_i64_i64(a, b);
+            case "i64()":
+                return () => this.call_direct_i64();
+            case "i64(i64)":
+                return (a: number) => this.call_direct_i64_i64(a);
+            case "i64(i64,i64)":
+                return (a: number, b: number) => this.call_direct_i64_i64_i64(a, b);
+            case "i64(i64,i64,i64)":
+                return (a: number, b: number, c: number) => this.call_direct_i64_i64_i64_i64(a, b, c);
+            case "ptr(ptr)":
+                return (a: any) => this.call_direct_ptr_ptr(a);
+            case "ptr(ptr,ptr)":
+                return (a: any, b: any) => this.call_direct_ptr_ptr_ptr(a, b);
+            case "ptr(ptr,ptr,i64)":
+                return (a: any, b: any, c: number) => this.call_direct_ptr_ptr_i64(a, b, c);
+            case "i64(ptr,i64)":
+                return (a: any, b: number) => this.call_direct_i64_ptr_i64(a, 0, b);
+            default:
+                // Fallback to generic call
+                return (...args: any[]) => this.call(...args);
+        }
+    }
+}
+
+// Convenience function to load a library
+export function dlopen(path: string): FFILibrary {
+    return new FFILibrary(path);
+}
+
+// High-performance convenience functions for common patterns
+export function create_fast_library(path: string, functions: Array<{name: string, signature: string}>): any {
+    const lib = new FFILibrary(path);
+    const funcs = lib.load_functions(functions);
+    
+    // Create a simple object with direct access to specialized functions
+    const fast_lib: any = {};
+    for (const [name, func] of funcs) {
+        fast_lib[name] = func;
+    }
+    
+    // Add cleanup method
+    fast_lib.close = () => lib.close();
+    
+    return fast_lib;
+}
+
+// Memory management helpers for FFI
+export class FFIBuffer {
+    private ptr: any;
+    private size: number;
+    
+    constructor(size: number) {
+        this.size = size;
+        this.ptr = malloc(size); // Assume malloc is available
+        if (!this.ptr) {
+            throw new Error("Failed to allocate memory");
+        }
+    }
+    
+    get data(): any {
+        return this.ptr;
+    }
+    
+    get byte_size(): number {
+        return this.size;
+    }
+    
+    free(): void {
+        if (this.ptr) {
+            free(this.ptr);
+            this.ptr = null;
+        }
+    }
+    
+    [Symbol.dispose](): void {
+        this.free();
+    }
+}
+
+// Export classes
+export { FFILibrary, FFIFunction };

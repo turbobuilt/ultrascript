@@ -1,0 +1,383 @@
+// UltraScript Torch Module using high-performance FFI
+// This demonstrates how to wrap LibTorch using the optimized FFI system
+
+import { create_fast_library, FFIBuffer } from "../ffi";
+
+// Define LibTorch function signatures for maximum performance
+const TORCH_FUNCTIONS = [
+    // Core tensor creation (simplified signatures)
+    { name: "at_empty", signature: "ptr(ptr,i64,i64,i64)" }, // sizes, ndim, dtype, device -> tensor
+    { name: "at_zeros", signature: "ptr(ptr,i64,i64,i64)" }, // sizes, ndim, dtype, device -> tensor
+    { name: "at_ones", signature: "ptr(ptr,i64,i64,i64)" }, // sizes, ndim, dtype, device -> tensor
+    { name: "at_randn", signature: "ptr(ptr,i64,i64,i64)" }, // sizes, ndim, dtype, device -> tensor
+    
+    // Tensor operations
+    { name: "at_add", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
+    { name: "at_sub", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
+    { name: "at_mul", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
+    { name: "at_div", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
+    { name: "at_matmul", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
+    
+    // Tensor properties
+    { name: "at_size", signature: "i64(ptr,i64)" }, // tensor, dim -> size
+    { name: "at_ndim", signature: "i64(ptr)" }, // tensor -> ndim
+    { name: "at_numel", signature: "i64(ptr)" }, // tensor -> number of elements
+    { name: "at_data_ptr", signature: "ptr(ptr)" }, // tensor -> data pointer
+    
+    // Memory management
+    { name: "at_free", signature: "void(ptr)" }, // tensor -> void
+    { name: "at_clone", signature: "ptr(ptr)" }, // tensor -> cloned tensor
+    
+    // Utility functions
+    { name: "at_print", signature: "void(ptr)" }, // tensor -> void
+    { name: "at_set_seed", signature: "void(i64)" }, // seed -> void
+];
+
+// Try to load LibTorch with fallback paths
+const LIBTORCH_PATHS = [
+    "../libtorch/lib/libtorch.so",
+    "../libtorch/lib/libtorch_cpu.so",
+    "/usr/local/lib/libtorch.so",
+    "/usr/lib/libtorch.so"
+];
+
+let torch_lib: any = null;
+
+for (const path of LIBTORCH_PATHS) {
+    try {
+        torch_lib = create_fast_library(path, TORCH_FUNCTIONS);
+        console.log(`Successfully loaded LibTorch from: ${path}`);
+        break;
+    } catch (e) {
+        // Try next path
+        continue;
+    }
+}
+
+if (!torch_lib) {
+    throw new Error("Failed to load LibTorch library. Please ensure libtorch is installed.");
+}
+
+// Device type enum
+enum DeviceType {
+    CPU = 0,
+    CUDA = 1
+}
+
+// Data type enum  
+enum DType {
+    FLOAT32 = 6,
+    FLOAT64 = 7,
+    INT32 = 3,
+    INT64 = 4,
+    BOOL = 11
+}
+
+// Device class
+class Device {
+    private handle: any;
+    
+    constructor(type: DeviceType, index: number = 0) {
+        if (type === DeviceType.CPU) {
+            this.handle = torch_device_cpu();
+        } else if (type === DeviceType.CUDA) {
+            this.handle = torch_device_cuda(index);
+        } else {
+            throw new Error("Invalid device type");
+        }
+    }
+    
+    static cpu(): Device {
+        return new Device(DeviceType.CPU);
+    }
+    
+    static cuda(index: number = 0): Device {
+        return new Device(DeviceType.CUDA, index);
+    }
+    
+    toString(): string {
+        return this.handle === torch_device_cpu() ? "cpu" : `cuda:${this.handle.device_index}`;
+    }
+}
+
+// Tensor class with operator overloading
+class Tensor {
+    private handle: any;
+    private _dtype: any;
+    private _device: Device;
+    private _shape: number[];
+    
+    constructor(handle: any, dtype: any, device: Device, shape: number[]) {
+        this.handle = handle;
+        this._dtype = dtype;
+        this._device = device;
+        this._shape = shape;
+    }
+    
+    // Properties
+    get dtype(): any {
+        return this._dtype;
+    }
+    
+    get device(): Device {
+        return this._device;
+    }
+    
+    get shape(): number[] {
+        return this._shape.slice(); // Return copy
+    }
+    
+    get ndim(): number {
+        return this._shape.length;
+    }
+    
+    get numel(): number {
+        return this._shape.reduce((a, b) => a * b, 1);
+    }
+    
+    size(dim?: number): number | number[] {
+        if (dim !== undefined) {
+            if (dim < 0) dim += this.ndim;
+            if (dim >= this.ndim || dim < 0) {
+                throw new Error("Dimension out of range");
+            }
+            return this._shape[dim];
+        }
+        return this.shape;
+    }
+    
+    // Arithmetic operators
+    [Symbol.for("+")](other: Tensor | number): Tensor {
+        if (typeof other === "number") {
+            // Scalar addition - not implemented yet
+            throw new Error("Scalar operations not yet implemented");
+        } else {
+            const result_handle = torch_tensor_add(this.handle, other.handle);
+            if (!result_handle) {
+                throw new Error("Tensor addition failed");
+            }
+            return new Tensor(result_handle, this._dtype, this._device, this._shape);
+        }
+    }
+    
+    [Symbol.for("-")](other: Tensor | number): Tensor {
+        if (typeof other === "number") {
+            throw new Error("Scalar operations not yet implemented");
+        } else {
+            const result_handle = torch_tensor_sub(this.handle, other.handle);
+            if (!result_handle) {
+                throw new Error("Tensor subtraction failed");
+            }
+            return new Tensor(result_handle, this._dtype, this._device, this._shape);
+        }
+    }
+    
+    [Symbol.for("*")](other: Tensor | number): Tensor {
+        if (typeof other === "number") {
+            throw new Error("Scalar operations not yet implemented");
+        } else {
+            const result_handle = torch_tensor_mul(this.handle, other.handle);
+            if (!result_handle) {
+                throw new Error("Tensor multiplication failed");
+            }
+            return new Tensor(result_handle, this._dtype, this._device, this._shape);
+        }
+    }
+    
+    [Symbol.for("/")](other: Tensor | number): Tensor {
+        if (typeof other === "number") {
+            throw new Error("Scalar operations not yet implemented");
+        } else {
+            const result_handle = torch_tensor_div(this.handle, other.handle);
+            if (!result_handle) {
+                throw new Error("Tensor division failed");
+            }
+            return new Tensor(result_handle, this._dtype, this._device, this._shape);
+        }
+    }
+    
+    // Matrix multiplication
+    matmul(other: Tensor): Tensor {
+        const result_handle = torch_tensor_matmul(this.handle, other.handle);
+        if (!result_handle) {
+            throw new Error("Matrix multiplication failed");
+        }
+        // Calculate result shape (simplified)
+        const result_shape = [this._shape[0], other._shape[1]];
+        return new Tensor(result_handle, this._dtype, this._device, result_shape);
+    }
+    
+    // Convenience method for matrix multiplication
+    mm(other: Tensor): Tensor {
+        return this.matmul(other);
+    }
+    
+    // @ operator for matrix multiplication
+    [Symbol.for("@")](other: Tensor): Tensor {
+        return this.matmul(other);
+    }
+    
+    // Memory management
+    clone(): Tensor {
+        const result_handle = torch_tensor_clone(this.handle);
+        if (!result_handle) {
+            throw new Error("Tensor clone failed");
+        }
+        return new Tensor(result_handle, this._dtype, this._device, this._shape);
+    }
+    
+    // Data access
+    data_ptr(): any {
+        return torch_tensor_data_ptr(this.handle);
+    }
+    
+    // String representation
+    toString(): string {
+        torch_tensor_print_tensor(this.handle);
+        return `Tensor(shape=${JSON.stringify(this._shape)}, dtype=${this._dtype}, device=${this._device})`;
+    }
+    
+    // Cleanup
+    free(): void {
+        if (this.handle) {
+            torch_tensor_free(this.handle);
+            this.handle = null;
+        }
+    }
+    
+    // Destructor
+    [Symbol.dispose](): void {
+        this.free();
+    }
+}
+
+// Factory functions for tensor creation
+export function empty(shape: number[], dtype: any = torch_dtype_float32(), device: Device = Device.cpu()): Tensor {
+    const shape_array = new Int64Array(shape);
+    const handle = torch_tensor_empty(shape_array.data, shape.length, dtype, device.handle);
+    if (!handle) {
+        throw new Error("Failed to create empty tensor");
+    }
+    return new Tensor(handle, dtype, device, shape);
+}
+
+export function zeros(shape: number[], dtype: any = torch_dtype_float32(), device: Device = Device.cpu()): Tensor {
+    const shape_array = new Int64Array(shape);
+    const handle = torch_tensor_zeros(shape_array.data, shape.length, dtype, device.handle);
+    if (!handle) {
+        throw new Error("Failed to create zeros tensor");
+    }
+    return new Tensor(handle, dtype, device, shape);
+}
+
+export function ones(shape: number[], dtype: any = torch_dtype_float32(), device: Device = Device.cpu()): Tensor {
+    const shape_array = new Int64Array(shape);
+    const handle = torch_tensor_ones(shape_array.data, shape.length, dtype, device.handle);
+    if (!handle) {
+        throw new Error("Failed to create ones tensor");
+    }
+    return new Tensor(handle, dtype, device, shape);
+}
+
+export function randn(shape: number[], dtype: any = torch_dtype_float32(), device: Device = Device.cpu()): Tensor {
+    const shape_array = new Int64Array(shape);
+    const handle = torch_tensor_randn(shape_array.data, shape.length, dtype, device.handle);
+    if (!handle) {
+        throw new Error("Failed to create randn tensor");
+    }
+    return new Tensor(handle, dtype, device, shape);
+}
+
+export function rand(shape: number[], dtype: any = torch_dtype_float32(), device: Device = Device.cpu()): Tensor {
+    const shape_array = new Int64Array(shape);
+    const handle = torch_tensor_rand(shape_array.data, shape.length, dtype, device.handle);
+    if (!handle) {
+        throw new Error("Failed to create rand tensor");
+    }
+    return new Tensor(handle, dtype, device, shape);
+}
+
+// Tensor from arrays
+export function tensor(data: number[] | number[][], dtype: any = torch_dtype_float32(), device: Device = Device.cpu()): Tensor {
+    // Flatten the data and determine shape
+    let flat_data: number[] = [];
+    let shape: number[] = [];
+    
+    if (Array.isArray(data[0])) {
+        // 2D array
+        const data2d = data as number[][];
+        shape = [data2d.length, data2d[0].length];
+        for (const row of data2d) {
+            flat_data.push(...row);
+        }
+    } else {
+        // 1D array
+        flat_data = data as number[];
+        shape = [flat_data.length];
+    }
+    
+    // Convert to appropriate typed array and create tensor
+    let handle: any;
+    const shape_array = new Int64Array(shape);
+    
+    if (dtype === torch_dtype_float32()) {
+        const float_data = new Float32Array(flat_data);
+        handle = torch_tensor_from_array_float32(float_data.data, shape_array.data, shape.length);
+    } else if (dtype === torch_dtype_float64()) {
+        const double_data = new Float64Array(flat_data);
+        handle = torch_tensor_from_array_float64(double_data.data, shape_array.data, shape.length);
+    } else if (dtype === torch_dtype_int32()) {
+        const int_data = new Int32Array(flat_data);
+        handle = torch_tensor_from_array_int32(int_data.data, shape_array.data, shape.length);
+    } else if (dtype === torch_dtype_int64()) {
+        const long_data = new BigInt64Array(flat_data.map(x => BigInt(x)));
+        handle = torch_tensor_from_array_int64(long_data.data, shape_array.data, shape.length);
+    } else {
+        throw new Error("Unsupported dtype for tensor creation");
+    }
+    
+    if (!handle) {
+        throw new Error("Failed to create tensor from data");
+    }
+    
+    return new Tensor(handle, dtype, device, shape);
+}
+
+// Export data types
+export const float32 = torch_dtype_float32;
+export const float64 = torch_dtype_float64;
+export const int32 = torch_dtype_int32;
+export const int64 = torch_dtype_int64;
+export const bool = torch_dtype_bool;
+
+// Export device types
+export { Device };
+
+// Export tensor class
+export { Tensor };
+
+// Utility functions
+export function manual_seed(seed: number): void {
+    torch_manual_seed(seed);
+}
+
+export function set_seed(seed: number): void {
+    torch_set_seed(seed);
+}
+
+export function version(): string {
+    return torch_version();
+}
+
+export function cuda_is_available(): boolean {
+    return torch_cuda_is_available();
+}
+
+export function cuda_device_count(): number {
+    return torch_cuda_device_count();
+}
+
+// Module cleanup on exit
+process.on('exit', () => {
+    torch_cleanup();
+});

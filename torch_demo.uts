@@ -1,0 +1,40 @@
+// Demo script to test the torch wrapper
+import { ones, zeros, randn, Tensor } from "./stdlib/torch/simple";
+
+console.log("=== UltraScript Torch Demo ===");
+
+// Test basic tensor creation
+console.log("\n1. Creating tensors:");
+const a = ones([2, 3]);
+console.log("a =", a.toString());
+
+const b = zeros([2, 3]);
+console.log("b =", b.toString());
+
+const c = randn([2, 3]);
+console.log("c =", c.toString());
+
+// Test tensor operations
+console.log("\n2. Tensor operations:");
+const d = a + b;
+console.log("a + b =", d.toString());
+
+const e = a * c;
+console.log("a * c =", e.toString());
+
+// Test matrix multiplication
+console.log("\n3. Matrix multiplication:");
+const x = ones([3, 4]);
+const y = ones([4, 5]);
+const z = x @ y;  // Should be [3, 5]
+console.log("x @ y =", z.toString());
+
+// Test tensor properties
+console.log("\n4. Tensor properties:");
+console.log("Shape of a:", a.shape);
+console.log("Number of dimensions:", a.ndim);
+console.log("Number of elements:", a.numel);
+
+console.log("\n=== Demo Complete ===");
+console.log("Note: This is currently a mock implementation.");
+console.log("To make it fully functional, we need to implement the C wrapper layer.");

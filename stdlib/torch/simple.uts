@@ -1,0 +1,165 @@
+// Simple LibTorch wrapper using FFI
+// This demonstrates calling the actual LibTorch C++ API
+
+import { dlopen, FFILibrary } from "../ffi";
+
+// We'll create a simple C++ wrapper that exposes clean C functions
+// This wrapper will handle the C++ complexity and expose simple C interfaces
+
+class TorchLibrary {
+    private lib: FFILibrary;
+    private ones_fn: any;
+    private zeros_fn: any;
+    private tensor_add_fn: any;
+    private tensor_print_fn: any;
+    private tensor_free_fn: any;
+    
+    constructor() {
+        // Try to load libtorch_cpu.so (the main library)
+        const paths = [
+            "../libtorch/lib/libtorch_cpu.so",
+            "../libtorch/lib/libtorch.so",
+            "/usr/local/lib/libtorch_cpu.so"
+        ];
+        
+        let loaded = false;
+        for (const path of paths) {
+            try {
+                this.lib = dlopen(path);
+                console.log(`Loaded LibTorch from: ${path}`);
+                loaded = true;
+                break;
+            } catch (e) {
+                continue;
+            }
+        }
+        
+        if (!loaded) {
+            throw new Error("Could not load LibTorch library");
+        }
+        
+        // For now, we'll implement a basic tensor wrapper
+        // The real LibTorch functions have complex C++ signatures
+        // We need a thin C wrapper to make this work properly
+        this.initializeFunctions();
+    }
+    
+    private initializeFunctions() {
+        // These functions would need to be implemented in a C wrapper
+        // For demonstration, let's define what they would look like
+        try {
+            // Try to find some basic functions that might exist
+            // Most LibTorch functions are mangled C++ symbols
+            this.ones_fn = this.lib.func("at_ones");  // This probably doesn't exist as-is
+        } catch (e) {
+            console.log("Note: Direct LibTorch functions not found. Need C wrapper.");
+        }
+    }
+    
+    // For now, let's create a mock implementation that shows the concept
+    ones(shape: number[]): SimpleTensor {
+        console.log(`Creating ones tensor with shape: [${shape.join(', ')}]`);
+        
+        // In a real implementation, this would call:
+        // at::Tensor tensor = at::ones({shape[0], shape[1], ...});
+        // return new SimpleTensor(tensor);
+        
+        // For now, return a mock tensor
+        return new SimpleTensor(shape, "ones");
+    }
+    
+    zeros(shape: number[]): SimpleTensor {
+        console.log(`Creating zeros tensor with shape: [${shape.join(', ')}]`);
+        return new SimpleTensor(shape, "zeros");
+    }
+    
+    randn(shape: number[]): SimpleTensor {
+        console.log(`Creating random tensor with shape: [${shape.join(', ')}]`);
+        return new SimpleTensor(shape, "randn");
+    }
+}
+
+// Simple tensor class that wraps the actual LibTorch tensor
+class SimpleTensor {
+    private _shape: number[];
+    private _data_type: string;
+    private handle: any = null; // Would hold actual at::Tensor*
+    
+    constructor(shape: number[], data_type: string = "float32") {
+        this._shape = shape.slice();
+        this._data_type = data_type;
+        
+        // In real implementation:
+        // this.handle = actual_libtorch_tensor_pointer;
+    }
+    
+    get shape(): number[] {
+        return this._shape.slice();
+    }
+    
+    get ndim(): number {
+        return this._shape.length;
+    }
+    
+    get numel(): number {
+        return this._shape.reduce((a, b) => a * b, 1);
+    }
+    
+    // Operator overloading for arithmetic
+    [Symbol.for("+")](other: SimpleTensor): SimpleTensor {
+        console.log("Adding tensors");
+        // Real implementation would call at::add(this.handle, other.handle)
+        return new SimpleTensor(this._shape, this._data_type);
+    }
+    
+    [Symbol.for("-")](other: SimpleTensor): SimpleTensor {
+        console.log("Subtracting tensors");
+        return new SimpleTensor(this._shape, this._data_type);
+    }
+    
+    [Symbol.for("*")](other: SimpleTensor): SimpleTensor {
+        console.log("Multiplying tensors");
+        return new SimpleTensor(this._shape, this._data_type);
+    }
+    
+    [Symbol.for("@")](other: SimpleTensor): SimpleTensor {
+        console.log("Matrix multiplication");
+        // For matrix multiplication, result shape would be different
+        if (this._shape.length !== 2 || other._shape.length !== 2) {
+            throw new Error("Matrix multiplication requires 2D tensors");
+        }
+        const result_shape = [this._shape[0], other._shape[1]];
+        return new SimpleTensor(result_shape, this._data_type);
+    }
+    
+    toString(): string {
+        return `Tensor(shape=[${this._shape.join(', ')}], dtype=${this._data_type})`;
+    }
+    
+    print(): void {
+        console.log(this.toString());
+        console.log("Note: This is a mock tensor. Real data would be printed here.");
+    }
+}
+
+// Create global torch instance
+const torch = new TorchLibrary();
+
+// Export factory functions
+export function ones(shape: number[]): SimpleTensor {
+    return torch.ones(shape);
+}
+
+export function zeros(shape: number[]): SimpleTensor {
+    return torch.zeros(shape);
+}
+
+export function randn(shape: number[]): SimpleTensor {
+    return torch.randn(shape);
+}
+
+// Export tensor class
+export { SimpleTensor as Tensor };
+
+// Export torch instance
+export default torch;
