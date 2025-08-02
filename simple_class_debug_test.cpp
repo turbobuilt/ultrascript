@@ -1,4 +1,4 @@
-#include "class_system_performance.h"
+// #include "class_system_performance.h" // Removed - property access system redesigned
 #include <iostream>
 
 using namespace ultraScript;

@@ -571,4 +571,16 @@ void TypeInference::clear_element_type_context() {
     current_element_type_context = DataType::ANY;
 }
 
+void TypeInference::set_current_property_assignment_type(DataType property_type) {
+    current_property_assignment_type = property_type;
+}
+
+DataType TypeInference::get_current_property_assignment_type() const {
+    return current_property_assignment_type;
+}
+
+void TypeInference::clear_property_assignment_context() {
+    current_property_assignment_type = DataType::ANY;
+}
+
 }

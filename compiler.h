@@ -201,6 +201,7 @@ private:
     DataType current_assignment_target_type = DataType::ANY;
     DataType current_assignment_array_element_type = DataType::ANY;  // For [type] arrays
     DataType current_element_type_context = DataType::ANY;  // For array element type inference
+    DataType current_property_assignment_type = DataType::ANY;  // For property assignment type inference
     
 public:
     DataType infer_type(const std::string& expression);
@@ -236,6 +237,11 @@ public:
     void set_current_element_type_context(DataType element_type);
     DataType get_current_element_type_context() const;
     void clear_element_type_context();
+    
+    // Property assignment type context for typed property assignment
+    void set_current_property_assignment_type(DataType property_type);
+    DataType get_current_property_assignment_type() const;
+    void clear_property_assignment_context();
     
     // Function parameter tracking for keyword arguments
     void register_function_params(const std::string& func_name, const std::vector<std::string>& param_names);

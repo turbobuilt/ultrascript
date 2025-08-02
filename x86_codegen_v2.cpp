@@ -415,11 +415,7 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         
         // Object functions
         {"__object_create", reinterpret_cast<void*>(__object_create)},
-        {"__object_set_property", reinterpret_cast<void*>(__object_set_property)},
-        {"__object_set_property_name", reinterpret_cast<void*>(__object_set_property_name)},
-        {"__object_get_property", reinterpret_cast<void*>(__object_get_property)},
-        {"__object_get_property_name", reinterpret_cast<void*>(__object_get_property_name)},
-        {"__dynamic_get_property", reinterpret_cast<void*>(__dynamic_get_property)},
+        // Property access functions removed - will be reimplemented according to new architecture
         
         // JIT Object system functions
         {"__jit_object_create", reinterpret_cast<void*>(__jit_object_create)},

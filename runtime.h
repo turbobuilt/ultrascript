@@ -395,35 +395,8 @@ public:
     void atomic_update(const std::string& name, std::function<T(const T&)> updater);
 };
 
-// Object and class management structures
-struct ObjectInstance {
-    std::string class_name;
-    std::unordered_map<std::string, int64_t> properties;  // Property name -> value
-    int64_t* property_data;  // Raw memory for properties
-    std::string* property_names;  // Property names for iteration
-    int64_t property_count;
-    
-    ObjectInstance(const std::string& cls_name, int64_t prop_count) 
-        : class_name(cls_name), property_count(prop_count) {
-        if (prop_count > 0) {
-            property_data = new int64_t[prop_count];
-            property_names = new std::string[prop_count];
-            memset(property_data, 0, prop_count * sizeof(int64_t));
-        } else {
-            property_data = nullptr;
-            property_names = nullptr;
-        }
-    }
-    
-    ~ObjectInstance() {
-        if (property_data) {
-            delete[] property_data;
-        }
-        if (property_names) {
-            delete[] property_names;
-        }
-    }
-};
+// Object instance structure removed - property access system redesigned according to CLAUDE.md
+// The new system will support zero-cost property access with direct offsets
 
 // High-Performance Date Implementation
 // JavaScript-compatible Date class with optimized internal representation
@@ -576,7 +549,7 @@ public:
 };
 
 // Global object registry
-extern std::unordered_map<int64_t, std::unique_ptr<ObjectInstance>> object_registry;
+// Object registry removed - property access system redesigned according to CLAUDE.md
 extern std::atomic<int64_t> next_object_id;
 
 // High-Performance Function Registry System

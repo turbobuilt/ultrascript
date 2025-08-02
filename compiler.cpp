@@ -5,7 +5,7 @@
 #include "goroutine_system.h"
 #include "function_compilation_manager.h"
 #include "ffi_syscalls.h"  // FFI integration
-#include "jit_class_registry.h"
+
 
 // External console mutex for thread safety
 extern std::mutex g_console_mutex;
@@ -90,8 +90,6 @@ void GoTSCompiler::compile(const std::string& source) {
                 }
                 
                 // Register class in JIT system
-                JITClassRegistry::instance().register_class(class_decl->name);
-                
                 // Add properties to JIT class registry
                 for (const auto& field : class_decl->fields) {
                     uint8_t type_id = 0; // Default to ANY type
@@ -102,8 +100,6 @@ void GoTSCompiler::compile(const std::string& source) {
                     type_id = 4; // OBJECT type
                     size = 8;    // Pointer size
                     
-                    JITClassRegistry::instance().add_property(
-                        class_decl->name, field.name, type_id, size);
                 }
                 
                 // Keep old system for compatibility

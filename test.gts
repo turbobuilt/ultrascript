@@ -1,5 +1,5 @@
 class Dog {
-    age: int64;
+    age: int32;
 }
 let d = new Dog();
 d.age = 10;

@@ -3,7 +3,7 @@ CXXFLAGS = -std=c++17 -O0 -Wall -Wextra -pthread
 LDFLAGS = -pthread -ldl
 
 SRCDIR = .
-SOURCES = compiler.cpp lexer.cpp parser.cpp type_inference.cpp x86_instruction_builder.cpp x86_pattern_builder.cpp x86_codegen_v2.cpp ast_codegen.cpp compilation_context.cpp runtime.cpp runtime_syscalls.cpp lexical_scope.cpp regex.cpp error_reporter.cpp syntax_highlighter.cpp simple_main.cpp goroutine_system.cpp function_compilation_manager.cpp goroutine_advanced.cpp runtime_goroutine_advanced.cpp lock_system.cpp lock_jit_integration.cpp runtime_http_server.cpp runtime_http_client.cpp console_log_overhaul.cpp ffi_syscalls.cpp jit_object_system.cpp
+SOURCES = compiler.cpp lexer.cpp parser.cpp type_inference.cpp x86_instruction_builder.cpp x86_pattern_builder.cpp x86_codegen_v2.cpp ast_codegen.cpp compilation_context.cpp runtime.cpp runtime_syscalls.cpp lexical_scope.cpp regex.cpp error_reporter.cpp syntax_highlighter.cpp simple_main.cpp goroutine_system.cpp function_compilation_manager.cpp goroutine_advanced.cpp runtime_goroutine_advanced.cpp lock_system.cpp lock_jit_integration.cpp runtime_http_server.cpp runtime_http_client.cpp console_log_overhaul.cpp ffi_syscalls.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 TARGET = ultraScript
 

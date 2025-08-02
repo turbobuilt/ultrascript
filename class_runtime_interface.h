@@ -1,6 +1,6 @@
 #pragma once
 
-#include "class_system_performance.h"
+// // #include "class_system_performance.h" // Removed - property access system redesigned // Removed - property access system redesigned
 
 namespace ultraScript {
 
@@ -137,28 +137,7 @@ uint32_t __get_allocated_object_count_performance();
 
 // ==================== C++ Helper Functions ====================
 
-// Template function for ultra-fast typed property access
-template<typename T>
-inline T object_get_property_fast(void* obj_ptr, uint16_t property_index) {
-    static_assert(sizeof(T) <= 8, "Type too large for fast property access");
-    
-    ObjectInstance* obj = static_cast<ObjectInstance*>(obj_ptr);
-    if (!obj) return T{};
-    
-    T* prop_ptr = obj->get_property_by_index<T>(property_index);
-    return prop_ptr ? *prop_ptr : T{};
-}
-
-// Template function for ultra-fast typed property assignment
-template<typename T>
-inline bool object_set_property_fast(void* obj_ptr, uint16_t property_index, const T& value) {
-    static_assert(sizeof(T) <= 8, "Type too large for fast property assignment");
-    
-    ObjectInstance* obj = static_cast<ObjectInstance*>(obj_ptr);
-    if (!obj) return false;
-    
-    return obj->set_property_by_index(property_index, value);
-}
+// Template functions for fast property access removed - will be reimplemented according to new architecture
 
 // Compile-time property offset calculation macro
 #define PROPERTY_OFFSET_FAST(ClassName, PropertyName) \

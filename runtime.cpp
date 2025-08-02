@@ -115,9 +115,7 @@ void ThreadPool::enqueue_simple(std::function<void()> task) {
 
 // Old GoroutineScheduler implementations removed - using new system
 
-// Global object registry
-std::unordered_map<int64_t, std::unique_ptr<ObjectInstance>> object_registry;
-std::atomic<int64_t> next_object_id{1};
+// Object registry removed - property access system redesigned according to CLAUDE.md
 
 // High-Performance Function Registry Implementation
 FunctionEntry g_function_table[MAX_FUNCTIONS];
@@ -479,11 +477,7 @@ void __console_log_auto(int64_t value) {
             // String printing failed, try other types
         }
         
-        // Check if it might be an object ID
-        if (object_registry.find(value) != object_registry.end()) {
-            __console_log_object(value);
-            return;
-        }
+        // Object ID check removed - object registry system redesigned
     }
     
     // Default: treat as number
@@ -501,12 +495,8 @@ void __console_log_string(void* string_ptr) {
 }
 
 void __console_log_object(int64_t object_id) {
-    auto it = object_registry.find(object_id);
-    if (it != object_registry.end()) {
-        std::cout << "[object Object]";
-    } else {
-        std::cout << "Object#" << object_id;
-    }
+    // Object registry system removed - will be reimplemented according to new architecture
+    std::cout << "Object#" << object_id;
 }
 
 // Helper function to extract C string from GoTSString pointer
@@ -955,100 +945,9 @@ extern "C" void* __dynamic_value_create_from_string(void* string_ptr) {
     return static_cast<void*>(dyn_val);
 }
 
-// Object management functions
-extern "C" int64_t __object_create(const char* class_name, int64_t property_count) {
-    using namespace ultraScript;
-    
-    // Create a new ObjectInstance
-    auto obj = std::make_unique<ObjectInstance>(class_name ? class_name : "", property_count);
-    
-    // Assign a unique ID and store in registry
-    int64_t object_id = next_object_id.fetch_add(1);
-    object_registry[object_id] = std::move(obj);
-    
-    return object_id;
-}
+// Object creation function removed - will be reimplemented according to new architecture
 
-extern "C" void __object_set_property(int64_t object_id, int64_t property_index, int64_t value) {
-    using namespace ultraScript;
-    
-    auto it = object_registry.find(object_id);
-    if (it != object_registry.end() && property_index >= 0 && 
-        property_index < it->second->property_count) {
-        it->second->property_data[property_index] = value;
-    }
-}
-
-extern "C" void __object_set_property_name(int64_t object_id, int64_t property_index, const char* property_name) {
-    using namespace ultraScript;
-    
-    auto it = object_registry.find(object_id);
-    if (it != object_registry.end() && property_index >= 0 && 
-        property_index < it->second->property_count && property_name) {
-        it->second->property_names[property_index] = property_name;
-    }
-}
-
-extern "C" int64_t __object_get_property(int64_t object_id, int64_t property_index) {
-    using namespace ultraScript;
-    
-    auto it = object_registry.find(object_id);
-    if (it != object_registry.end() && property_index >= 0 && 
-        property_index < it->second->property_count) {
-        return it->second->property_data[property_index];
-    }
-    return 0;
-}
-
-extern "C" const char* __object_get_property_name(int64_t object_id, int64_t property_index) {
-    using namespace ultraScript;
-    
-    auto it = object_registry.find(object_id);
-    if (it != object_registry.end() && property_index >= 0 && 
-        property_index < it->second->property_count) {
-        return it->second->property_names[property_index].c_str();
-    }
-    return nullptr;
-}
-
-extern "C" void* __dynamic_get_property(void* dynamic_value_ptr, const char* property_name) {
-    using namespace ultraScript;
-    
-    if (!dynamic_value_ptr || !property_name) {
-        return nullptr;
-    }
-    
-    // The dynamic_value_ptr actually contains an object ID (int64_t)
-    int64_t object_id = *reinterpret_cast<int64_t*>(dynamic_value_ptr);
-    
-    // Find the object in the registry
-    auto it = object_registry.find(object_id);
-    if (it == object_registry.end()) {
-        return nullptr;
-    }
-    
-    ObjectInstance* obj = it->second.get();
-    
-    // Look for the property by name in the properties map
-    auto prop_it = obj->properties.find(property_name);
-    if (prop_it != obj->properties.end()) {
-        // Create a dynamic value containing the property value
-        static int64_t result_value;
-        result_value = prop_it->second;
-        return &result_value;
-    }
-    
-    // Also check the property_names array for indexed access
-    for (int64_t i = 0; i < obj->property_count; i++) {
-        if (obj->property_names[i] == property_name) {
-            static int64_t result_value;
-            result_value = obj->property_data[i];
-            return &result_value;
-        }
-    }
-    
-    return nullptr;
-}
+// Property access runtime functions removed - will be reimplemented according to new architecture
 
 // String functions
 extern "C" void* __string_concat(void* str1, void* str2) {
@@ -1146,6 +1045,45 @@ extern "C" void* __string_match(void* string_ptr, void* regex_ptr) {
     result->push(std::string("match")); // Simplified match result
     
     return result;
+}
+
+// ==================== Object Creation Functions ====================
+
+int64_t __object_create(const char* class_name, int64_t property_count) {
+    // Simple object creation implementation
+    // For now, just allocate a basic object structure
+    
+    struct SimpleObject {
+        const char* class_name;
+        size_t property_count;
+        void** properties;
+    };
+    
+    SimpleObject* obj = new SimpleObject();
+    obj->class_name = class_name;
+    obj->property_count = property_count;
+    obj->properties = property_count > 0 ? new void*[property_count] : nullptr;
+    
+    // Initialize properties to nullptr
+    for (int64_t i = 0; i < property_count; i++) {
+        obj->properties[i] = nullptr;
+    }
+    
+    return reinterpret_cast<int64_t>(obj);
+}
+
+extern "C" void* __jit_object_create(const char* class_name) {
+    // JIT-optimized object creation - for now, same as regular object creation
+    int64_t obj_id = __object_create(class_name, 0);
+    return reinterpret_cast<void*>(obj_id);
+}
+
+extern "C" void* __jit_object_create_sized(const char* class_name, size_t size) {
+    // JIT-optimized object creation with known size
+    // For now, same as regular object creation
+    (void)size; // Suppress unused parameter warning
+    int64_t obj_id = __object_create(class_name, 0);
+    return reinterpret_cast<void*>(obj_id);
 }
 
 } // namespace ultraScript

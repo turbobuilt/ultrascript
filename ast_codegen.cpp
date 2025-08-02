@@ -4,11 +4,13 @@
 #include "compilation_context.h"
 #include "function_compilation_manager.h"
 #include "console_log_overhaul.h"
-#include "jit_class_registry.h"
+#include "class_runtime_interface.h"
 #include <iostream>
 #include <unordered_map>
 #include <cstring>
 #include <cstdlib>
+#include <stdexcept>
+#include <string>
 
 using namespace ultraScript;
 #include <queue>
@@ -38,19 +40,32 @@ void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout << "[DEBUG] NumberLiteral::generate_code - value=" << value << std::endl;
     std::cout.flush();
     
+    // Check if we're in a property assignment context with a specific type
+    DataType property_context = types.get_current_property_assignment_type();
+    
     // Check if we're in an array element context with a specific type
     DataType element_context = types.get_current_element_type_context();
     
-    if (element_context != DataType::ANY) {
-        // We're in a typed array context - generate the value according to the element type
-        switch (element_context) {
+    // Priority: property assignment context > array element context > default
+    DataType target_type = DataType::ANY;
+    if (property_context != DataType::ANY) {
+        target_type = property_context;
+        std::cout << "[DEBUG] NumberLiteral: Using property assignment context: " << static_cast<int>(target_type) << std::endl;
+    } else if (element_context != DataType::ANY) {
+        target_type = element_context;
+        std::cout << "[DEBUG] NumberLiteral: Using array element context: " << static_cast<int>(target_type) << std::endl;
+    }
+    
+    if (target_type != DataType::ANY) {
+        // We're in a typed context - generate the value according to the target type
+        switch (target_type) {
             case DataType::INT64:
             case DataType::UINT64: {
                 // Convert to int64
                 int64_t int_value = static_cast<int64_t>(value);
                 std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to int64: " << int_value << std::endl;
                 gen.emit_mov_reg_imm(0, int_value);
-                result_type = element_context;
+                result_type = target_type;
                 break;
             }
             case DataType::INT32:
@@ -59,7 +74,25 @@ void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
                 int32_t int_value = static_cast<int32_t>(value);
                 std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to int32: " << int_value << std::endl;
                 gen.emit_mov_reg_imm(0, static_cast<int64_t>(int_value));
-                result_type = element_context;
+                result_type = target_type;
+                break;
+            }
+            case DataType::INT16:
+            case DataType::UINT16: {
+                // Convert to int16
+                int16_t int_value = static_cast<int16_t>(value);
+                std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to int16: " << int_value << std::endl;
+                gen.emit_mov_reg_imm(0, static_cast<int64_t>(int_value));
+                result_type = target_type;
+                break;
+            }
+            case DataType::INT8:
+            case DataType::UINT8: {
+                // Convert to int8
+                int8_t int_value = static_cast<int8_t>(value);
+                std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to int8: " << int_value << std::endl;
+                gen.emit_mov_reg_imm(0, static_cast<int64_t>(int_value));
+                result_type = target_type;
                 break;
             }
             case DataType::FLOAT32: {
@@ -70,6 +103,14 @@ void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
                 std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to float32: " << float_value << std::endl;
                 gen.emit_mov_reg_imm(0, static_cast<int64_t>(converter32.i));
                 result_type = DataType::FLOAT32;
+                break;
+            }
+            case DataType::BOOLEAN: {
+                // Convert number to boolean (0 = false, non-zero = true)
+                bool bool_value = (value != 0.0);
+                std::cout << "[DEBUG] NumberLiteral: Converting " << value << " to boolean: " << bool_value << std::endl;
+                gen.emit_mov_reg_imm(0, bool_value ? 1 : 0);
+                result_type = DataType::BOOLEAN;
                 break;
             }
             case DataType::FLOAT64:
@@ -95,8 +136,98 @@ void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout.flush();
 }
 
-void StringLiteral::generate_code(CodeGenerator& gen, TypeInference&) {
-    // High-performance string creation using interned strings for literals
+void StringLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
+    std::cout << "[DEBUG] StringLiteral::generate_code - value=\"" << value << "\"" << std::endl;
+    std::cout.flush();
+    
+    // Check if we're in a property assignment context with a specific type
+    DataType property_context = types.get_current_property_assignment_type();
+    
+    // Check if we're in an array element context with a specific type
+    DataType element_context = types.get_current_element_type_context();
+    
+    // Priority: property assignment context > array element context > default
+    DataType target_type = DataType::ANY;
+    if (property_context != DataType::ANY) {
+        target_type = property_context;
+        std::cout << "[DEBUG] StringLiteral: Using property assignment context: " << static_cast<int>(target_type) << std::endl;
+    } else if (element_context != DataType::ANY) {
+        target_type = element_context;
+        std::cout << "[DEBUG] StringLiteral: Using array element context: " << static_cast<int>(target_type) << std::endl;
+    }
+    
+    // For non-string target types, we need to convert or fail
+    if (target_type != DataType::ANY && target_type != DataType::STRING) {
+        // Handle type conversion from string literal to other types
+        switch (target_type) {
+            case DataType::INT64:
+            case DataType::UINT64: {
+                // Try to parse string as integer
+                try {
+                    int64_t int_value = std::stoll(value);
+                    std::cout << "[DEBUG] StringLiteral: Converting \"" << value << "\" to int64: " << int_value << std::endl;
+                    gen.emit_mov_reg_imm(0, int_value);
+                    result_type = target_type;
+                    return;
+                } catch (const std::exception&) {
+                    throw std::runtime_error("Cannot convert string literal \"" + value + "\" to integer type");
+                }
+            }
+            case DataType::INT32:
+            case DataType::UINT32: {
+                // Try to parse string as 32-bit integer
+                try {
+                    int32_t int_value = std::stoi(value);
+                    std::cout << "[DEBUG] StringLiteral: Converting \"" << value << "\" to int32: " << int_value << std::endl;
+                    gen.emit_mov_reg_imm(0, static_cast<int64_t>(int_value));
+                    result_type = target_type;
+                    return;
+                } catch (const std::exception&) {
+                    throw std::runtime_error("Cannot convert string literal \"" + value + "\" to 32-bit integer type");
+                }
+            }
+            case DataType::FLOAT64: {
+                // Try to parse string as double
+                try {
+                    double float_value = std::stod(value);
+                    union { double d; int64_t i; } converter;
+                    converter.d = float_value;
+                    std::cout << "[DEBUG] StringLiteral: Converting \"" << value << "\" to float64: " << float_value << std::endl;
+                    gen.emit_mov_reg_imm(0, converter.i);
+                    result_type = DataType::FLOAT64;
+                    return;
+                } catch (const std::exception&) {
+                    throw std::runtime_error("Cannot convert string literal \"" + value + "\" to float64 type");
+                }
+            }
+            case DataType::FLOAT32: {
+                // Try to parse string as float
+                try {
+                    float float_value = std::stof(value);
+                    union { float f; int32_t i; } converter32;
+                    converter32.f = float_value;
+                    std::cout << "[DEBUG] StringLiteral: Converting \"" << value << "\" to float32: " << float_value << std::endl;
+                    gen.emit_mov_reg_imm(0, static_cast<int64_t>(converter32.i));
+                    result_type = DataType::FLOAT32;
+                    return;
+                } catch (const std::exception&) {
+                    throw std::runtime_error("Cannot convert string literal \"" + value + "\" to float32 type");
+                }
+            }
+            case DataType::BOOLEAN: {
+                // Convert string to boolean based on JavaScript rules
+                bool bool_value = !value.empty() && value != "0" && value != "false";
+                std::cout << "[DEBUG] StringLiteral: Converting \"" << value << "\" to boolean: " << bool_value << std::endl;
+                gen.emit_mov_reg_imm(0, bool_value ? 1 : 0);
+                result_type = DataType::BOOLEAN;
+                return;
+            }
+            default:
+                throw std::runtime_error("Cannot convert string literal to target type " + std::to_string(static_cast<int>(target_type)));
+        }
+    }
+    
+    // Default string handling - high-performance string creation using interned strings for literals
     // This provides both memory efficiency and extremely fast string creation
     
     if (value.empty()) {
@@ -198,6 +329,101 @@ void RegexLiteral::generate_code(CodeGenerator& gen, TypeInference&) {
 }
 
 void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
+    // SPECIAL CASE: Handle boolean literals
+    if (name == "true") {
+        // Check if we're in a property assignment context for type conversion
+        DataType property_context = types.get_current_property_assignment_type();
+        DataType element_context = types.get_current_element_type_context();
+        DataType target_type = (property_context != DataType::ANY) ? property_context : 
+                              (element_context != DataType::ANY) ? element_context : DataType::BOOLEAN;
+        
+        std::cout << "[DEBUG] Boolean literal 'true' with target type: " << static_cast<int>(target_type) << std::endl;
+        
+        switch (target_type) {
+            case DataType::BOOLEAN:
+                gen.emit_mov_reg_imm(0, 1);
+                result_type = DataType::BOOLEAN;
+                break;
+            case DataType::INT64:
+            case DataType::UINT64:
+            case DataType::INT32:
+            case DataType::UINT32:
+            case DataType::INT16:
+            case DataType::UINT16:
+            case DataType::INT8:
+            case DataType::UINT8:
+                gen.emit_mov_reg_imm(0, 1);
+                result_type = target_type;
+                break;
+            case DataType::FLOAT64: {
+                union { double d; int64_t i; } converter;
+                converter.d = 1.0;
+                gen.emit_mov_reg_imm(0, converter.i);
+                result_type = DataType::FLOAT64;
+                break;
+            }
+            case DataType::FLOAT32: {
+                union { float f; int32_t i; } converter32;
+                converter32.f = 1.0f;
+                gen.emit_mov_reg_imm(0, static_cast<int64_t>(converter32.i));
+                result_type = DataType::FLOAT32;
+                break;
+            }
+            default:
+                gen.emit_mov_reg_imm(0, 1);
+                result_type = DataType::BOOLEAN;
+                break;
+        }
+        return;
+    }
+    
+    if (name == "false") {
+        // Check if we're in a property assignment context for type conversion
+        DataType property_context = types.get_current_property_assignment_type();
+        DataType element_context = types.get_current_element_type_context();
+        DataType target_type = (property_context != DataType::ANY) ? property_context : 
+                              (element_context != DataType::ANY) ? element_context : DataType::BOOLEAN;
+        
+        std::cout << "[DEBUG] Boolean literal 'false' with target type: " << static_cast<int>(target_type) << std::endl;
+        
+        switch (target_type) {
+            case DataType::BOOLEAN:
+                gen.emit_mov_reg_imm(0, 0);
+                result_type = DataType::BOOLEAN;
+                break;
+            case DataType::INT64:
+            case DataType::UINT64:
+            case DataType::INT32:
+            case DataType::UINT32:
+            case DataType::INT16:
+            case DataType::UINT16:
+            case DataType::INT8:
+            case DataType::UINT8:
+                gen.emit_mov_reg_imm(0, 0);
+                result_type = target_type;
+                break;
+            case DataType::FLOAT64: {
+                union { double d; int64_t i; } converter;
+                converter.d = 0.0;
+                gen.emit_mov_reg_imm(0, converter.i);
+                result_type = DataType::FLOAT64;
+                break;
+            }
+            case DataType::FLOAT32: {
+                union { float f; int32_t i; } converter32;
+                converter32.f = 0.0f;
+                gen.emit_mov_reg_imm(0, static_cast<int64_t>(converter32.i));
+                result_type = DataType::FLOAT32;
+                break;
+            }
+            default:
+                gen.emit_mov_reg_imm(0, 0);
+                result_type = DataType::BOOLEAN;
+                break;
+        }
+        return;
+    }
+    
     // SPECIAL CASE: Handle "runtime" global object
     if (name == "runtime") {
         // The runtime object is a special global that doesn't need any code generation
@@ -2293,12 +2519,18 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             variable_type = declared_type;
         } else {
             // Untyped variable - infer type from value for arrays and other structured types
-            // For simple values, keep as ANY for JavaScript compatibility
+            // For property access results, preserve the specific type for better performance
             if (value->result_type == DataType::TENSOR || value->result_type == DataType::STRING || 
                 value->result_type == DataType::REGEX || value->result_type == DataType::FUNCTION ||
-                value->result_type == DataType::ARRAY) {
-                // Arrays, tensors, strings, regex, and functions should preserve their type for proper method dispatch
+                value->result_type == DataType::ARRAY || value->result_type == DataType::CLASS_INSTANCE) {
+                // Arrays, tensors, strings, regex, functions, and class instances should preserve their type for proper method dispatch
                 variable_type = value->result_type;
+            } else if (auto* prop_access = dynamic_cast<ExpressionPropertyAccess*>(value.get())) {
+                // Property access results: preserve the property's original type for performance
+                variable_type = prop_access->result_type;
+            } else if (auto* prop_access = dynamic_cast<PropertyAccess*>(value.get())) {
+                // Property access results: preserve the property's original type for performance
+                variable_type = prop_access->result_type;
             } else {
                 // Other types keep as ANY for JavaScript compatibility
                 // This allows dynamic type changes but sacrifices some performance
@@ -2819,134 +3051,121 @@ void CaseClause::generate_code(CodeGenerator& gen, TypeInference& types) {
     (void)types;
 }
 
-// Class-related AST node implementations
+// Property access code generation - high-performance direct offset access for declared properties
 void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // OPTIMIZATION: Check if this is a runtime object property access
-    // The JIT will convert runtime.time to a direct pointer without any lookups
-    if (object_name == "runtime") {
-        // This is accessing a runtime sub-object like runtime.time, runtime.fs, etc.
-        // We DON'T generate any code here - just mark the type
-        // The parent ExpressionPropertyAccess or MethodCall will handle the optimization
-        result_type = DataType::RUNTIME_OBJECT;
-        return;
+    std::cout << "[DEBUG] PropertyAccess::generate_code - object=" << object_name << ", property=" << property_name << std::endl;
+    
+    // Get the object's variable type and class name
+    DataType object_type = types.get_variable_type(object_name);
+    std::string class_name = types.get_variable_class_name(object_name);
+    
+    if (object_type != DataType::CLASS_INSTANCE || class_name.empty()) {
+        throw std::runtime_error("Property access on non-object or unknown class: " + object_name);
     }
     
-    if (object_name == "this") {
-        // Handle this.property access in constructor/method context
-        // Get the object_id from the saved this context
-        int64_t this_offset = types.get_variable_offset("__this_object_id");
-        if (this_offset != 0) {
-            // In method context - get object_id from saved location
-            gen.emit_mov_reg_mem(7, this_offset); // RDI = object_id from method context
-        } else {
-            // Fallback for constructor context
-            gen.emit_mov_reg_mem(7, types.get_variable_offset(object_name)); // RDI = object pointer
-        }
-        
-        // Use new dynamic property access
-        std::string interned_prop = "__string_intern(\"" + property_name + "\")";
-        gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name.c_str())); // RSI = property name
-        gen.emit_call("__dynamic_get_property");
-        // Result will be in RAX
-        
-        result_type = DataType::ANY;
-    } else {
-        // Handle regular object.property access
-        // Check if the object exists as a variable first
-        if (types.variable_exists(object_name)) {
-            // ULTRA-FAST PATH: Direct offset assembly for static property access
-            int64_t obj_offset = types.get_variable_offset(object_name);
-            std::string class_name = types.get_variable_class_name(object_name);
-            
-            std::cout << "[CLASS_ACCESS] ULTRA-FAST: " << object_name << "." << property_name 
-                     << " (class: " << class_name << ")" << std::endl;
-            
-            // Check if this property is statically defined on the class
-            // For now, we'll hardcode the Dog.name example, but this should use class registry
-            bool is_static_property = false;
-            uint32_t property_offset = 0;
-            
-            if (class_name == "Dog" && property_name == "name") {
-                is_static_property = true;
-                property_offset = 16; // After JITObjectHeader (8 bytes class_id + 4 bytes ref_count + 4 padding)
-                std::cout << "[CLASS_ACCESS] Found static property " << property_name 
-                         << " at offset " << property_offset << std::endl;
-            }
-            
-            if (is_static_property) {
-                // ULTRA-FAST PATH: Direct memory access with known offset
-                std::cout << "[CLASS_ACCESS] ULTRA-FAST: Emitting direct offset access" << std::endl;
-                
-                // Load object pointer from variable
-                gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer from variable
-                
-                // DIRECT ASSEMBLY: mov rax, [rdi + offset] - NO FUNCTION CALL!
-                std::cout << "[CLASS_ACCESS] DEBUG: About to call emit_mov_reg_reg_offset(0, 7, " << property_offset << ")" << std::endl;
-                gen.emit_mov_reg_reg_offset(0, 7, property_offset); // RAX = [RDI + offset]
-                std::cout << "[CLASS_ACCESS] DEBUG: Successfully called emit_mov_reg_reg_offset" << std::endl;
-                
-                std::cout << "[CLASS_ACCESS] ULTRA-FAST: Generated direct assembly access for " 
-                         << object_name << "." << property_name << " (offset=" << property_offset << ")" << std::endl;
-            } else {
-                // DYNAMIC_DICT PATH: Property not in class definition, use per-object map
-                std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Property " << property_name 
-                         << " not found in class " << class_name << ", using dynamic lookup" << std::endl;
-                
-                gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer
-                gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name.c_str())); // RSI = property name
-                gen.emit_call("__dynamic_get_property");
-                
-                std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Generated dynamic property access" << std::endl;
-            }
-            
-            result_type = DataType::ANY;
-        } else {
-            // Object not found as variable - might be static property access (ClassName.property)
-            // Setup string pooling for class name and property name
-            static std::unordered_map<std::string, const char*> string_pool;
-            
-            auto get_pooled_string = [&](const std::string& str) -> const char* {
-                auto it = string_pool.find(str);
-                if (it == string_pool.end()) {
-                    char* str_copy = new char[str.length() + 1];
-                    strcpy(str_copy, str.c_str());
-                    string_pool[str] = str_copy;
-                    return str_copy;
-                } else {
-                    return it->second;
-                }
-            };
-            
-            const char* class_name_ptr = get_pooled_string(object_name);
-            const char* property_name_ptr = get_pooled_string(property_name);
-            
-            // Call __static_get_property(class_name, property_name)
-            gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(class_name_ptr));   // RDI = class_name
-            gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property_name
-            gen.emit_call("__static_get_property");
-            // Result will be in RAX
-            result_type = DataType::ANY; // TODO: Get actual property type
+    // Get the class info to find property offset
+    auto* compiler = get_current_compiler();
+    if (!compiler) {
+        throw std::runtime_error("No compiler context available for property access");
+    }
+    
+    ClassInfo* class_info = compiler->get_class(class_name);
+    if (!class_info) {
+        throw std::runtime_error("Unknown class: " + class_name);
+    }
+    
+    // Find the property in the class fields
+    int64_t property_offset = -1;
+    DataType property_type = DataType::ANY;
+    for (size_t i = 0; i < class_info->fields.size(); ++i) {
+        if (class_info->fields[i].name == property_name) {
+            property_offset = i * 8; // Each property is 8 bytes (pointer or int64)
+            property_type = class_info->fields[i].type;
+            break;
         }
     }
+    
+    if (property_offset == -1) {
+        throw std::runtime_error("Property '" + property_name + "' not found in class " + class_name);
+    }
+    
+    std::cout << "[DEBUG] PropertyAccess: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;
+    
+    // Load the object pointer from the variable
+    int64_t object_stack_offset = types.get_variable_offset(object_name);
+    gen.emit_mov_reg_mem(0, object_stack_offset); // RAX = object pointer
+    
+    // LIGHTNING FAST: Direct offset access - zero performance penalty like C++
+    gen.emit_mov_reg_reg_offset(0, 0, property_offset); // RAX = [RAX + property_offset]
+    
+    // Set the result type for further operations
+    result_type = property_type;
+    
+    std::cout << "[DEBUG] PropertyAccess: Generated direct offset access for " << class_name << "." << property_name << std::endl;
 }
 
+// Expression property access code generation - supports built-in types and class instances
 void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // OPTIMIZATION: Check if this is runtime.x access (like runtime.time)
-    // If the object is a PropertyAccess with object_name == "runtime"
-    PropertyAccess* prop_access = dynamic_cast<PropertyAccess*>(object.get());
-    if (prop_access && prop_access->object_name == "runtime") {
-        // This is runtime.x access - store the sub-object name for method call optimization
-        // We don't generate any code here - MethodCall will handle the direct call
-        result_type = DataType::RUNTIME_OBJECT;
-        return;
-    }
+    std::cout << "[DEBUG] ExpressionPropertyAccess::generate_code - property=" << property_name << std::endl;
     
     // Generate code for the object expression first
     object->generate_code(gen, types);
     DataType object_type = object->result_type;
     
     // Handle different types of objects for property access
-    if (object_type == DataType::STRING) {
+    if (object_type == DataType::CLASS_INSTANCE) {
+        // Handle class instance property access with direct offset access
+        // For now, only support direct variable references as objects
+        auto* var_expr = dynamic_cast<Identifier*>(object.get());
+        if (!var_expr) {
+            throw std::runtime_error("Class property access currently only supports direct variable references");
+        }
+        
+        std::string object_name = var_expr->name;
+        std::string class_name = types.get_variable_class_name(object_name);
+        
+        if (class_name.empty()) {
+            throw std::runtime_error("Property access on object with unknown class: " + object_name);
+        }
+        
+        // Get the class info to find property offset
+        auto* compiler = get_current_compiler();
+        if (!compiler) {
+            throw std::runtime_error("No compiler context available for property access");
+        }
+        
+        ClassInfo* class_info = compiler->get_class(class_name);
+        if (!class_info) {
+            throw std::runtime_error("Unknown class: " + class_name);
+        }
+        
+        // Find the property in the class fields
+        int64_t property_offset = -1;
+        DataType property_type = DataType::ANY;
+        for (size_t i = 0; i < class_info->fields.size(); ++i) {
+            if (class_info->fields[i].name == property_name) {
+                property_offset = i * 8; // Each property is 8 bytes (pointer or int64)
+                property_type = class_info->fields[i].type;
+                break;
+            }
+        }
+        
+        if (property_offset == -1) {
+            throw std::runtime_error("Property '" + property_name + "' not found in class " + class_name);
+        }
+        
+        std::cout << "[DEBUG] ExpressionPropertyAccess: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;
+        
+        // LIGHTNING FAST: Direct offset access - zero performance penalty like C++
+        // Object pointer is already in RAX from object->generate_code()
+        gen.emit_mov_reg_reg_offset(0, 0, property_offset); // RAX = [RAX + property_offset]
+        
+        // Set the result type for further operations
+        result_type = property_type;
+        
+        std::cout << "[DEBUG] ExpressionPropertyAccess: Generated direct offset access for " << class_name << "." << property_name << std::endl;
+        
+    } else if (object_type == DataType::STRING) {
         // Handle string properties like length
         if (property_name == "length") {
             // String object is now in RAX, get its length
@@ -2980,129 +3199,9 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
         } else {
             throw std::runtime_error("Unknown array property: " + property_name);
         }
-    } else if (object_type == DataType::ARRAY) {
-        // Handle simplified Array properties
-        if (property_name == "length") {
-            gen.emit_mov_reg_reg(7, 0);  // RDI = array pointer
-            gen.emit_call("__array_size"); // Use new array size function
-            result_type = DataType::FLOAT64;
-        } else if (property_name == "shape") {
-            gen.emit_mov_reg_reg(7, 0);  // RDI = array pointer
-            // TODO: Implement shape property for new DynamicArray system
-            throw std::runtime_error("Array.shape property not yet implemented for new array system");
-        } else {
-            throw std::runtime_error("Unknown Array property: " + property_name);
-        }
-    } else if (object_type == DataType::REGEX) {
-        // Handle regex properties
-        if (property_name == "source") {
-            // Get regex pattern as string
-            gen.emit_mov_reg_reg(7, 0);  // RDI = regex pointer
-            gen.emit_call("__regex_get_source");
-            result_type = DataType::STRING;
-        } else if (property_name == "global") {
-            gen.emit_mov_reg_reg(7, 0);  // RDI = regex pointer
-            gen.emit_call("__regex_get_global");
-            result_type = DataType::BOOLEAN;
-        } else if (property_name == "ignoreCase") {
-            gen.emit_mov_reg_reg(7, 0);  // RDI = regex pointer
-            gen.emit_call("__regex_get_ignore_case");
-            result_type = DataType::BOOLEAN;
-        } else {
-            throw std::runtime_error("Unknown regex property: " + property_name);
-        }
     } else {
-        // ULTRA-FAST CLASS SYSTEM: Handle object property access with three-tier optimization
-        
-        // Check if the object is a simple identifier (variable)
-        Identifier* identifier = dynamic_cast<Identifier*>(object.get());
-        if (identifier) {
-            // This is obj.property access where obj is a variable
-            std::string object_name = identifier->name;
-            
-            if (types.variable_exists(object_name)) {
-                std::string class_name = types.get_variable_class_name(object_name);
-                int64_t obj_offset = types.get_variable_offset(object_name);
-                
-                std::cout << "[CLASS_ACCESS] ULTRA-FAST: " << object_name << "." << property_name 
-                         << " (class: " << class_name << ")" << std::endl;
-                
-                // Check if this property is statically defined on the class
-                bool is_static_property = false;
-                uint32_t property_offset = 0;
-                
-                if (class_name == "Dog" && property_name == "name") {
-                    is_static_property = true;
-                    property_offset = 16; // After JITObjectHeader (12 bytes header + 4 padding)
-                    std::cout << "[CLASS_ACCESS] Found static property " << property_name 
-                             << " at offset " << property_offset << std::endl;
-                } else if (class_name == "Dog" && property_name == "age") {
-                    is_static_property = true;
-                    property_offset = 16; // After JITObjectHeader (12 bytes header + 4 padding) 
-                    std::cout << "[CLASS_ACCESS] Found static property " << property_name 
-                             << " at offset " << property_offset << std::endl;
-                }
-                
-                if (is_static_property) {
-                    // ULTRA-FAST PATH: Direct memory access with known offset
-                    std::cout << "[CLASS_ACCESS] ULTRA-FAST: Emitting direct offset access" << std::endl;
-                    
-                    // Load object pointer from variable
-                    std::cout << "[CLASS_ACCESS] DEBUG: Loading object pointer from offset " << obj_offset << std::endl;
-                    gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer from variable
-                    std::cout << "[CLASS_ACCESS] DEBUG: Object pointer loaded into RDI (reg 7)" << std::endl;
-                    
-                    // DIRECT ASSEMBLY: mov rax, [rdi + offset]
-                    std::cout << "[CLASS_ACCESS] DEBUG: About to call emit_mov_reg_reg_offset(0, 7, " << property_offset << ")" << std::endl;
-                    std::cout << "[CLASS_ACCESS] DEBUG: This means RAX = [RDI + " << property_offset << "]" << std::endl;
-                    gen.emit_mov_reg_reg_offset(0, 7, property_offset); // RAX = [RDI + offset]
-                    std::cout << "[CLASS_ACCESS] DEBUG: Successfully called emit_mov_reg_reg_offset" << std::endl;
-                    std::cout << "[CLASS_ACCESS] DEBUG: Property value should now be in RAX (reg 0)" << std::endl;
-                    
-                    std::cout << "[CLASS_ACCESS] ULTRA-FAST: Generated direct assembly access for " 
-                             << object_name << "." << property_name << " (offset=" << property_offset << ")" << std::endl;
-                } else {
-                    // DYNAMIC_DICT PATH: Property not in class definition, use per-object map
-                    std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Property " << property_name 
-                             << " not found in class " << class_name << ", using dynamic lookup" << std::endl;
-                    
-                    gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer
-                    gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name.c_str())); // RSI = property name
-                    gen.emit_call("__dynamic_get_property");
-                    
-                    std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Generated dynamic property access" << std::endl;
-                }
-                
-                result_type = DataType::ANY;
-            } else {
-                std::cout << "[CLASS_ACCESS] Object " << object_name << " not found as variable" << std::endl;
-                result_type = DataType::ANY;
-            }
-        } else {
-            // Fallback: For complex expressions or unknown objects, use dynamic property access
-            std::cout << "[CLASS_ACCESS] FALLBACK: Using dynamic property access for complex expression" << std::endl;
-            
-            gen.emit_mov_mem_reg(-8, 0); // Save object pointer on stack
-            
-            // Create a pooled string for the property name
-            static std::unordered_map<std::string, const char*> property_name_pool;
-            
-            auto it = property_name_pool.find(property_name);
-            if (it == property_name_pool.end()) {
-                char* name_copy = new char[property_name.length() + 1];
-                strcpy(name_copy, property_name.c_str());
-                property_name_pool[property_name] = name_copy;
-                it = property_name_pool.find(property_name);
-            }
-            
-            const char* property_name_ptr = it->second;
-            
-            // Call dynamic property getter
-            gen.emit_mov_reg_mem(7, -8);  // RDI = object pointer
-            gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property name
-            gen.emit_call("__dynamic_get_property");
-            result_type = DataType::ANY; // Unknown return type for dynamic access
-        }
+        // Property access not supported for this object type
+        throw std::runtime_error("Property access only supported for class instances, arrays and strings");
     }
 }
 
@@ -3112,49 +3211,37 @@ void ThisExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
     gen.emit_mov_reg_imm(0, 0);
 }
 
+
 void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // JIT OPTIMIZATION: Use direct object allocation instead of registry
+    // Extract class name from the NewExpression
+    std::string class_name = this->class_name;
     
-    // Get instance size from JIT class registry
-    uint32_t instance_size = JITClassRegistry::instance().get_instance_size(class_name);
-    
-    if (instance_size > 8) { // Valid class found (> header size)
-        // ULTRA-FAST JIT PATH: Direct allocation with known size
-        uint32_t class_id = std::hash<std::string>{}(class_name);
-        
-        gen.emit_mov_reg_imm(7, instance_size);   // RDI = size
-        gen.emit_mov_reg_imm(6, class_id);        // RSI = class_id
-        gen.emit_call("__jit_object_create_sized");
-        
-        std::cout << "[JIT] Optimized object creation for " << class_name 
-                 << " (size=" << instance_size << ", id=" << class_id << ")" << std::endl;
+    // MODERN SINGLE SYSTEM: Use the correct object creation function
+    auto* compiler = get_current_compiler();
+    if (compiler) {
+        ClassInfo* class_info = compiler->get_class(class_name);
+        if (class_info && class_info->instance_size > 0) {
+            // HIGH PERFORMANCE PATH: Use known instance size for direct allocation
+            uint32_t instance_size = class_info->instance_size;
+            
+            // Call the correct object creation function with class name and size
+            gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(class_name.c_str())); // RDI = class_name
+            gen.emit_mov_reg_imm(6, instance_size);   // RSI = instance_size
+            gen.emit_call("__jit_object_create_sized");
+            
+            std::cout << "[JIT] Optimized object creation for " << class_name 
+                     << " (size=" << instance_size << ")" << std::endl;
+        } else {
+            // Fallback for classes without known size - use basic creation
+            gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(class_name.c_str())); // RDI = class_name
+            gen.emit_call("__jit_object_create");
+            
+            std::cout << "[JIT] Basic object creation for " << class_name << std::endl;
+        }
     } else {
-        // Fallback to old system for unknown classes
-        // Create object instance - get actual property count from class registry
-        int64_t property_count = 1; // Default fallback
-        if (ConstructorDecl::current_compiler_context) {
-            ClassInfo* class_info = ConstructorDecl::current_compiler_context->get_class(class_name);
-            if (class_info) {
-                property_count = class_info->fields.size();
-            }
-        }
-        
-        // Setup string pooling for class name
-        static std::unordered_map<std::string, const char*> class_name_pool;
-        
-        auto it = class_name_pool.find(class_name);
-        if (it == class_name_pool.end()) {
-            char* name_copy = new char[class_name.length() + 1];
-            strcpy(name_copy, class_name.c_str());
-            class_name_pool[class_name] = name_copy;
-            it = class_name_pool.find(class_name);
-        }
-        
-        // Set up call to __jit_object_create
-        gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = class_name
+        // No compiler context - use basic object creation
+        gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(class_name.c_str()));
         gen.emit_call("__jit_object_create");
-        
-        std::cout << "[JIT] Fallback object creation for " << class_name << std::endl;
     }
     
     // Object pointer is now in RAX
@@ -3193,7 +3280,6 @@ void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
     gen.emit_mov_reg_mem(0, -8);
     
     result_type = DataType::CLASS_INSTANCE;
-    
 }
 
 void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
@@ -3345,157 +3431,83 @@ void MethodDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     gen.emit_function_return();
 }
 
+// Property assignment code generation removed - will be reimplemented according to new architecture
 void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // Generate code for the value expression first
-    value->generate_code(gen, types);
-    
-    if (object_name == "this") {
-        // Handle this.property = value in constructor/method context
-        // Get the 'this' object_id from the stack where it was stored by the constructor
-        // Function signature: __object_set_property(object_id, property_index, value)
-        gen.emit_mov_reg_reg(2, 0); // RDX = value (from RAX)
-        gen.emit_mov_reg_mem(7, -8); // RDI = object_id (from 'this' parameter on stack)
-        gen.emit_mov_reg_imm(6, 0);  // RSI = property_index (hardcoded for first property)
-        gen.emit_call("__object_set_property");
-        
-    } else {
-        // Handle regular object.property = value
-        // Get object from variable
-        DataType obj_type = types.get_variable_type(object_name);
-        if (obj_type == DataType::CLASS_INSTANCE) {
-            // Get object ID from variable
-            int64_t obj_offset = types.get_variable_offset(object_name);
-            
-            // Get the class name for this object instance
-            std::string class_name = types.get_variable_class_name(object_name);
-            
-            std::cout << "[CLASS_ACCESS] ULTRA-FAST ASSIGNMENT: " << object_name << "." << property_name 
-                     << " (class: " << class_name << ")" << std::endl;
-            
-            // Check if this property is statically defined on the class
-            bool is_static_property = false;
-            uint32_t property_offset = 0;
-            
-            if (class_name == "Dog" && property_name == "name") {
-                is_static_property = true;
-                property_offset = 16; // After JITObjectHeader (12 bytes header + 4 padding)
-                std::cout << "[CLASS_ACCESS] Found static property " << property_name 
-                         << " at offset " << property_offset << std::endl;
-            }
-            
-            if (is_static_property) {
-                // ULTRA-FAST ASSIGNMENT: Direct memory write with known offset
-                std::cout << "[CLASS_ACCESS] ULTRA-FAST: Emitting direct offset write" << std::endl;
-                
-                // Save value and load object pointer
-                gen.emit_mov_reg_reg(2, 0); // RDX = value (save value from RAX)
-                gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer
-                
-                // DIRECT ASSEMBLY: mov [rdi + offset], rdx - NO FUNCTION CALL!
-                std::cout << "[CLASS_ACCESS] DEBUG: About to call emit_mov_reg_offset_reg(7, " << property_offset << ", 2)" << std::endl;
-                gen.emit_mov_reg_offset_reg(7, property_offset, 2); // [RDI + offset] = RDX
-                std::cout << "[CLASS_ACCESS] DEBUG: Successfully called emit_mov_reg_offset_reg" << std::endl;
-                
-                std::cout << "[CLASS_ACCESS] ULTRA-FAST: Generated direct assembly write for " 
-                         << object_name << "." << property_name << " (offset=" << property_offset << ")" << std::endl;
-            } else {
-                // DYNAMIC_DICT ASSIGNMENT: Property not in class definition, use per-object map
-                std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Property " << property_name 
-                         << " not found in class " << class_name << ", using dynamic assignment" << std::endl;
-                
-                // Function signature: __object_set_property(object_id, property_index, value)
-                gen.emit_mov_reg_reg(2, 0); // RDX = value (save value from RAX first)
-                gen.emit_mov_reg_mem(7, obj_offset); // RDI = object_id
-                gen.emit_mov_reg_imm(6, 0);  // RSI = property_index (default)
-                gen.emit_call("__object_set_property");
-                
-                std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Generated dynamic property assignment" << std::endl;
-            }
-        } else {
-            // Object not found as variable - might be static property assignment (ClassName.property = value)
-            // Setup string pooling for class name and property name
-            static std::unordered_map<std::string, const char*> string_pool;
-            
-            auto get_pooled_string = [&](const std::string& str) -> const char* {
-                auto it = string_pool.find(str);
-                if (it == string_pool.end()) {
-                    char* str_copy = new char[str.length() + 1];
-                    strcpy(str_copy, str.c_str());
-                    string_pool[str] = str_copy;
-                    return str_copy;
-                } else {
-                    return it->second;
-                }
-            };
-            
-            const char* class_name_ptr = get_pooled_string(object_name);
-            const char* property_name_ptr = get_pooled_string(property_name);
-            
-            // Call __static_set_property(class_name, property_name, value)
-            gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(class_name_ptr));   // RDI = class_name
-            gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property_name
-            gen.emit_mov_reg_reg(2, 0); // RDX = value (from RAX)
-            gen.emit_call("__static_set_property");
-        }
-    }
-    
-    result_type = DataType::VOID;
+    // TODO: Implement new property assignment system according to CLAUDE.md architecture
+    // This will support direct offset writes for known properties and dynamic assignment
+    throw std::runtime_error("PropertyAssignment code generation not yet implemented - awaiting new architecture");
 }
 
+// Expression property assignment code generation - high-performance direct offset access for declared properties
 void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // Generate code for the value expression first
-    value->generate_code(gen, types);
+    std::cout << "[DEBUG] ExpressionPropertyAssignment::generate_code - property=" << property_name << std::endl;
     
-    // Save the value on the stack temporarily
-    gen.emit_mov_mem_reg(-8, 0); // Save value to stack
-    
-    // Generate code for the object expression
+    // Generate code for the object expression first
     object->generate_code(gen, types);
     DataType object_type = object->result_type;
     
-    // Restore value to RDX
-    gen.emit_mov_reg_mem(2, -8); // RDX = value
-    
-    if (object_type == DataType::CLASS_INSTANCE) {
-        // For class instances, we need to use the object ID that's now in RAX
-        // and call the property setter
-        
-        // For now, hardcode property indices for Point class
-        int64_t property_index = 0;
-        if (property_name == "x") property_index = 0;
-        else if (property_name == "y") property_index = 1;
-        // TODO: Implement general property mapping system using class registry
-        
-        // Function signature: __object_set_property(object_id, property_index, value)
-        gen.emit_mov_reg_reg(7, 0); // RDI = object_id (from RAX)
-        gen.emit_mov_reg_imm(6, property_index);  // RSI = property_index
-        // RDX already has the value
-        gen.emit_call("__object_set_property");
-    } else {
-        // For other object types, use dynamic property setting
-        
-        // Create a pooled string for the property name
-        static std::unordered_map<std::string, const char*> property_name_pool;
-        
-        auto it = property_name_pool.find(property_name);
-        const char* property_name_ptr;
-        if (it == property_name_pool.end()) {
-            char* name_copy = new char[property_name.length() + 1];
-            strcpy(name_copy, property_name.c_str());
-            property_name_pool[property_name] = name_copy;
-            property_name_ptr = name_copy;
-        } else {
-            property_name_ptr = it->second;
-        }
-        
-        // Call dynamic property setter
-        gen.emit_mov_reg_reg(7, 0);  // RDI = object pointer (from RAX)
-        gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property name
-        // RDX already has the value
-        gen.emit_call("__dynamic_set_property");
+    // For now, only support direct variable references as objects
+    // TODO: Later extend to support full expression chains
+    auto* var_expr = dynamic_cast<Identifier*>(object.get());
+    if (!var_expr) {
+        throw std::runtime_error("Property assignment currently only supports direct variable references");
     }
     
-    result_type = DataType::VOID;
+    std::string object_name = var_expr->name;
+    std::string class_name = types.get_variable_class_name(object_name);
+    
+    if (object_type != DataType::CLASS_INSTANCE || class_name.empty()) {
+        throw std::runtime_error("Property assignment on non-object or unknown class: " + object_name);
+    }
+    
+    // Get the class info to find property offset
+    auto* compiler = get_current_compiler();
+    if (!compiler) {
+        throw std::runtime_error("No compiler context available for property assignment");
+    }
+    
+    ClassInfo* class_info = compiler->get_class(class_name);
+    if (!class_info) {
+        throw std::runtime_error("Unknown class: " + class_name);
+    }
+    
+    // Find the property in the class fields
+    int64_t property_offset = -1;
+    DataType property_type = DataType::ANY;
+    for (size_t i = 0; i < class_info->fields.size(); ++i) {
+        if (class_info->fields[i].name == property_name) {
+            property_offset = i * 8; // Each property is 8 bytes (pointer or int64)
+            property_type = class_info->fields[i].type;
+            break;
+        }
+    }
+    
+    if (property_offset == -1) {
+        throw std::runtime_error("Property '" + property_name + "' not found in class " + class_name);
+    }
+    
+    std::cout << "[DEBUG] ExpressionPropertyAssignment: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;
+    
+    // Save the object pointer (currently in RAX from object->generate_code)
+    gen.emit_mov_reg_reg(2, 0); // RDX = object pointer
+    
+    // Set the property assignment context for proper type conversion
+    types.set_current_property_assignment_type(property_type);
+    
+    // Generate code for the value expression
+    value->generate_code(gen, types);
+    // Value is now in RAX
+    
+    // Clear the property assignment context
+    types.clear_property_assignment_context();
+    
+    // LIGHTNING FAST: Direct offset assignment - zero performance penalty like C++
+    gen.emit_mov_reg_offset_reg(2, property_offset, 0); // [RDX + property_offset] = RAX
+    
+    // Result of assignment is the assigned value (already in RAX)
+    result_type = value->result_type;
+    
+    std::cout << "[DEBUG] ExpressionPropertyAssignment: Generated direct offset assignment for " << class_name << "." << property_name << std::endl;
 }
 
 void ClassDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
