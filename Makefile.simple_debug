@@ -1,0 +1,200 @@
+# Simple UltraScript Class System Debug Test Makefile
+
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall -Wextra -g -O0 -DDEBUG
+INCLUDES = -I.
+LIBS = 
+
+# Create a simplified version of the class system that compiles
+SIMPLIFIED_SOURCES = simple_class_debug_test.cpp
+SIMPLIFIED_OBJECTS = $(SIMPLIFIED_SOURCES:.cpp=.o)
+SIMPLIFIED_TARGET = simple_class_debug_test
+
+# Build rules for simplified version
+simple: $(SIMPLIFIED_TARGET)
+
+$(SIMPLIFIED_TARGET): simple_class_system.o $(SIMPLIFIED_OBJECTS)
+	@echo "Linking simplified debug test executable..."
+	$(CXX) $(CXXFLAGS) simple_class_system.o $(SIMPLIFIED_OBJECTS) -o $(SIMPLIFIED_TARGET) $(LIBS)
+	@echo "Build complete: $(SIMPLIFIED_TARGET)"
+
+# Compile a working subset of the class system
+simple_class_system.o: class_system_performance.h
+	@echo "Compiling simplified class system..."
+	@cat > simple_class_system.cpp << 'EOF'
+#include "class_system_performance.h"
+#include <iostream>
+#include <algorithm>
+#include <cassert>
+#include <cstring>
+#include <cstdlib>
+
+namespace ultraScript {
+
+// Mock DynamicValue
+struct DynamicValue {
+    enum Type { NONE, INT64, FLOAT64, STRING } type = NONE;
+    union {
+        int64_t int_val;
+        double float_val;
+        const char* string_val;
+    };
+    
+    DynamicValue() : type(NONE) {}
+    DynamicValue(int64_t val) : type(INT64), int_val(val) {}
+    DynamicValue(double val) : type(FLOAT64), float_val(val) {}
+    DynamicValue(const char* val) : type(STRING), string_val(val) {}
+};
+
+// ClassMetadata implementation
+uint16_t ClassMetadata::add_property(const std::string& prop_name, PropertyType prop_type, PropertyFlags flags) {
+    DEBUG_CLASS_META("Adding property '" << prop_name << "' to class '" << class_name << "' (type: " << static_cast<int>(prop_type) << ")");
+    
+    auto it = property_name_to_index.find(prop_name);
+    if (it != property_name_to_index.end()) {
+        DEBUG_CLASS_META("Property '" << prop_name << "' already exists with index " << it->second);
+        return it->second;
+    }
+    
+    PropertyDescriptor prop(prop_name, prop_type, flags);
+    prop.index = static_cast<uint16_t>(properties.size());
+    
+    properties.push_back(prop);
+    property_hash_to_index[prop.name_hash] = prop.index;
+    property_name_to_index[prop_name] = prop.index;
+    
+    DEBUG_CLASS_META("Property '" << prop_name << "' added with index " << prop.index << " and hash 0x" << std::hex << prop.name_hash << std::dec);
+    
+    return prop.index;
+}
+
+const PropertyDescriptor* ClassMetadata::find_property(const std::string& name) const {
+    DEBUG_CLASS_META("Finding property '" << name << "' in class '" << class_name << "'");
+    
+    auto it = property_name_to_index.find(name);
+    if (it != property_name_to_index.end()) {
+        DEBUG_CLASS_META("Found property '" << name << "' at index " << it->second);
+        return &properties[it->second];
+    }
+    
+    DEBUG_CLASS_META("Property '" << name << "' not found in class '" << class_name << "'");
+    return nullptr;
+}
+
+const PropertyDescriptor* ClassMetadata::find_property_by_hash(uint32_t hash) const {
+    DEBUG_CLASS_META("Finding property by hash 0x" << std::hex << hash << std::dec << " in class '" << class_name << "'");
+    
+    auto it = property_hash_to_index.find(hash);
+    if (it != property_hash_to_index.end()) {
+        DEBUG_CLASS_META("Found property by hash at index " << it->second << " ('" << properties[it->second].name << "')");
+        return &properties[it->second];
+    }
+    
+    DEBUG_CLASS_META("Property not found by hash in class '" << class_name << "'");
+    return nullptr;
+}
+
+void ClassMetadata::finalize_layout() {
+    DEBUG_CLASS_META("Finalizing layout for class '" << class_name << "' with " << properties.size() << " properties");
+    
+    uint32_t current_offset = 0;
+    for (PropertyDescriptor& prop : properties) {
+        size_t alignment = get_property_type_alignment(prop.type);
+        current_offset = (current_offset + alignment - 1) & ~(alignment - 1);
+        prop.offset = current_offset;
+        current_offset += static_cast<uint32_t>(get_property_type_size(prop.type));
+        DEBUG_CLASS_META("Property '" << prop.name << "' offset: " << prop.offset << ", size: " << get_property_type_size(prop.type));
+    }
+    
+    data_size = current_offset;
+    instance_size = sizeof(ObjectHeader) + data_size;
+    
+    DEBUG_CLASS_META("Class '" << class_name << "' layout finalized - instance_size: " << instance_size << ", data_size: " << data_size);
+}
+
+// ClassRegistry implementation
+ObjectTypeId ClassRegistry::register_class(const std::string& class_name) {
+    std::lock_guard<std::mutex> lock(registry_mutex);
+    
+    DEBUG_CLASS_META("Registering class '" << class_name << "'");
+    
+    auto it = class_name_to_metadata.find(class_name);
+    if (it != class_name_to_metadata.end()) {
+        DEBUG_CLASS_META("Class '" << class_name << "' already registered with type ID " << static_cast<uint32_t>(it->second->type_id));
+        return it->second->type_id;
+    }
+    
+    ObjectTypeId new_id = static_cast<ObjectTypeId>(next_type_id.fetch_add(1));
+    auto metadata = std::make_unique<ClassMetadata>(class_name, new_id);
+    
+    type_id_to_metadata[new_id] = metadata.get();
+    class_name_to_metadata[class_name] = std::move(metadata);
+    
+    DEBUG_CLASS_META("Class '" << class_name << "' registered with type ID " << static_cast<uint32_t>(new_id));
+    
+    return new_id;
+}
+
+ClassMetadata* ClassRegistry::get_class_metadata(const std::string& class_name) {
+    auto it = class_name_to_metadata.find(class_name);
+    return (it != class_name_to_metadata.end()) ? it->second.get() : nullptr;
+}
+
+void ClassRegistry::finalize_all_classes() {
+    DEBUG_CLASS_META("Finalizing all registered classes");
+    
+    for (auto& [name, metadata] : class_name_to_metadata) {
+        metadata->finalize_layout();
+    }
+    
+    DEBUG_CLASS_META("All classes finalized");
+}
+
+} // namespace ultraScript
+EOF
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c simple_class_system.cpp -o simple_class_system.o
+
+%.o: %.cpp
+	@echo "Compiling $<..."
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+# Run the simplified debug test
+test-simple: simple
+	@echo ""
+	@echo "========================================"
+	@echo "Running Simplified UltraScript Class System Debug Test"
+	@echo "========================================"
+	@echo ""
+	./$(SIMPLIFIED_TARGET)
+
+# Clean build artifacts
+clean:
+	rm -f *.o $(SIMPLIFIED_TARGET) simple_class_system.cpp
+	@echo "Clean complete"
+
+# Show debug paths explanation
+explain:
+	@echo ""
+	@echo "UltraScript Class System Performance Paths:"
+	@echo ""
+	@echo "1. ULTRA-FAST PATH (bob.name):"
+	@echo "   - AST knows property is defined in class"
+	@echo "   - Emits direct assembly with compile-time offset"
+	@echo "   - Zero runtime lookup cost"
+	@echo ""
+	@echo "2. DYNAMIC PATH (bob[propName]):"
+	@echo "   - Runtime property name lookup"
+	@echo "   - Hash-based class property search first"
+	@echo "   - Falls back to dynamic properties dict"
+	@echo ""
+	@echo "3. DYNAMIC_DICT PATH (bob.xyz = 123):"
+	@echo "   - Property not in class definition"
+	@echo "   - Stored in per-object hash table"
+	@echo "   - Lazy initialization"
+	@echo ""
+	@echo "4. NAME PATH (debugging):"
+	@echo "   - String-based property access"
+	@echo "   - Slowest but most flexible"
+	@echo ""
+
+.PHONY: simple test-simple clean explain

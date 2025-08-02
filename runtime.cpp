@@ -1012,13 +1012,41 @@ extern "C" const char* __object_get_property_name(int64_t object_id, int64_t pro
 }
 
 extern "C" void* __dynamic_get_property(void* dynamic_value_ptr, const char* property_name) {
-    // Simple implementation - could be expanded for more complex property access
+    using namespace ultraScript;
+    
     if (!dynamic_value_ptr || !property_name) {
-        return 0;
+        return nullptr;
     }
     
-    // For now, return nullptr as a placeholder
-    // This would need to be implemented based on the actual DynamicValue structure
+    // The dynamic_value_ptr actually contains an object ID (int64_t)
+    int64_t object_id = *reinterpret_cast<int64_t*>(dynamic_value_ptr);
+    
+    // Find the object in the registry
+    auto it = object_registry.find(object_id);
+    if (it == object_registry.end()) {
+        return nullptr;
+    }
+    
+    ObjectInstance* obj = it->second.get();
+    
+    // Look for the property by name in the properties map
+    auto prop_it = obj->properties.find(property_name);
+    if (prop_it != obj->properties.end()) {
+        // Create a dynamic value containing the property value
+        static int64_t result_value;
+        result_value = prop_it->second;
+        return &result_value;
+    }
+    
+    // Also check the property_names array for indexed access
+    for (int64_t i = 0; i < obj->property_count; i++) {
+        if (obj->property_names[i] == property_name) {
+            static int64_t result_value;
+            result_value = obj->property_data[i];
+            return &result_value;
+        }
+    }
+    
     return nullptr;
 }
 

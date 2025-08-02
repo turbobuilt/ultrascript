@@ -1,0 +1,64 @@
+# UltraScript Class System Debug Test Makefile
+
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall -Wextra -g -O0 -DDEBUG
+INCLUDES = -I.
+LIBS = 
+
+# Source files
+SOURCES = class_system_performance.cpp class_system_debug_test.cpp
+OBJECTS = $(SOURCES:.cpp=.o)
+TARGET = class_system_debug_test
+
+# Build rules
+all: $(TARGET)
+
+$(TARGET): $(OBJECTS)
+	@echo "Linking debug test executable..."
+	$(CXX) $(CXXFLAGS) $(OBJECTS) -o $(TARGET) $(LIBS)
+	@echo "Build complete: $(TARGET)"
+
+%.o: %.cpp
+	@echo "Compiling $<..."
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+# Run the debug test
+test: $(TARGET)
+	@echo ""
+	@echo "========================================"
+	@echo "Running UltraScript Class System Debug Test"
+	@echo "========================================"
+	@echo ""
+	./$(TARGET)
+
+# Clean build artifacts
+clean:
+	rm -f $(OBJECTS) $(TARGET)
+	@echo "Clean complete"
+
+# Show debug paths explanation
+explain:
+	@echo ""
+	@echo "UltraScript Class System Performance Paths:"
+	@echo ""
+	@echo "1. ULTRA-FAST PATH (bob.name):"
+	@echo "   - AST knows property is defined in class"
+	@echo "   - Emits direct assembly with compile-time offset"
+	@echo "   - Zero runtime lookup cost"
+	@echo ""
+	@echo "2. DYNAMIC PATH (bob[propName]):"
+	@echo "   - Runtime property name lookup"
+	@echo "   - Hash-based class property search first"
+	@echo "   - Falls back to dynamic properties dict"
+	@echo ""
+	@echo "3. DYNAMIC_DICT PATH (bob.xyz = 123):"
+	@echo "   - Property not in class definition"
+	@echo "   - Stored in per-object hash table"
+	@echo "   - Lazy initialization"
+	@echo ""
+	@echo "4. NAME PATH (debugging):"
+	@echo "   - String-based property access"
+	@echo "   - Slowest but most flexible"
+	@echo ""
+
+.PHONY: all test clean explain

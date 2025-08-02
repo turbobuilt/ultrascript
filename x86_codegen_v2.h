@@ -66,6 +66,10 @@ public:
     void emit_mov_mem_reg(int64_t offset, int reg) override;
     void emit_mov_reg_mem(int reg, int64_t offset) override;
     
+    // Register-relative memory operations for direct object property access
+    void emit_mov_reg_reg_offset(int dst_reg, int src_reg, int64_t offset) override;  // dst = [src+offset]
+    void emit_mov_reg_offset_reg(int dst_reg, int64_t offset, int src_reg) override;  // [dst+offset] = src
+    
     // RSP-relative memory operations for stack manipulation
     void emit_mov_mem_rsp_reg(int64_t offset, int reg) override;
     void emit_mov_reg_mem_rsp(int reg, int64_t offset) override;

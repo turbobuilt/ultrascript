@@ -126,6 +126,39 @@ It may cause a few issues omitting var, but it's important for newbies that it e
 
 The program has a unified "Array" class that provides ultra-high performance for typed arrays while maintaining flexibility for untyped arrays. The Array class automatically detects whether it should use the typed or untyped path based on how it's constructed.
 
+# Class architecture
+
+ok so our jit could do this
+
+class Person {
+  name: string;
+}
+let bob: Person = new Person():
+console.log(bob.name);
+
+any time known properties are referenced, this could be jited just like c++ with direct offset for zero cost data access.
+
+JS has to support accessing props by string as well like this:
+
+var prop = "name";
+console.log(bob[prop]);
+
+To support this each instance of a class will additionally  store a map containing the prop name and the offset for each poperty name but would have to do a lookup to get the offest and use it.
+
+JS also supports dynamic property addition and access. To support this, each object must also have a map on it that is map<string, DynamicValue>. Any properties stored on it should be converted by the JIT DynamicValue when copied with type and value;
+
+If the JIT finds a property not initially registered on the class, it goes the slower path of looking it up in the map, returning undefined if it doesn't exist
+
+bob.unregistered = "test"; // stores in map
+
+we would know when doing the jit that this was an unregistered property (not on class).
+
+So for fully typed class instances, the only overhead would be the extra map, but we could initialize that lazily.
+
+In our system, all properties that are classes will be stored as pointers, requiring a bit more asm, but maintaining compatibility with js.
+
+Inheritance will be supported. So the offsets work properly and you would check unregistered properties on the map recursively starting with the child and going to the parent.
+
 ## Unified Array Implementation
 
 ### Two Array Paths:
@@ -157,22 +190,11 @@ var flexible = Array.zeros([5]);  // Creates untyped array filled with zeros
 
 ### Intelligent Type Inference:
 
-The system intelligently determines array type based on construction:
+The system uses a typed array if a type is specified
+var x: [int64] = [];
+It uses untyped if not specified
+var x = [];
 
-```ultraScript
-// These create TYPED arrays with automatic type inference:
-var typed1 = Array.zeros([10,4,5], { dtype: "int64" });  // int64 typed array
-var typed2 = Array.ones([3], { dtype: "float32" });      // float32 typed array
-
-// Type safety: Typed arrays only accept compatible values
-typed1.push(42);     // ✓ Works - converts number to int64
-typed1.push(3.14);   // ✓ Works - converts 3.14 to int64 (3)
-typed1.push("hi");   // ✗ Crashes - strings not compatible with int64 array
-
-// Type conversion with JIT optimization:
-typed2.push(5);      // ✓ Converts int to float32 with ultra-fast JIT code
-typed2.push(2.718);  // ✓ Stores as float32 with precision handling
-```
 
 ### Array Operations:
 
@@ -372,3 +394,5 @@ For performance
 - we use typed functions
 - variables of type ANY store their type as part of DynamicValue
 - when variables are explicity typed, or ar initialized as the return value of a function that has typed return, the type are kept while compiling and typed versions of functions are emitted for max perf directly
+
+

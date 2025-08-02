@@ -8,6 +8,12 @@
 #include <cstdio>
 #include <execinfo.h>  // For backtrace
 #include <unistd.h>    // For STDOUT_FILENO
+
+// Forward declarations for JIT object system functions
+extern "C" {
+void* __jit_object_create(const char* class_name);
+void* __jit_object_create_sized(uint32_t size, uint32_t class_id);
+}
 #include <ostream>
 
 namespace ultraScript {
@@ -22,6 +28,41 @@ void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg);
 // Helper function to map integer register IDs to X86Reg enum
 // This is needed for the CodeGenerator interface which uses int register IDs
 static X86Reg int_to_x86reg(int reg_id) {
+    // Add comprehensive debugging to track register corruption
+    static int call_count = 0;
+    call_count++;
+    
+    if (reg_id < 0 || reg_id > 15) {
+        std::cerr << "\n========== REGISTER CORRUPTION DETECTED ===========" << std::endl;
+        std::cerr << "Call #" << call_count << ": CORRUPTED REGISTER ID: " << reg_id << std::endl;
+        std::cerr << "Expected range: 0-15, got: " << reg_id << std::endl;
+        std::cerr << "Hex value: 0x" << std::hex << reg_id << std::dec << std::endl;
+        
+        // Check if this looks like a pointer value
+        if (reg_id > 100000) {
+            std::cerr << "This looks like a memory address/pointer being used as register ID!" << std::endl;
+        }
+        
+        // Print detailed stack trace
+        void* array[20];
+        size_t size = backtrace(array, 20);
+        char** strings = backtrace_symbols(array, size);
+        std::cerr << "Detailed call stack:" << std::endl;
+        for (size_t i = 0; i < size; i++) {
+            std::cerr << "  Frame " << i << ": " << strings[i] << std::endl;
+        }
+        free(strings);
+        std::cerr << "=================================================" << std::endl;
+        
+        // Return RAX and continue to see if we can get more info
+        return X86Reg::RAX;
+    }
+    
+    // Add debug info for valid register calls when we're close to corruption
+    if (call_count % 100 == 0) {
+        std::cerr << "[REG_DEBUG] Call #" << call_count << ": Valid register " << reg_id << std::endl;
+    }
+    
     switch (reg_id) {
         case 0: return X86Reg::RAX;
         case 1: return X86Reg::RCX;
@@ -39,7 +80,7 @@ static X86Reg int_to_x86reg(int reg_id) {
         case 13: return X86Reg::R13;
         case 14: return X86Reg::R14;
         case 15: return X86Reg::R15;
-        default: return X86Reg::RAX;  // Default fallback
+        default: return X86Reg::RAX;  // Should not reach here due to check above
     }
 }
 
@@ -158,6 +199,23 @@ void X86CodeGenV2::emit_mov_reg_mem(int reg, int64_t offset) {
     instruction_builder->mov(dst_reg, src);
 }
 
+// Register-relative memory operations for direct object property access
+void X86CodeGenV2::emit_mov_reg_reg_offset(int dst_reg, int src_reg, int64_t offset) {
+    // dst = [src+offset] - load from memory at src_reg + offset
+    X86Reg dst = get_register_for_int(dst_reg);
+    X86Reg src = get_register_for_int(src_reg);
+    MemoryOperand mem_operand(src, static_cast<int32_t>(offset));
+    instruction_builder->mov(dst, mem_operand);
+}
+
+void X86CodeGenV2::emit_mov_reg_offset_reg(int dst_reg, int64_t offset, int src_reg) {
+    // [dst+offset] = src - store to memory at dst_reg + offset
+    X86Reg dst = get_register_for_int(dst_reg);
+    X86Reg src = get_register_for_int(src_reg);
+    MemoryOperand mem_operand(dst, static_cast<int32_t>(offset));
+    instruction_builder->mov(mem_operand, src);
+}
+
 // RSP-relative memory operations for stack manipulation
 void X86CodeGenV2::emit_mov_mem_rsp_reg(int64_t offset, int reg) {
     X86Reg src_reg = get_register_for_int(reg);
@@ -212,25 +270,42 @@ void X86CodeGenV2::emit_mul_reg_reg(int dst, int src) {
 }
 
 void X86CodeGenV2::emit_div_reg_reg(int dst, int src) {
-    // CRITICAL ERROR DETECTION: This function should NEVER be called for console.log!
-    std::cout << "[FATAL] emit_div_reg_reg called with dst=" << dst << " src=" << src << std::endl;
-    std::cout << "[FATAL] This indicates a serious bug - printing stack trace:" << std::endl;
-    std::cout.flush();
+    // CRITICAL ERROR DETECTION WITH ENHANCED DEBUGGING
+    std::cerr << "\n========== EMIT_DIV_REG_REG CALLED ===========" << std::endl;
+    std::cerr << "[FATAL] emit_div_reg_reg called with dst=" << dst << " src=" << src << std::endl;
+    std::cerr << "[FATAL] DST in hex: 0x" << std::hex << dst << std::dec << std::endl;
+    std::cerr << "[FATAL] SRC in hex: 0x" << std::hex << src << std::dec << std::endl;
     
-    // Print a stack trace to help debug
-    void *array[10];
-    size_t size = backtrace(array, 10);
+    // Check if these look like pointer values
+    if (dst > 100000 || src > 100000) {
+        std::cerr << "[FATAL] These look like MEMORY ADDRESSES, not register IDs!" << std::endl;
+        if (dst > 100000) {
+            std::cerr << "[FATAL] DST appears to be a pointer: " << std::hex << dst << std::dec << std::endl;
+        }
+        if (src > 100000) {
+            std::cerr << "[FATAL] SRC appears to be a pointer: " << std::hex << src << std::dec << std::endl;
+        }
+    }
+    
+    std::cerr << "[FATAL] This indicates a serious bug - console.log should NEVER need division!" << std::endl;
+    std::cerr << "[FATAL] Printing stack trace to find the source:" << std::endl;
+    std::cerr.flush();
+    
+    // Print a comprehensive stack trace
+    void *array[20];
+    size_t size = backtrace(array, 20);
     char **strings = backtrace_symbols(array, size);
     if (strings != nullptr) {
         for (size_t i = 0; i < size; i++) {
-            std::cout << "[TRACE] " << i << ": " << strings[i] << std::endl;
+            std::cerr << "[TRACE] Frame " << i << ": " << strings[i] << std::endl;
         }
         free(strings);
     }
     
     // ABORT INSTEAD OF GENERATING BAD CODE
-    std::cout << "[FATAL] Aborting to prevent code corruption!" << std::endl;
-    std::cout.flush();
+    std::cerr << "[FATAL] Aborting to prevent code corruption!" << std::endl;
+    std::cerr << "=============================================" << std::endl;
+    std::cerr.flush();
     abort();
 }
 
@@ -345,6 +420,10 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__object_get_property", reinterpret_cast<void*>(__object_get_property)},
         {"__object_get_property_name", reinterpret_cast<void*>(__object_get_property_name)},
         {"__dynamic_get_property", reinterpret_cast<void*>(__dynamic_get_property)},
+        
+        // JIT Object system functions
+        {"__jit_object_create", reinterpret_cast<void*>(__jit_object_create)},
+        {"__jit_object_create_sized", reinterpret_cast<void*>(__jit_object_create_sized)},
         
         // Promise functions
         {"__promise_all", reinterpret_cast<void*>(__promise_all)},

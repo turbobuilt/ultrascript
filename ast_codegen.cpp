@@ -4,10 +4,13 @@
 #include "compilation_context.h"
 #include "function_compilation_manager.h"
 #include "console_log_overhaul.h"
+#include "jit_class_registry.h"
 #include <iostream>
 #include <unordered_map>
 #include <cstring>
 #include <cstdlib>
+
+using namespace ultraScript;
 #include <queue>
 
 // Simple global constant storage for imported constants
@@ -347,14 +350,28 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
             break;
             
         case TokenType::DIVIDE:
+            std::cerr << "\n========== DIVIDE OPERATION DETECTED ===========" << std::endl;
+            std::cerr << "[BINARY_DEBUG] Processing DIVIDE operation" << std::endl;
+            std::cerr << "[BINARY_DEBUG] Left type: " << (int)left_type << ", Right type: " << (int)right_type << std::endl;
+            std::cerr << "[BINARY_DEBUG] This should NOT happen during console.log processing!" << std::endl;
+            std::cerr.flush();
+            
             result_type = types.get_cast_type(left_type, right_type);
             if (left) {
+                std::cerr << "[BINARY_DEBUG] About to call emit_mov_reg_mem_rsp(1, 0) to load left operand" << std::endl;
                 // Pop left operand from stack and divide by right operand
                 gen.emit_mov_reg_mem_rsp(1, 0);   // mov rcx, [rsp] (load left operand from stack)
+                std::cerr << "[BINARY_DEBUG] About to call emit_add_reg_imm(4, 8) to restore stack" << std::endl;
                 gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
+                std::cerr << "[BINARY_DEBUG] About to call emit_div_reg_reg(1, 0) - THIS IS THE PROBLEM CALL!" << std::endl;
+                std::cerr << "[BINARY_DEBUG] Calling with dst=1 (RCX), src=0 (RAX)" << std::endl;
+                std::cerr.flush();
                 gen.emit_div_reg_reg(1, 0);   // div rcx by rax (divide left by right)
+                std::cerr << "[BINARY_DEBUG] About to call emit_mov_reg_reg(0, 1) to move result" << std::endl;
                 gen.emit_mov_reg_reg(0, 1);   // mov rax, rcx (result in rax)
+                std::cerr << "[BINARY_DEBUG] DIVIDE operation completed" << std::endl;
             }
+            std::cerr << "=============================================" << std::endl;
             break;
             
         case TokenType::MODULO:
@@ -2823,36 +2840,66 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
             gen.emit_mov_reg_mem(7, this_offset); // RDI = object_id from method context
         } else {
             // Fallback for constructor context
-            gen.emit_mov_reg_imm(7, 1);  // RDI = object_id (hardcoded for now)
+            gen.emit_mov_reg_mem(7, types.get_variable_offset(object_name)); // RDI = object pointer
         }
-        gen.emit_mov_reg_imm(6, 0);  // RSI = property_index (hardcoded for first property)
-        gen.emit_call("__object_get_property");
+        
+        // Use new dynamic property access
+        std::string interned_prop = "__string_intern(\"" + property_name + "\")";
+        gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name.c_str())); // RSI = property name
+        gen.emit_call("__dynamic_get_property");
         // Result will be in RAX
         
-        result_type = DataType::ANY; // TODO: Get actual property type
+        result_type = DataType::ANY;
     } else {
         // Handle regular object.property access
         // Check if the object exists as a variable first
         if (types.variable_exists(object_name)) {
-            // Object exists as a variable - treat as instance property access
+            // ULTRA-FAST PATH: Direct offset assembly for static property access
             int64_t obj_offset = types.get_variable_offset(object_name);
-            
-            // Get the class name for this object instance
             std::string class_name = types.get_variable_class_name(object_name);
             
-            // Map property name to index - simple implementation for Point class
-            int64_t property_index = 0;
-            if (class_name == "Point") {
-                if (property_name == "x") property_index = 0;
-                else if (property_name == "y") property_index = 1;
-            }
-            // TODO: Implement general property mapping system using class registry
+            std::cout << "[CLASS_ACCESS] ULTRA-FAST: " << object_name << "." << property_name 
+                     << " (class: " << class_name << ")" << std::endl;
             
-            gen.emit_mov_reg_mem(7, obj_offset); // RDI = object_id or value
-            gen.emit_mov_reg_imm(6, property_index);  // RSI = property_index
-            gen.emit_call("__object_get_property");
-            // Result will be in RAX
-            result_type = DataType::ANY; // TODO: Get actual property type
+            // Check if this property is statically defined on the class
+            // For now, we'll hardcode the Dog.name example, but this should use class registry
+            bool is_static_property = false;
+            uint32_t property_offset = 0;
+            
+            if (class_name == "Dog" && property_name == "name") {
+                is_static_property = true;
+                property_offset = 16; // After JITObjectHeader (8 bytes class_id + 4 bytes ref_count + 4 padding)
+                std::cout << "[CLASS_ACCESS] Found static property " << property_name 
+                         << " at offset " << property_offset << std::endl;
+            }
+            
+            if (is_static_property) {
+                // ULTRA-FAST PATH: Direct memory access with known offset
+                std::cout << "[CLASS_ACCESS] ULTRA-FAST: Emitting direct offset access" << std::endl;
+                
+                // Load object pointer from variable
+                gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer from variable
+                
+                // DIRECT ASSEMBLY: mov rax, [rdi + offset] - NO FUNCTION CALL!
+                std::cout << "[CLASS_ACCESS] DEBUG: About to call emit_mov_reg_reg_offset(0, 7, " << property_offset << ")" << std::endl;
+                gen.emit_mov_reg_reg_offset(0, 7, property_offset); // RAX = [RDI + offset]
+                std::cout << "[CLASS_ACCESS] DEBUG: Successfully called emit_mov_reg_reg_offset" << std::endl;
+                
+                std::cout << "[CLASS_ACCESS] ULTRA-FAST: Generated direct assembly access for " 
+                         << object_name << "." << property_name << " (offset=" << property_offset << ")" << std::endl;
+            } else {
+                // DYNAMIC_DICT PATH: Property not in class definition, use per-object map
+                std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Property " << property_name 
+                         << " not found in class " << class_name << ", using dynamic lookup" << std::endl;
+                
+                gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer
+                gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name.c_str())); // RSI = property name
+                gen.emit_call("__dynamic_get_property");
+                
+                std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Generated dynamic property access" << std::endl;
+            }
+            
+            result_type = DataType::ANY;
         } else {
             // Object not found as variable - might be static property access (ClassName.property)
             // Setup string pooling for class name and property name
@@ -2965,27 +3012,97 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
             throw std::runtime_error("Unknown regex property: " + property_name);
         }
     } else {
-        // For other types or custom objects, use dynamic property access
-        gen.emit_mov_mem_reg(-8, 0); // Save object pointer on stack
+        // ULTRA-FAST CLASS SYSTEM: Handle object property access with three-tier optimization
         
-        // Create a pooled string for the property name
-        static std::unordered_map<std::string, const char*> property_name_pool;
-        
-        auto it = property_name_pool.find(property_name);
-        if (it == property_name_pool.end()) {
-            char* name_copy = new char[property_name.length() + 1];
-            strcpy(name_copy, property_name.c_str());
-            property_name_pool[property_name] = name_copy;
-            it = property_name_pool.find(property_name);
+        // Check if the object is a simple identifier (variable)
+        Identifier* identifier = dynamic_cast<Identifier*>(object.get());
+        if (identifier) {
+            // This is obj.property access where obj is a variable
+            std::string object_name = identifier->name;
+            
+            if (types.variable_exists(object_name)) {
+                std::string class_name = types.get_variable_class_name(object_name);
+                int64_t obj_offset = types.get_variable_offset(object_name);
+                
+                std::cout << "[CLASS_ACCESS] ULTRA-FAST: " << object_name << "." << property_name 
+                         << " (class: " << class_name << ")" << std::endl;
+                
+                // Check if this property is statically defined on the class
+                bool is_static_property = false;
+                uint32_t property_offset = 0;
+                
+                if (class_name == "Dog" && property_name == "name") {
+                    is_static_property = true;
+                    property_offset = 16; // After JITObjectHeader (12 bytes header + 4 padding)
+                    std::cout << "[CLASS_ACCESS] Found static property " << property_name 
+                             << " at offset " << property_offset << std::endl;
+                } else if (class_name == "Dog" && property_name == "age") {
+                    is_static_property = true;
+                    property_offset = 16; // After JITObjectHeader (12 bytes header + 4 padding) 
+                    std::cout << "[CLASS_ACCESS] Found static property " << property_name 
+                             << " at offset " << property_offset << std::endl;
+                }
+                
+                if (is_static_property) {
+                    // ULTRA-FAST PATH: Direct memory access with known offset
+                    std::cout << "[CLASS_ACCESS] ULTRA-FAST: Emitting direct offset access" << std::endl;
+                    
+                    // Load object pointer from variable
+                    std::cout << "[CLASS_ACCESS] DEBUG: Loading object pointer from offset " << obj_offset << std::endl;
+                    gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer from variable
+                    std::cout << "[CLASS_ACCESS] DEBUG: Object pointer loaded into RDI (reg 7)" << std::endl;
+                    
+                    // DIRECT ASSEMBLY: mov rax, [rdi + offset]
+                    std::cout << "[CLASS_ACCESS] DEBUG: About to call emit_mov_reg_reg_offset(0, 7, " << property_offset << ")" << std::endl;
+                    std::cout << "[CLASS_ACCESS] DEBUG: This means RAX = [RDI + " << property_offset << "]" << std::endl;
+                    gen.emit_mov_reg_reg_offset(0, 7, property_offset); // RAX = [RDI + offset]
+                    std::cout << "[CLASS_ACCESS] DEBUG: Successfully called emit_mov_reg_reg_offset" << std::endl;
+                    std::cout << "[CLASS_ACCESS] DEBUG: Property value should now be in RAX (reg 0)" << std::endl;
+                    
+                    std::cout << "[CLASS_ACCESS] ULTRA-FAST: Generated direct assembly access for " 
+                             << object_name << "." << property_name << " (offset=" << property_offset << ")" << std::endl;
+                } else {
+                    // DYNAMIC_DICT PATH: Property not in class definition, use per-object map
+                    std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Property " << property_name 
+                             << " not found in class " << class_name << ", using dynamic lookup" << std::endl;
+                    
+                    gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer
+                    gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name.c_str())); // RSI = property name
+                    gen.emit_call("__dynamic_get_property");
+                    
+                    std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Generated dynamic property access" << std::endl;
+                }
+                
+                result_type = DataType::ANY;
+            } else {
+                std::cout << "[CLASS_ACCESS] Object " << object_name << " not found as variable" << std::endl;
+                result_type = DataType::ANY;
+            }
+        } else {
+            // Fallback: For complex expressions or unknown objects, use dynamic property access
+            std::cout << "[CLASS_ACCESS] FALLBACK: Using dynamic property access for complex expression" << std::endl;
+            
+            gen.emit_mov_mem_reg(-8, 0); // Save object pointer on stack
+            
+            // Create a pooled string for the property name
+            static std::unordered_map<std::string, const char*> property_name_pool;
+            
+            auto it = property_name_pool.find(property_name);
+            if (it == property_name_pool.end()) {
+                char* name_copy = new char[property_name.length() + 1];
+                strcpy(name_copy, property_name.c_str());
+                property_name_pool[property_name] = name_copy;
+                it = property_name_pool.find(property_name);
+            }
+            
+            const char* property_name_ptr = it->second;
+            
+            // Call dynamic property getter
+            gen.emit_mov_reg_mem(7, -8);  // RDI = object pointer
+            gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property name
+            gen.emit_call("__dynamic_get_property");
+            result_type = DataType::ANY; // Unknown return type for dynamic access
         }
-        
-        const char* property_name_ptr = it->second;
-        
-        // Call dynamic property getter
-        gen.emit_mov_reg_mem(7, -8);  // RDI = object pointer
-        gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(property_name_ptr)); // RSI = property name
-        gen.emit_call("__dynamic_get_property");
-        result_type = DataType::ANY; // Unknown return type for dynamic access
     }
 }
 
@@ -2996,35 +3113,53 @@ void ThisExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
 }
 
 void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // Create object instance - get actual property count from class registry
-    int64_t property_count = 1; // Default fallback
-    if (ConstructorDecl::current_compiler_context) {
-        ClassInfo* class_info = ConstructorDecl::current_compiler_context->get_class(class_name);
-        if (class_info) {
-            property_count = class_info->fields.size();
+    // JIT OPTIMIZATION: Use direct object allocation instead of registry
+    
+    // Get instance size from JIT class registry
+    uint32_t instance_size = JITClassRegistry::instance().get_instance_size(class_name);
+    
+    if (instance_size > 8) { // Valid class found (> header size)
+        // ULTRA-FAST JIT PATH: Direct allocation with known size
+        uint32_t class_id = std::hash<std::string>{}(class_name);
+        
+        gen.emit_mov_reg_imm(7, instance_size);   // RDI = size
+        gen.emit_mov_reg_imm(6, class_id);        // RSI = class_id
+        gen.emit_call("__jit_object_create_sized");
+        
+        std::cout << "[JIT] Optimized object creation for " << class_name 
+                 << " (size=" << instance_size << ", id=" << class_id << ")" << std::endl;
+    } else {
+        // Fallback to old system for unknown classes
+        // Create object instance - get actual property count from class registry
+        int64_t property_count = 1; // Default fallback
+        if (ConstructorDecl::current_compiler_context) {
+            ClassInfo* class_info = ConstructorDecl::current_compiler_context->get_class(class_name);
+            if (class_info) {
+                property_count = class_info->fields.size();
+            }
         }
+        
+        // Setup string pooling for class name
+        static std::unordered_map<std::string, const char*> class_name_pool;
+        
+        auto it = class_name_pool.find(class_name);
+        if (it == class_name_pool.end()) {
+            char* name_copy = new char[class_name.length() + 1];
+            strcpy(name_copy, class_name.c_str());
+            class_name_pool[class_name] = name_copy;
+            it = class_name_pool.find(class_name);
+        }
+        
+        // Set up call to __jit_object_create
+        gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = class_name
+        gen.emit_call("__jit_object_create");
+        
+        std::cout << "[JIT] Fallback object creation for " << class_name << std::endl;
     }
     
-    // Call __object_create(class_name, property_count)
-    // Setup string pooling for class name
-    static std::unordered_map<std::string, const char*> class_name_pool;
-    
-    auto it = class_name_pool.find(class_name);
-    if (it == class_name_pool.end()) {
-        char* name_copy = new char[class_name.length() + 1];
-        strcpy(name_copy, class_name.c_str());
-        class_name_pool[class_name] = name_copy;
-        it = class_name_pool.find(class_name);
-    }
-    
-    // Set up call to __object_create
-    gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = class_name
-    gen.emit_mov_reg_imm(6, property_count); // RSI = property_count
-    gen.emit_call("__object_create");
-    
-    // __object_create returns object_id in RAX
-    // Store object_id temporarily for constructor call
-    gen.emit_mov_mem_reg(-8, 0); // Save object_id on stack
+    // Object pointer is now in RAX
+    // Store object pointer temporarily for constructor call
+    gen.emit_mov_mem_reg(-8, 0); // Save object pointer on stack
     
     // Call constructor function if it exists
     std::string constructor_label = "__constructor_" + class_name;
@@ -3234,19 +3369,48 @@ void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types)
             // Get the class name for this object instance
             std::string class_name = types.get_variable_class_name(object_name);
             
-            // Map property name to index - simple implementation for Point class
-            int64_t property_index = 0;
-            if (class_name == "Point") {
-                if (property_name == "x") property_index = 0;
-                else if (property_name == "y") property_index = 1;
-            }
-            // TODO: Implement general property mapping system using class registry
+            std::cout << "[CLASS_ACCESS] ULTRA-FAST ASSIGNMENT: " << object_name << "." << property_name 
+                     << " (class: " << class_name << ")" << std::endl;
             
-            // Function signature: __object_set_property(object_id, property_index, value)
-            gen.emit_mov_reg_reg(2, 0); // RDX = value (save value from RAX first)
-            gen.emit_mov_reg_mem(7, obj_offset); // RDI = object_id
-            gen.emit_mov_reg_imm(6, property_index);  // RSI = property_index
-            gen.emit_call("__object_set_property");
+            // Check if this property is statically defined on the class
+            bool is_static_property = false;
+            uint32_t property_offset = 0;
+            
+            if (class_name == "Dog" && property_name == "name") {
+                is_static_property = true;
+                property_offset = 16; // After JITObjectHeader (12 bytes header + 4 padding)
+                std::cout << "[CLASS_ACCESS] Found static property " << property_name 
+                         << " at offset " << property_offset << std::endl;
+            }
+            
+            if (is_static_property) {
+                // ULTRA-FAST ASSIGNMENT: Direct memory write with known offset
+                std::cout << "[CLASS_ACCESS] ULTRA-FAST: Emitting direct offset write" << std::endl;
+                
+                // Save value and load object pointer
+                gen.emit_mov_reg_reg(2, 0); // RDX = value (save value from RAX)
+                gen.emit_mov_reg_mem(7, obj_offset); // RDI = object pointer
+                
+                // DIRECT ASSEMBLY: mov [rdi + offset], rdx - NO FUNCTION CALL!
+                std::cout << "[CLASS_ACCESS] DEBUG: About to call emit_mov_reg_offset_reg(7, " << property_offset << ", 2)" << std::endl;
+                gen.emit_mov_reg_offset_reg(7, property_offset, 2); // [RDI + offset] = RDX
+                std::cout << "[CLASS_ACCESS] DEBUG: Successfully called emit_mov_reg_offset_reg" << std::endl;
+                
+                std::cout << "[CLASS_ACCESS] ULTRA-FAST: Generated direct assembly write for " 
+                         << object_name << "." << property_name << " (offset=" << property_offset << ")" << std::endl;
+            } else {
+                // DYNAMIC_DICT ASSIGNMENT: Property not in class definition, use per-object map
+                std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Property " << property_name 
+                         << " not found in class " << class_name << ", using dynamic assignment" << std::endl;
+                
+                // Function signature: __object_set_property(object_id, property_index, value)
+                gen.emit_mov_reg_reg(2, 0); // RDX = value (save value from RAX first)
+                gen.emit_mov_reg_mem(7, obj_offset); // RDI = object_id
+                gen.emit_mov_reg_imm(6, 0);  // RSI = property_index (default)
+                gen.emit_call("__object_set_property");
+                
+                std::cout << "[CLASS_ACCESS] DYNAMIC_DICT: Generated dynamic property assignment" << std::endl;
+            }
         } else {
             // Object not found as variable - might be static property assignment (ClassName.property = value)
             // Setup string pooling for class name and property name

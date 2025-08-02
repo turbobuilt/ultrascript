@@ -19,6 +19,10 @@ public:
     virtual void emit_mov_mem_reg(int64_t offset, int reg) = 0;  // [rbp+offset] = reg
     virtual void emit_mov_reg_mem(int reg, int64_t offset) = 0;  // reg = [rbp+offset]
     
+    // Register-relative memory operations for direct object property access
+    virtual void emit_mov_reg_reg_offset(int dst_reg, int src_reg, int64_t offset) = 0;  // dst = [src+offset]
+    virtual void emit_mov_reg_offset_reg(int dst_reg, int64_t offset, int src_reg) = 0;  // [dst+offset] = src
+    
     // RSP-relative memory operations for stack manipulation
     virtual void emit_mov_mem_rsp_reg(int64_t offset, int reg) = 0;  // [rsp+offset] = reg  
     virtual void emit_mov_reg_mem_rsp(int reg, int64_t offset) = 0;  // reg = [rsp+offset]
