@@ -1,0 +1,358 @@
+// UltraScript FFI Core Module
+// High-performance Foreign Function Interface for calling native C libraries
+// This replaces the old stdlib/ffi approach with core runtime integration
+
+export interface FFIFunction {
+    // High-performance direct calls
+    call_void(...args: any[]): void;
+    call_int64(...args: any[]): number;
+    call_double(...args: any[]): number;
+    call_ptr(...args: any[]): any;
+    
+    // Ultra-fast specialized calls (JIT optimizable)
+    call_direct_void(): void;
+    call_direct_void_i64(arg0: number): void;
+    call_direct_void_i64_i64(arg0: number, arg1: number): void;
+    call_direct_i64(): number;
+    call_direct_i64_i64(arg0: number): number;
+    call_direct_i64_i64_i64(arg0: number, arg1: number): number;
+    call_direct_i64_i64_i64_i64(arg0: number, arg1: number, arg2: number): number;
+    call_direct_ptr_ptr(arg0: any): any;
+    call_direct_ptr_ptr_ptr(arg0: any, arg1: any): any;
+    call_direct_double_double_double(arg0: number, arg1: number): number;
+}
+
+export interface FFILibrary {
+    // Load a function symbol
+    func(name: string): FFIFunction;
+    
+    // Get a specialized function for maximum performance
+    func_specialized(name: string, signature: string): (...args: any[]) => any;
+    
+    // Batch load multiple functions
+    load_functions(specs: Array<{name: string, signature?: string}>): Map<string, any>;
+    
+    // Close the library
+    close(): void;
+}
+
+// Core FFI runtime functions (implemented in C++)
+declare function ffi_dlopen(path: string): any;
+declare function ffi_dlsym(handle: any, name: string): any;
+declare function ffi_dlclose(handle: any): boolean;
+
+declare function ffi_call_direct_void(symbol: any): void;
+declare function ffi_call_direct_void_i64(symbol: any, arg0: number): void;
+declare function ffi_call_direct_void_i64_i64(symbol: any, arg0: number, arg1: number): void;
+declare function ffi_call_direct_i64(symbol: any): number;
+declare function ffi_call_direct_i64_i64(symbol: any, arg0: number): number;
+declare function ffi_call_direct_i64_i64_i64(symbol: any, arg0: number, arg1: number): number;
+declare function ffi_call_direct_i64_i64_i64_i64(symbol: any, arg0: number, arg1: number, arg2: number): number;
+declare function ffi_call_direct_ptr_ptr(symbol: any, arg0: any): any;
+declare function ffi_call_direct_ptr_ptr_ptr(symbol: any, arg0: any, arg1: any): any;
+declare function ffi_call_direct_double_double_double(symbol: any, arg0: number, arg1: number): number;
+
+declare function ffi_call_void(symbol: any): void;
+declare function ffi_call_int64(symbol: any): number;
+declare function ffi_call_double(symbol: any): number;
+declare function ffi_call_ptr(symbol: any): any;
+
+declare function ffi_set_arg_int64(index: number, value: number): void;
+declare function ffi_set_arg_double(index: number, value: number): void;
+declare function ffi_set_arg_ptr(index: number, value: any): void;
+declare function ffi_clear_args(): void;
+
+declare function ffi_malloc(size: number): any;
+declare function ffi_free(ptr: any): void;
+declare function ffi_memcpy(dest: any, src: any, size: number): void;
+declare function ffi_memset(ptr: any, value: number, size: number): void;
+
+// FFI Function implementation
+class UltraFFIFunction implements FFIFunction {
+    private symbol: any;
+    
+    constructor(symbol: any) {
+        this.symbol = symbol;
+    }
+    
+    // High-performance direct calls
+    call_direct_void(): void {
+        ffi_call_direct_void(this.symbol);
+    }
+    
+    call_direct_void_i64(arg0: number): void {
+        ffi_call_direct_void_i64(this.symbol, arg0);
+    }
+    
+    call_direct_void_i64_i64(arg0: number, arg1: number): void {
+        ffi_call_direct_void_i64_i64(this.symbol, arg0, arg1);
+    }
+    
+    call_direct_i64(): number {
+        return ffi_call_direct_i64(this.symbol);
+    }
+    
+    call_direct_i64_i64(arg0: number): number {
+        return ffi_call_direct_i64_i64(this.symbol, arg0);
+    }
+    
+    call_direct_i64_i64_i64(arg0: number, arg1: number): number {
+        return ffi_call_direct_i64_i64_i64(this.symbol, arg0, arg1);
+    }
+    
+    call_direct_i64_i64_i64_i64(arg0: number, arg1: number, arg2: number): number {
+        return ffi_call_direct_i64_i64_i64_i64(this.symbol, arg0, arg1, arg2);
+    }
+    
+    call_direct_ptr_ptr(arg0: any): any {
+        return ffi_call_direct_ptr_ptr(this.symbol, arg0);
+    }
+    
+    call_direct_ptr_ptr_ptr(arg0: any, arg1: any): any {
+        return ffi_call_direct_ptr_ptr_ptr(this.symbol, arg0, arg1);
+    }
+    
+    call_direct_double_double_double(arg0: number, arg1: number): number {
+        return ffi_call_direct_double_double_double(this.symbol, arg0, arg1);
+    }
+    
+    // Flexible calls with argument marshalling
+    call_void(...args: any[]): void {
+        // Optimize common cases
+        if (args.length === 0) {
+            return this.call_direct_void();
+        }
+        if (args.length === 1 && typeof args[0] === "number") {
+            return this.call_direct_void_i64(args[0]);
+        }
+        if (args.length === 2 && typeof args[0] === "number" && typeof args[1] === "number") {
+            return this.call_direct_void_i64_i64(args[0], args[1]);
+        }
+        
+        // Fallback to generic call
+        this.setArgs(args);
+        ffi_call_void(this.symbol);
+        ffi_clear_args();
+    }
+    
+    call_int64(...args: any[]): number {
+        // Optimize common cases
+        if (args.length === 0) {
+            return this.call_direct_i64();
+        }
+        if (args.length === 1 && typeof args[0] === "number") {
+            return this.call_direct_i64_i64(args[0]);
+        }
+        if (args.length === 2 && typeof args[0] === "number" && typeof args[1] === "number") {
+            return this.call_direct_i64_i64_i64(args[0], args[1]);
+        }
+        if (args.length === 3 && typeof args[0] === "number" && typeof args[1] === "number" && typeof args[2] === "number") {
+            return this.call_direct_i64_i64_i64_i64(args[0], args[1], args[2]);
+        }
+        
+        // Fallback to generic call
+        this.setArgs(args);
+        const result = ffi_call_int64(this.symbol);
+        ffi_clear_args();
+        return result;
+    }
+    
+    call_double(...args: any[]): number {
+        this.setArgs(args);
+        const result = ffi_call_double(this.symbol);
+        ffi_clear_args();
+        return result;
+    }
+    
+    call_ptr(...args: any[]): any {
+        // Optimize common cases
+        if (args.length === 1) {
+            return this.call_direct_ptr_ptr(args[0]);
+        }
+        if (args.length === 2) {
+            return this.call_direct_ptr_ptr_ptr(args[0], args[1]);
+        }
+        
+        // Fallback to generic call
+        this.setArgs(args);
+        const result = ffi_call_ptr(this.symbol);
+        ffi_clear_args();
+        return result;
+    }
+    
+    private setArgs(args: any[]): void {
+        for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+            if (typeof arg === "number") {
+                if (Number.isInteger(arg)) {
+                    ffi_set_arg_int64(i, arg);
+                } else {
+                    ffi_set_arg_double(i, arg);
+                }
+            } else {
+                ffi_set_arg_ptr(i, arg);
+            }
+        }
+    }
+}
+
+// FFI Library implementation
+class UltraFFILibrary implements FFILibrary {
+    private handle: any;
+    private functions: Map<string, FFIFunction> = new Map();
+    private specialized_cache: Map<string, any> = new Map();
+    
+    constructor(path: string) {
+        this.handle = ffi_dlopen(path);
+        if (!this.handle) {
+            throw new Error(`Failed to load library: ${path}`);
+        }
+    }
+    
+    func(name: string): FFIFunction {
+        if (this.functions.has(name)) {
+            return this.functions.get(name)!;
+        }
+        
+        const symbol = ffi_dlsym(this.handle, name);
+        if (!symbol) {
+            throw new Error(`Function '${name}' not found in library`);
+        }
+        
+        const func = new UltraFFIFunction(symbol);
+        this.functions.set(name, func);
+        return func;
+    }
+    
+    func_specialized(name: string, signature: string): (...args: any[]) => any {
+        const cache_key = `${name}:${signature}`;
+        if (this.specialized_cache.has(cache_key)) {
+            return this.specialized_cache.get(cache_key);
+        }
+        
+        const func = this.func(name);
+        let specialized: (...args: any[]) => any;
+        
+        switch (signature) {
+            case "void()":
+                specialized = () => func.call_direct_void();
+                break;
+            case "void(i64)":
+                specialized = (a: number) => func.call_direct_void_i64(a);
+                break;
+            case "void(i64,i64)":
+                specialized = (a: number, b: number) => func.call_direct_void_i64_i64(a, b);
+                break;
+            case "i64()":
+                specialized = () => func.call_direct_i64();
+                break;
+            case "i64(i64)":
+                specialized = (a: number) => func.call_direct_i64_i64(a);
+                break;
+            case "i64(i64,i64)":
+                specialized = (a: number, b: number) => func.call_direct_i64_i64_i64(a, b);
+                break;
+            case "i64(i64,i64,i64)":
+                specialized = (a: number, b: number, c: number) => func.call_direct_i64_i64_i64_i64(a, b, c);
+                break;
+            case "ptr(ptr)":
+                specialized = (a: any) => func.call_direct_ptr_ptr(a);
+                break;
+            case "ptr(ptr,ptr)":
+                specialized = (a: any, b: any) => func.call_direct_ptr_ptr_ptr(a, b);
+                break;
+            case "double(double,double)":
+                specialized = (a: number, b: number) => func.call_direct_double_double_double(a, b);
+                break;
+            default:
+                specialized = (...args: any[]) => func.call_int64(...args);
+                break;
+        }
+        
+        this.specialized_cache.set(cache_key, specialized);
+        return specialized;
+    }
+    
+    load_functions(specs: Array<{name: string, signature?: string}>): Map<string, any> {
+        const loaded = new Map<string, any>();
+        
+        for (const spec of specs) {
+            if (spec.signature) {
+                loaded.set(spec.name, this.func_specialized(spec.name, spec.signature));
+            } else {
+                loaded.set(spec.name, this.func(spec.name));
+            }
+        }
+        
+        return loaded;
+    }
+    
+    close(): void {
+        if (this.handle) {
+            ffi_dlclose(this.handle);
+            this.handle = null;
+            this.functions.clear();
+            this.specialized_cache.clear();
+        }
+    }
+}
+
+// Memory management helpers
+export class FFIBuffer {
+    private ptr: any;
+    private size: number;
+    
+    constructor(size: number) {
+        this.size = size;
+        this.ptr = ffi_malloc(size);
+        if (!this.ptr) {
+            throw new Error("Failed to allocate memory");
+        }
+    }
+    
+    get data(): any {
+        return this.ptr;
+    }
+    
+    get byte_size(): number {
+        return this.size;
+    }
+    
+    free(): void {
+        if (this.ptr) {
+            ffi_free(this.ptr);
+            this.ptr = null;
+        }
+    }
+}
+
+// Main exports
+export function dlopen(path: string): FFILibrary {
+    return new UltraFFILibrary(path);
+}
+
+export function create_fast_library(path: string, functions: Array<{name: string, signature: string}>): any {
+    const lib = new UltraFFILibrary(path);
+    const funcs = lib.load_functions(functions);
+    
+    const fast_lib: any = {};
+    for (const [name, func] of funcs) {
+        fast_lib[name] = func;
+    }
+    
+    fast_lib.close = () => lib.close();
+    return fast_lib;
+}
+
+// Export memory management functions
+export { ffi_malloc as malloc, ffi_free as free, ffi_memcpy as memcpy, ffi_memset as memset };
+
+export default {
+    dlopen,
+    create_fast_library,
+    FFIBuffer,
+    malloc: ffi_malloc,
+    free: ffi_free,
+    memcpy: ffi_memcpy,
+    memset: ffi_memset
+};

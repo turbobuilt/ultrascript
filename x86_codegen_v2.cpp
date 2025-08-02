@@ -1,6 +1,7 @@
 #include "x86_codegen_v2.h"
 #include "runtime.h"  // For runtime function declarations
 #include "console_log_overhaul.h"  // For console.log runtime functions
+#include "runtime_syscalls.h"  // For runtime syscalls
 #include <cassert>
 #include <iostream>
 #include <iomanip>
@@ -352,6 +353,9 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         // Regex functions
         {"__register_regex_pattern", reinterpret_cast<void*>(__register_regex_pattern)},
         {"__regex_create_by_id", reinterpret_cast<void*>(__regex_create_by_id)},
+        
+        // Runtime syscalls for time
+        {"__runtime_time_now_millis", reinterpret_cast<void*>(__runtime_time_now_millis)},
         
         // Goroutine functions (dynamic name patterns need special handling)
         // All console.log functions resolved to direct pointers for ZERO overhead

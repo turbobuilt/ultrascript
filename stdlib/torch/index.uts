@@ -1,53 +1,13 @@
-// UltraScript Torch Module using high-performance FFI
-// This demonstrates how to wrap LibTorch using the optimized FFI system
+// UltraScript LibTorch Wrapper
+// High-performance tensor operations using LibTorch via FFI
+//
+// This module provides a simple, easy-to-use interface to LibTorch
+// with full operator overloading support and zero-overhead FFI calls.
 
-import { create_fast_library, FFIBuffer } from "../ffi";
+import ffi from "../ffi/index.uts"
 
-// Define LibTorch function signatures for maximum performance
-const TORCH_FUNCTIONS = [
-    // Core tensor creation (simplified signatures)
-    { name: "at_empty", signature: "ptr(ptr,i64,i64,i64)" }, // sizes, ndim, dtype, device -> tensor
-    { name: "at_zeros", signature: "ptr(ptr,i64,i64,i64)" }, // sizes, ndim, dtype, device -> tensor
-    { name: "at_ones", signature: "ptr(ptr,i64,i64,i64)" }, // sizes, ndim, dtype, device -> tensor
-    { name: "at_randn", signature: "ptr(ptr,i64,i64,i64)" }, // sizes, ndim, dtype, device -> tensor
-    
-    // Tensor operations
-    { name: "at_add", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
-    { name: "at_sub", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
-    { name: "at_mul", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
-    { name: "at_div", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
-    { name: "at_matmul", signature: "ptr(ptr,ptr)" }, // tensor1, tensor2 -> result
-    
-    // Tensor properties
-    { name: "at_size", signature: "i64(ptr,i64)" }, // tensor, dim -> size
-    { name: "at_ndim", signature: "i64(ptr)" }, // tensor -> ndim
-    { name: "at_numel", signature: "i64(ptr)" }, // tensor -> number of elements
-    { name: "at_data_ptr", signature: "ptr(ptr)" }, // tensor -> data pointer
-    
-    // Memory management
-    { name: "at_free", signature: "void(ptr)" }, // tensor -> void
-    { name: "at_clone", signature: "ptr(ptr)" }, // tensor -> cloned tensor
-    
-    // Utility functions
-    { name: "at_print", signature: "void(ptr)" }, // tensor -> void
-    { name: "at_set_seed", signature: "void(i64)" }, // seed -> void
-];
-
-// Try to load LibTorch with fallback paths
-const LIBTORCH_PATHS = [
-    "../libtorch/lib/libtorch.so",
-    "../libtorch/lib/libtorch_cpu.so",
-    "/usr/local/lib/libtorch.so",
-    "/usr/lib/libtorch.so"
-];
-
-let torch_lib: any = null;
-
-for (const path of LIBTORCH_PATHS) {
-    try {
-        torch_lib = create_fast_library(path, TORCH_FUNCTIONS);
-        console.log(`Successfully loaded LibTorch from: ${path}`);
-        break;
+// Load the torch C wrapper library with performance optimizations
+const torch_lib = ffi.create_fast_library("./torch_c_wrapper.so")
     } catch (e) {
         // Try next path
         continue;

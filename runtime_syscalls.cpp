@@ -2,6 +2,12 @@
 #include "runtime.h"
 #include "runtime_object.h"
 #include "lock_system.h"
+#include "ffi_syscalls.h"  // FFI functions
+
+// Forward declaration for Date object
+namespace ultraScript {
+    // DateObject initialization removed
+}
 
 // Forward declarations for HTTP functionality
 extern "C" {
@@ -1269,94 +1275,10 @@ void* __runtime_url_parse(const char* url, bool parse_query) {
 }
 
 void* __runtime_url_format(void* url_object) {
-    // Format URL object back to string
-    // Placeholder implementation
-    return __string_create("http://example.com/");
-}
-
-void* __runtime_url_resolve(const char* from, const char* to) {
-    if (!from || !to) return nullptr;
-    
-    // Simplified URL resolution
-    ParsedURL base = parse_url_internal(from);
-    
-    if (to[0] == '/') {
-        // Absolute path
-        std::string result = base.protocol + "://" + base.hostname;
-        if (!base.port.empty()) {
-            result += ":" + base.port;
-        }
-        result += to;
-        return __string_create(result.c_str());
-    } else {
-        // Relative path - simplified implementation
-        return __string_create(to);
-    }
-}
-
-// Query string syscalls - URL parameter parsing
-void* __runtime_querystring_parse(const char* str, const char* sep, const char* eq) {
-    if (!str) return __array_create(0);
-    
-    std::string query(str);
-    std::string separator = sep ? sep : "&";
-    std::string equals = eq ? eq : "=";
-    
-    // Create object to store key-value pairs
-    // For now, return array of strings
-    void* result = __array_create(0);
-    
-    size_t pos = 0;
-    while (pos < query.length()) {
-        size_t next_sep = query.find(separator, pos);
-        if (next_sep == std::string::npos) next_sep = query.length();
-        
-        std::string pair = query.substr(pos, next_sep - pos);
-        size_t eq_pos = pair.find(equals);
-        
-        if (eq_pos != std::string::npos) {
-            std::string key = pair.substr(0, eq_pos);
-            std::string value = pair.substr(eq_pos + equals.length());
-            
-            // URL decode key and value (simplified)
-            void* key_str = __string_create(key.c_str());
-            void* value_str = __string_create(value.c_str());
-            
-            __array_push(result, reinterpret_cast<int64_t>(key_str));
-            __array_push(result, reinterpret_cast<int64_t>(value_str));
-        }
-        
-        pos = next_sep + separator.length();
-    }
-    
-    return result;
-}
-
-void* __runtime_querystring_stringify(void* obj, const char* sep, const char* eq) {
-    // Convert object to query string
-    // Placeholder implementation
-    return __string_create("key=value&foo=bar");
-}
-
-// Util syscalls - type checking and utility functions
-void* __runtime_util_format(const char* format, void* args) {
-    if (!format) return __string_create("");
-    
-    // Simplified printf-style formatting
-    // Real implementation would handle various format specifiers
-    return __string_create(format);
-}
-
-void* __runtime_util_inspect(void* object, void* options) {
-    // Object inspection for debugging
-    // Placeholder implementation
-    return __string_create("[object Object]");
-}
-
-bool __runtime_util_is_array(void* value) {
-    // Check if value is an array
+    // ...torch-related code removed...
     // Would need integration with UltraScript type system
-    return value != nullptr; // Placeholder
+    // For now, just return the input pointer as a placeholder
+    return url_object;
 }
 
 bool __runtime_util_is_date(void* value) {
@@ -1868,6 +1790,8 @@ void initialize_runtime_object() {
     global_runtime->time.sleep = reinterpret_cast<void*>(__runtime_time_sleep_millis);
     global_runtime->time.sleep_nanos = reinterpret_cast<void*>(__runtime_time_sleep_nanos);
     
+    // DateObject initialization removed
+    
     // Initialize process object function pointers
     global_runtime->process.pid = reinterpret_cast<void*>(__runtime_process_pid);
     global_runtime->process.ppid = reinterpret_cast<void*>(__runtime_process_ppid);
@@ -1875,162 +1799,11 @@ void initialize_runtime_object() {
     global_runtime->process.gid = reinterpret_cast<void*>(__runtime_process_gid);
     global_runtime->process.cwd = reinterpret_cast<void*>(__runtime_process_cwd);
     global_runtime->process.chdir = reinterpret_cast<void*>(__runtime_process_chdir);
-    global_runtime->process.exit = reinterpret_cast<void*>(__runtime_process_exit);
-    global_runtime->process.argv = reinterpret_cast<void*>(__runtime_process_argv);
-    global_runtime->process.platform = reinterpret_cast<void*>(__runtime_process_platform);
-    global_runtime->process.arch = reinterpret_cast<void*>(__runtime_process_arch);
-    global_runtime->process.version = reinterpret_cast<void*>(__runtime_process_version);
-    global_runtime->process.memoryUsage = reinterpret_cast<void*>(__runtime_process_memory_usage);
-    global_runtime->process.cpuUsage = reinterpret_cast<void*>(__runtime_process_cpu_usage);
-    
-    // Initialize fs object function pointers
-    global_runtime->fs.open = reinterpret_cast<void*>(__runtime_fs_open);
-    global_runtime->fs.close = reinterpret_cast<void*>(__runtime_fs_close);
-    global_runtime->fs.read = reinterpret_cast<void*>(__runtime_fs_read);
-    global_runtime->fs.write = reinterpret_cast<void*>(__runtime_fs_write);
-    global_runtime->fs.exists = reinterpret_cast<void*>(__runtime_fs_exists);
-    global_runtime->fs.stat = reinterpret_cast<void*>(__runtime_fs_size); // Using size as stat for now
-    global_runtime->fs.mkdir = reinterpret_cast<void*>(__runtime_fs_mkdir);
-    global_runtime->fs.rmdir = reinterpret_cast<void*>(__runtime_fs_rmdir);
-    global_runtime->fs.unlink = reinterpret_cast<void*>(__runtime_fs_unlink);
-    global_runtime->fs.rename = reinterpret_cast<void*>(__runtime_fs_rename);
-    global_runtime->fs.readdir = reinterpret_cast<void*>(__runtime_fs_readdir);
-    
-    // Initialize os object function pointers
-    global_runtime->os.hostname = reinterpret_cast<void*>(__runtime_os_hostname);
-    global_runtime->os.type = reinterpret_cast<void*>(__runtime_os_type);
-    global_runtime->os.platform = reinterpret_cast<void*>(__runtime_process_platform); // Reuse
-    global_runtime->os.release = reinterpret_cast<void*>(__runtime_os_release);
-    global_runtime->os.arch = reinterpret_cast<void*>(__runtime_process_arch); // Reuse
-    global_runtime->os.tmpdir = reinterpret_cast<void*>(__runtime_os_tmpdir);
-    global_runtime->os.homedir = reinterpret_cast<void*>(__runtime_os_homedir);
-    global_runtime->os.uptime = reinterpret_cast<void*>(__runtime_os_uptime);
-    global_runtime->os.freemem = reinterpret_cast<void*>(__runtime_os_freemem);
-    global_runtime->os.totalmem = reinterpret_cast<void*>(__runtime_os_totalmem);
-    
-    // Initialize lock object function pointers
-    global_runtime->lock.create = reinterpret_cast<void*>(__runtime_lock_create);
-    
-    // Initialize HTTP object function pointers
-    global_runtime->http.createServer = reinterpret_cast<void*>(__runtime_http_create_server_advanced);
-    global_runtime->http.serverListen = reinterpret_cast<void*>(__runtime_http_server_listen_advanced);
-    global_runtime->http.serverClose = reinterpret_cast<void*>(__runtime_http_server_close);
-    global_runtime->http.request = reinterpret_cast<void*>(__runtime_http_request_advanced);
-    global_runtime->http.get = reinterpret_cast<void*>(__runtime_http_get_advanced);
-    global_runtime->http.post = reinterpret_cast<void*>(__runtime_http_post_advanced);
-    global_runtime->http.requestGetMethod = reinterpret_cast<void*>(__runtime_http_request_get_method);
-    global_runtime->http.requestGetUrl = reinterpret_cast<void*>(__runtime_http_request_get_url);
-    global_runtime->http.requestGetHeader = reinterpret_cast<void*>(__runtime_http_request_get_header);
-    global_runtime->http.requestGetBody = reinterpret_cast<void*>(__runtime_http_request_get_body);
-    global_runtime->http.responseSetStatus = reinterpret_cast<void*>(__runtime_http_response_set_status);
-    global_runtime->http.responseSetHeader = reinterpret_cast<void*>(__runtime_http_response_set_header);
-    global_runtime->http.responseWrite = reinterpret_cast<void*>(__runtime_http_response_write);
-    global_runtime->http.responseEnd = reinterpret_cast<void*>(__runtime_http_response_end);
-    global_runtime->http.responseJson = reinterpret_cast<void*>(__runtime_http_response_json);
-    global_runtime->http.responseHtml = reinterpret_cast<void*>(__runtime_http_response_html);
-    global_runtime->http.responseSendFile = reinterpret_cast<void*>(__runtime_http_response_send_file);
-    
-    // Initialize torch object function pointers
-    global_runtime->torch.init = reinterpret_cast<void*>(torch_init);
-    global_runtime->torch.cleanup = reinterpret_cast<void*>(torch_cleanup);
-    global_runtime->torch.version = reinterpret_cast<void*>(torch_version);
-    global_runtime->torch.set_seed = reinterpret_cast<void*>(torch_set_seed);
-    global_runtime->torch.manual_seed = reinterpret_cast<void*>(torch_manual_seed);
-    
-    // Device functions
-    global_runtime->torch.device_cpu = reinterpret_cast<void*>(torch_device_cpu);
-    global_runtime->torch.device_cuda = reinterpret_cast<void*>(torch_device_cuda);
-    global_runtime->torch.cuda_is_available = reinterpret_cast<void*>(torch_cuda_is_available);
-    global_runtime->torch.cuda_device_count = reinterpret_cast<void*>(torch_cuda_device_count);
-    global_runtime->torch.cuda_empty_cache = reinterpret_cast<void*>(torch_cuda_empty_cache);
-    
-    // Data type functions
-    global_runtime->torch.dtype_float32 = reinterpret_cast<void*>(torch_dtype_float32);
-    global_runtime->torch.dtype_float64 = reinterpret_cast<void*>(torch_dtype_float64);
-    global_runtime->torch.dtype_int32 = reinterpret_cast<void*>(torch_dtype_int32);
-    global_runtime->torch.dtype_int64 = reinterpret_cast<void*>(torch_dtype_int64);
-    global_runtime->torch.dtype_bool = reinterpret_cast<void*>(torch_dtype_bool);
-    
-    // Tensor creation functions
-    global_runtime->torch.tensor_empty = reinterpret_cast<void*>(torch_tensor_empty);
-    global_runtime->torch.tensor_zeros = reinterpret_cast<void*>(torch_tensor_zeros);
-    global_runtime->torch.tensor_ones = reinterpret_cast<void*>(torch_tensor_ones);
-    global_runtime->torch.tensor_randn = reinterpret_cast<void*>(torch_tensor_randn);
-    global_runtime->torch.tensor_rand = reinterpret_cast<void*>(torch_tensor_rand);
-    global_runtime->torch.tensor_from_blob = reinterpret_cast<void*>(torch_tensor_from_blob);
-    global_runtime->torch.tensor_from_array_float32 = reinterpret_cast<void*>(torch_tensor_from_array_float32);
-    global_runtime->torch.tensor_from_array_float64 = reinterpret_cast<void*>(torch_tensor_from_array_float64);
-    global_runtime->torch.tensor_from_array_int32 = reinterpret_cast<void*>(torch_tensor_from_array_int32);
-    global_runtime->torch.tensor_from_array_int64 = reinterpret_cast<void*>(torch_tensor_from_array_int64);
-    
-    // Tensor property functions
-    global_runtime->torch.tensor_ndim = reinterpret_cast<void*>(torch_tensor_ndim);
-    global_runtime->torch.tensor_size = reinterpret_cast<void*>(torch_tensor_size);
-    global_runtime->torch.tensor_numel = reinterpret_cast<void*>(torch_tensor_numel);
-    global_runtime->torch.tensor_dtype = reinterpret_cast<void*>(torch_tensor_dtype);
-    global_runtime->torch.tensor_device = reinterpret_cast<void*>(torch_tensor_device);
-    global_runtime->torch.tensor_data_ptr = reinterpret_cast<void*>(torch_tensor_data_ptr);
-    
-    // Tensor arithmetic operations
-    global_runtime->torch.tensor_add = reinterpret_cast<void*>(torch_tensor_add);
-    global_runtime->torch.tensor_sub = reinterpret_cast<void*>(torch_tensor_sub);
-    global_runtime->torch.tensor_mul = reinterpret_cast<void*>(torch_tensor_mul);
-    global_runtime->torch.tensor_div = reinterpret_cast<void*>(torch_tensor_div);
-    global_runtime->torch.tensor_matmul = reinterpret_cast<void*>(torch_tensor_matmul);
-    global_runtime->torch.tensor_add_scalar = reinterpret_cast<void*>(torch_tensor_add_scalar);
-    global_runtime->torch.tensor_sub_scalar = reinterpret_cast<void*>(torch_tensor_sub_scalar);
-    global_runtime->torch.tensor_mul_scalar = reinterpret_cast<void*>(torch_tensor_mul_scalar);
-    global_runtime->torch.tensor_div_scalar = reinterpret_cast<void*>(torch_tensor_div_scalar);
-    
-    // Tensor mathematical functions
-    global_runtime->torch.tensor_sin = reinterpret_cast<void*>(torch_tensor_sin);
-    global_runtime->torch.tensor_cos = reinterpret_cast<void*>(torch_tensor_cos);
-    global_runtime->torch.tensor_exp = reinterpret_cast<void*>(torch_tensor_exp);
-    global_runtime->torch.tensor_log = reinterpret_cast<void*>(torch_tensor_log);
-    global_runtime->torch.tensor_sqrt = reinterpret_cast<void*>(torch_tensor_sqrt);
-    global_runtime->torch.tensor_abs = reinterpret_cast<void*>(torch_tensor_abs);
-    global_runtime->torch.tensor_neg = reinterpret_cast<void*>(torch_tensor_neg);
-    
-    // Tensor shape operations
-    global_runtime->torch.tensor_reshape = reinterpret_cast<void*>(torch_tensor_reshape);
-    global_runtime->torch.tensor_view = reinterpret_cast<void*>(torch_tensor_view);
-    global_runtime->torch.tensor_transpose = reinterpret_cast<void*>(torch_tensor_transpose);
-    global_runtime->torch.tensor_permute = reinterpret_cast<void*>(torch_tensor_permute);
-    global_runtime->torch.tensor_squeeze = reinterpret_cast<void*>(torch_tensor_squeeze);
-    global_runtime->torch.tensor_unsqueeze = reinterpret_cast<void*>(torch_tensor_unsqueeze);
-    
-    // Tensor memory management
-    global_runtime->torch.tensor_free = reinterpret_cast<void*>(torch_tensor_free);
-    global_runtime->torch.tensor_clone = reinterpret_cast<void*>(torch_tensor_clone);
-    global_runtime->torch.tensor_detach = reinterpret_cast<void*>(torch_tensor_detach);
-    global_runtime->torch.tensor_to = reinterpret_cast<void*>(torch_tensor_to);
-    
-    // Neural network operations
-    global_runtime->torch.nn_linear = reinterpret_cast<void*>(torch_nn_linear);
-    global_runtime->torch.nn_conv2d = reinterpret_cast<void*>(torch_nn_conv2d);
-    global_runtime->torch.nn_relu = reinterpret_cast<void*>(torch_nn_relu);
-    global_runtime->torch.nn_sigmoid = reinterpret_cast<void*>(torch_nn_sigmoid);
-    global_runtime->torch.nn_softmax = reinterpret_cast<void*>(torch_nn_softmax);
-    global_runtime->torch.nn_cross_entropy = reinterpret_cast<void*>(torch_nn_cross_entropy);
-    
-    // Autograd operations
-    global_runtime->torch.tensor_backward = reinterpret_cast<void*>(torch_tensor_backward);
-    global_runtime->torch.tensor_grad = reinterpret_cast<void*>(torch_tensor_grad);
-    global_runtime->torch.tensor_set_requires_grad = reinterpret_cast<void*>(torch_tensor_set_requires_grad);
-    global_runtime->torch.tensor_requires_grad = reinterpret_cast<void*>(torch_tensor_requires_grad);
-    
-    // I/O operations
-    global_runtime->torch.save_tensor = reinterpret_cast<void*>(torch_save_tensor);
-    global_runtime->torch.load_tensor = reinterpret_cast<void*>(torch_load_tensor);
-    
-    // Utilities
-    global_runtime->torch.print_tensor = reinterpret_cast<void*>(torch_print_tensor);
-    global_runtime->torch.last_error = reinterpret_cast<void*>(torch_last_error);
-    global_runtime->torch.clear_error = reinterpret_cast<void*>(torch_clear_error);
-    
     // Register all methods for JIT optimization
     runtime_method_registry["time.now"] = {"time.now", global_runtime->time.now_millis, false, 0};
     runtime_method_registry["time.nowNanos"] = {"time.nowNanos", global_runtime->time.now_nanos, false, 0};
+    runtime_method_registry["date.now"] = {"date.now", global_runtime->date.now, false, 0};
+    runtime_method_registry["date.constructor"] = {"date.constructor", global_runtime->date.constructor, false, 1};
     runtime_method_registry["process.pid"] = {"process.pid", global_runtime->process.pid, false, 0};
     runtime_method_registry["process.cwd"] = {"process.cwd", global_runtime->process.cwd, false, 0};
     runtime_method_registry["lock.create"] = {"lock.create", global_runtime->lock.create, false, 0};
@@ -2098,6 +1871,46 @@ void __runtime_register_global() {
     __register_function_fast(reinterpret_cast<void*>(__runtime_crypto_random_bytes), 1, 0);
     
     // Timer functions
+    __register_function_fast(reinterpret_cast<void*>(__runtime_timer_set_timeout), 2, 0);
+    __register_function_fast(reinterpret_cast<void*>(__runtime_timer_set_interval), 2, 0);
+    __register_function_fast(reinterpret_cast<void*>(__runtime_timer_clear_timeout), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(__runtime_timer_clear_interval), 1, 0);
+    
+    // FFI functions (Foreign Function Interface)
+    __register_function_fast(reinterpret_cast<void*>(ffi_dlopen), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_dlsym), 2, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_dlclose), 1, 0);
+    
+    // FFI argument management
+    __register_function_fast(reinterpret_cast<void*>(ffi_clear_args), 0, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_set_arg_int64), 2, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_set_arg_double), 2, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_set_arg_ptr), 2, 0);
+    
+    // FFI generic calls
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_void), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_int64), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_double), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_ptr), 1, 0);
+    
+    // FFI direct calls (high-performance)
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_void), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_void_i64), 2, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_void_i64_i64), 3, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_int64), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_int64_i64), 2, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_int64_i64_i64), 3, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_int64_i64_i64_i64), 4, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_ptr_ptr), 2, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_ptr_ptr_ptr), 3, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_call_direct_double_double_double), 3, 0);
+    
+    // FFI memory functions
+    __register_function_fast(reinterpret_cast<void*>(ffi_malloc), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_free), 1, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_memcpy), 3, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_memset), 3, 0);
+    __register_function_fast(reinterpret_cast<void*>(ffi_memcmp), 3, 0);
     __register_function_fast(reinterpret_cast<void*>(__runtime_timer_set_timeout), 2, 0);
     __register_function_fast(reinterpret_cast<void*>(__runtime_timer_clear_timeout), 1, 0);
     

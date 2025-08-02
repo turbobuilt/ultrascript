@@ -44,24 +44,6 @@ void* torch_ones_2d(int64_t size0, int64_t size1) {
     }
 }
 
-void* torch_ones_3d(int64_t size0, int64_t size1, int64_t size2) {
-    try {
-        auto tensor = torch::ones({size0, size1, size2});
-        return new torch::Tensor(std::move(tensor));
-    } catch (const std::exception& e) {
-        return set_error_and_return_null(std::string("torch_ones_3d failed: ") + e.what());
-    }
-}
-
-void* torch_zeros_1d(int64_t size0) {
-    try {
-        auto tensor = torch::zeros({size0});
-        return new torch::Tensor(std::move(tensor));
-    } catch (const std::exception& e) {
-        return set_error_and_return_null(std::string("torch_zeros_1d failed: ") + e.what());
-    }
-}
-
 void* torch_zeros_2d(int64_t size0, int64_t size1) {
     try {
         auto tensor = torch::zeros({size0, size1});
@@ -71,39 +53,12 @@ void* torch_zeros_2d(int64_t size0, int64_t size1) {
     }
 }
 
-void* torch_zeros_3d(int64_t size0, int64_t size1, int64_t size2) {
-    try {
-        auto tensor = torch::zeros({size0, size1, size2});
-        return new torch::Tensor(std::move(tensor));
-    } catch (const std::exception& e) {
-        return set_error_and_return_null(std::string("torch_zeros_3d failed: ") + e.what());
-    }
-}
-
-void* torch_randn_1d(int64_t size0) {
-    try {
-        auto tensor = torch::randn({size0});
-        return new torch::Tensor(std::move(tensor));
-    } catch (const std::exception& e) {
-        return set_error_and_return_null(std::string("torch_randn_1d failed: ") + e.what());
-    }
-}
-
 void* torch_randn_2d(int64_t size0, int64_t size1) {
     try {
         auto tensor = torch::randn({size0, size1});
         return new torch::Tensor(std::move(tensor));
     } catch (const std::exception& e) {
         return set_error_and_return_null(std::string("torch_randn_2d failed: ") + e.what());
-    }
-}
-
-void* torch_randn_3d(int64_t size0, int64_t size1, int64_t size2) {
-    try {
-        auto tensor = torch::randn({size0, size1, size2});
-        return new torch::Tensor(std::move(tensor));
-    } catch (const std::exception& e) {
-        return set_error_and_return_null(std::string("torch_randn_3d failed: ") + e.what());
     }
 }
 
@@ -153,22 +108,6 @@ void* torch_mul(void* tensor_a, void* tensor_b) {
         return new torch::Tensor(std::move(result));
     } catch (const std::exception& e) {
         return set_error_and_return_null(std::string("torch_mul failed: ") + e.what());
-    }
-}
-
-void* torch_div(void* tensor_a, void* tensor_b) {
-    try {
-        if (!tensor_a || !tensor_b) {
-            return set_error_and_return_null("torch_div: null tensor pointer");
-        }
-        
-        torch::Tensor* a = static_cast<torch::Tensor*>(tensor_a);
-        torch::Tensor* b = static_cast<torch::Tensor*>(tensor_b);
-        
-        auto result = a->div(*b);
-        return new torch::Tensor(std::move(result));
-    } catch (const std::exception& e) {
-        return set_error_and_return_null(std::string("torch_div failed: ") + e.what());
     }
 }
 
@@ -295,7 +234,10 @@ bool torch_cuda_is_available() {
 
 int64_t torch_cuda_device_count() {
     try {
-        return torch::cuda::device_count();
+        if (torch::cuda::is_available()) {
+            return torch::cuda::device_count();
+        }
+        return 0;
     } catch (const std::exception& e) {
         last_error = std::string("torch_cuda_device_count failed: ") + e.what();
         return 0;

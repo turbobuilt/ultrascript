@@ -1,9 +1,9 @@
 CXX = g++
 CXXFLAGS = -std=c++17 -O0 -Wall -Wextra -pthread
-LDFLAGS = -pthread
+LDFLAGS = -pthread -ldl
 
 SRCDIR = .
-SOURCES = compiler.cpp lexer.cpp parser.cpp type_inference.cpp x86_instruction_builder.cpp x86_pattern_builder.cpp x86_codegen_v2.cpp ast_codegen.cpp compilation_context.cpp runtime.cpp runtime_syscalls.cpp lexical_scope.cpp regex.cpp error_reporter.cpp syntax_highlighter.cpp simple_main.cpp goroutine_system.cpp function_compilation_manager.cpp goroutine_advanced.cpp runtime_goroutine_advanced.cpp lock_system.cpp lock_jit_integration.cpp runtime_http_server.cpp runtime_http_client.cpp console_log_overhaul.cpp
+SOURCES = compiler.cpp lexer.cpp parser.cpp type_inference.cpp x86_instruction_builder.cpp x86_pattern_builder.cpp x86_codegen_v2.cpp ast_codegen.cpp compilation_context.cpp runtime.cpp runtime_syscalls.cpp lexical_scope.cpp regex.cpp error_reporter.cpp syntax_highlighter.cpp simple_main.cpp goroutine_system.cpp function_compilation_manager.cpp goroutine_advanced.cpp runtime_goroutine_advanced.cpp lock_system.cpp lock_jit_integration.cpp runtime_http_server.cpp runtime_http_client.cpp console_log_overhaul.cpp ffi_syscalls.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 TARGET = ultraScript
 
@@ -46,6 +46,14 @@ benchmark: $(TARGET)
 	@echo "Running performance benchmarks..."
 	time ./$(TARGET)
 
+# FFI Tests
+test-ffi: test_ffi
+	@echo "Running FFI tests..."
+	./test_ffi
+
+test_ffi: test_ffi.cpp ffi_syscalls.o
+	$(CXX) $(CXXFLAGS) test_ffi.cpp ffi_syscalls.o -o test_ffi $(LDFLAGS)
+
 # Dependencies
 compiler.o: compiler.h runtime.h
 lexer.o: compiler.h
@@ -63,3 +71,4 @@ regex.o: regex.h runtime.h
 error_reporter.o: compiler.h
 syntax_highlighter.o: compiler.h
 main.o: compiler.h tensor.h promise.h runtime.h
+ffi_syscalls.o: ffi_syscalls.h

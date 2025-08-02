@@ -1,0 +1,7 @@
+// UltraScript LibTorch Wrapper - Simple Working Version
+// This demonstrates basic tensor operations with operator overloading
+
+import torch from "./simple.uts"
+
+// Export everything from the simple torch module
+export default torch

@@ -1,6 +1,7 @@
 #include "x86_codegen_improved.h"
 #include "runtime.h"
 #include "console_log_overhaul.h"
+#include "runtime_syscalls.h"
 #include <cassert>
 #include <stdexcept>
 #include <iostream>
@@ -295,6 +296,7 @@ void X86CodeGenImproved::emit_call(const std::string& label) {
         {"__console_log_final_newline", reinterpret_cast<void*>(__console_log_final_newline)},
         {"__console_log_any_value_inspect", reinterpret_cast<void*>(__console_log_any_value_inspect)},
         {"__dynamic_value_create_from_double", reinterpret_cast<void*>(__dynamic_value_create_from_double)},
+        {"__runtime_time_now_millis", reinterpret_cast<void*>(__runtime_time_now_millis)},
         // Add more runtime functions as needed
     };
     

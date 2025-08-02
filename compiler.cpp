@@ -4,6 +4,7 @@
 #include "runtime_syscalls.h"
 #include "goroutine_system.h"
 #include "function_compilation_manager.h"
+#include "ffi_syscalls.h"  // FFI integration
 
 // External console mutex for thread safety
 extern std::mutex g_console_mutex;
