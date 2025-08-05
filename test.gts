@@ -6,6 +6,14 @@ class Animal {
     }
 }
 
+class Friend {
+    friendYears: int64;
+
+    printFriendYears() {
+        console.log("friend years", this.friendYears);
+    }
+}
+
 class Dog extends Animal {
     name: string = "'ol pal"
     bark() {

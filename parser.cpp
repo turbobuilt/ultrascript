@@ -1355,11 +1355,14 @@ std::unique_ptr<ASTNode> Parser::parse_class_declaration() {
     
     // Handle inheritance
     if (match(TokenType::EXTENDS)) {
-        if (!check(TokenType::IDENTIFIER)) {
-            throw std::runtime_error("Expected parent class name");
-        }
-        class_decl->parent_class = current_token().value;
-        advance();
+        // Parse comma-separated list of parent classes
+        do {
+            if (!check(TokenType::IDENTIFIER)) {
+                throw std::runtime_error("Expected parent class name");
+            }
+            class_decl->parent_classes.push_back(current_token().value);
+            advance();
+        } while (match(TokenType::COMMA));
     }
     
     if (!match(TokenType::LBRACE)) {
@@ -1424,7 +1427,7 @@ std::unique_ptr<ASTNode> Parser::parse_class_declaration() {
             } else if (check(TokenType::LPAREN)) {
                 // Method declaration
                 pos--; // Go back to method name
-                auto method = parse_method_declaration();
+                auto method = parse_method_declaration(class_decl->name);
                 method->is_static = is_static;
                 method->is_private = is_private;
                 method->is_protected = is_protected;
@@ -1444,7 +1447,7 @@ std::unique_ptr<ASTNode> Parser::parse_class_declaration() {
     return std::move(class_decl);
 }
 
-std::unique_ptr<MethodDecl> Parser::parse_method_declaration() {
+std::unique_ptr<MethodDecl> Parser::parse_method_declaration(const std::string& class_name) {
     if (!check(TokenType::IDENTIFIER)) {
         throw std::runtime_error("Expected method name");
     }
@@ -1452,7 +1455,7 @@ std::unique_ptr<MethodDecl> Parser::parse_method_declaration() {
     std::string method_name = current_token().value;
     advance();
     
-    auto method = std::make_unique<MethodDecl>(method_name);
+    auto method = std::make_unique<MethodDecl>(method_name, class_name);
     
     if (!match(TokenType::LPAREN)) {
         throw std::runtime_error("Expected '(' after method name");

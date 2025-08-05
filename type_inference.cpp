@@ -583,4 +583,17 @@ void TypeInference::clear_property_assignment_context() {
     current_property_assignment_type = DataType::ANY;
 }
 
+// Current class context for 'this' handling
+void TypeInference::set_current_class_context(const std::string& class_name) {
+    current_class_name = class_name;
+}
+
+std::string TypeInference::get_current_class_context() const {
+    return current_class_name;
+}
+
+void TypeInference::clear_current_class_context() {
+    current_class_name.clear();
+}
+
 }

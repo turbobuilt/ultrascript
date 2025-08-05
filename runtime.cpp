@@ -1013,6 +1013,26 @@ extern "C" void* __string_concat(void* str1, void* str2) {
     return static_cast<void*>(result);
 }
 
+// String concatenation with C string (for number conversion)
+extern "C" void* __string_concat_cstr(void* str_ptr, const char* cstr) {
+    if (!str_ptr || !cstr) return nullptr;
+    
+    GoTSString* str = static_cast<GoTSString*>(str_ptr);
+    GoTSString* result = new GoTSString(*str + GoTSString(cstr));
+    
+    return static_cast<void*>(result);
+}
+
+// String concatenation with C string on left (for number conversion)
+extern "C" void* __string_concat_cstr_left(const char* cstr, void* str_ptr) {
+    if (!cstr || !str_ptr) return nullptr;
+    
+    GoTSString* str = static_cast<GoTSString*>(str_ptr);
+    GoTSString* result = new GoTSString(GoTSString(cstr) + *str);
+    
+    return static_cast<void*>(result);
+}
+
 // Console timing functions
 extern "C" void __console_time(void* label_ptr) {
     static std::unordered_map<std::string, std::chrono::high_resolution_clock::time_point> timers;

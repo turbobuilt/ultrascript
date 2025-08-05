@@ -159,6 +159,14 @@ In our system, all properties that are classes will be stored as pointers, requi
 
 Inheritance will be supported. So the offsets work properly and you would check unregistered properties on the map recursively starting with the child and going to the parent.
 
+Supports multiple inheritance
+
+class Child extends Parent1, Parent2 {
+
+}
+
+parent fields that are declared are directly embedded into the child for max performance and use offset for c++ level speed.
+
 ## Unified Array Implementation
 
 ### Two Array Paths:

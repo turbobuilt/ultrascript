@@ -451,6 +451,46 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     // Fall back to local variable lookup
     DataType var_type = types.get_variable_type(name);
+    
+    // If variable not found locally, try implicit 'this.property' access
+    if (var_type == DataType::ANY && !types.variable_exists(name)) {
+        std::string current_class = types.get_current_class_context();
+        if (!current_class.empty()) {
+            // We're in a method - check if this identifier could be a class property
+            auto* compiler = get_current_compiler();
+            if (compiler) {
+                ClassInfo* class_info = compiler->get_class(current_class);
+                if (class_info) {
+                    // Check if this property exists on the current class
+                    for (size_t i = 0; i < class_info->fields.size(); ++i) {
+                        if (class_info->fields[i].name == name) {
+                            std::cout << "[DEBUG] Identifier: Converting '" << name << "' to implicit 'this." << name << "'" << std::endl;
+                            
+                            // PERFORMANCE: Direct property access with calculated offset
+                            // Object layout: [class_name_ptr][property_count][property0][property1]...
+                            // Properties start at offset 16 (2 * 8 bytes for metadata)
+                            int64_t property_offset = 16 + (i * 8); // Each property is 8 bytes
+                            DataType property_type = class_info->fields[i].type;
+                            
+                            // Load 'this' from stack offset -8 (where method prologue stored it)
+                            gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+                            
+                            // LIGHTNING FAST: Direct offset access - zero performance penalty like C++
+                            gen.emit_mov_reg_reg_offset(0, 0, property_offset); // RAX = [RAX + property_offset]
+                            
+                            result_type = property_type;
+                            std::cout << "[DEBUG] Identifier: Generated implicit this." << name << " access at offset " << property_offset << std::endl;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If we reach here, the identifier was not found as a local variable or class property
+        throw std::runtime_error("Undefined variable: " + name);
+    }
+    
     result_type = var_type;
     
     // Get the actual stack offset for this variable
@@ -1504,7 +1544,48 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
                 gen.emit_mov_reg_reg(7, 0); // RDI = object_id
                 
                 // Call the generated method function directly
-                std::string method_label = "__method_" + method_name;
+                // PERFORMANCE OPTIMIZATION: Use parent method for single inheritance
+                GoTSCompiler* compiler = get_current_compiler();
+                std::string method_label;
+                
+                if (compiler) {
+                    ClassInfo* class_info = compiler->get_class(class_name);
+                    if (class_info) {
+                        // Check if this class needs specialized methods for multiple inheritance
+                        ClassDecl temp_class_decl(class_name);
+                        temp_class_decl.parent_classes = class_info->parent_classes;
+                        
+                        if (compiler->needs_specialized_methods(temp_class_decl)) {
+                            // Multiple inheritance - use specialized method
+                            method_label = "__method_" + class_name + "_" + method_name;
+                            std::cout << "[CALL] Using specialized method: " << method_label << std::endl;
+                        } else {
+                            // Single inheritance - check if method exists in parent and use parent method directly
+                            bool found_in_parent = false;
+                            for (const std::string& parent_name : class_info->parent_classes) {
+                                ClassInfo* parent_info = compiler->get_class(parent_name);
+                                if (parent_info && parent_info->methods.find(method_name) != parent_info->methods.end()) {
+                                    method_label = "__method_" + method_name; // Use parent method directly
+                                    found_in_parent = true;
+                                    std::cout << "[CALL] Using parent method for single inheritance: " << method_label << std::endl;
+                                    break;
+                                }
+                            }
+                            if (!found_in_parent) {
+                                // Method defined in this class - use class-specific method
+                                method_label = "__method_" + method_name; // Use simple method name for own methods too
+                                std::cout << "[CALL] Using own method for single inheritance: " << method_label << std::endl;
+                            }
+                        }
+                    } else {
+                        // Fallback - use class-specific method
+                        method_label = "__method_" + class_name + "_" + method_name;
+                    }
+                } else {
+                    // Fallback - use class-specific method  
+                    method_label = "__method_" + class_name + "_" + method_name;
+                }
+                
                 gen.emit_call(method_label);
                 
                 result_type = DataType::ANY; // TODO: Get actual return type from method signature
@@ -3055,12 +3136,27 @@ void CaseClause::generate_code(CodeGenerator& gen, TypeInference& types) {
 void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout << "[DEBUG] PropertyAccess::generate_code - object=" << object_name << ", property=" << property_name << std::endl;
     
-    // Get the object's variable type and class name
-    DataType object_type = types.get_variable_type(object_name);
-    std::string class_name = types.get_variable_class_name(object_name);
+    DataType object_type;
+    std::string class_name;
     
-    if (object_type != DataType::CLASS_INSTANCE || class_name.empty()) {
-        throw std::runtime_error("Property access on non-object or unknown class: " + object_name);
+    // Special handling for 'this' keyword
+    if (object_name == "this") {
+        // Get the current class context from the type system
+        class_name = types.get_current_class_context();
+        if (class_name.empty()) {
+            throw std::runtime_error("'this' used outside of class method");
+        }
+        object_type = DataType::CLASS_INSTANCE;
+        
+        std::cout << "[DEBUG] PropertyAccess: 'this' resolved to class " << class_name << std::endl;
+    } else {
+        // Get the object's variable type and class name for regular variables
+        object_type = types.get_variable_type(object_name);
+        class_name = types.get_variable_class_name(object_name);
+        
+        if (object_type != DataType::CLASS_INSTANCE || class_name.empty()) {
+            throw std::runtime_error("Property access on non-object or unknown class: " + object_name);
+        }
     }
     
     // Get the class info to find property offset
@@ -3079,7 +3175,9 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
     DataType property_type = DataType::ANY;
     for (size_t i = 0; i < class_info->fields.size(); ++i) {
         if (class_info->fields[i].name == property_name) {
-            property_offset = i * 8; // Each property is 8 bytes (pointer or int64)
+            // Object layout: [class_name_ptr][property_count][property0][property1]...
+            // Properties start at offset 16 (2 * 8 bytes for metadata)
+            property_offset = 16 + (i * 8); // Each property is 8 bytes (pointer or int64)
             property_type = class_info->fields[i].type;
             break;
         }
@@ -3091,9 +3189,17 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     std::cout << "[DEBUG] PropertyAccess: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;
     
-    // Load the object pointer from the variable
-    int64_t object_stack_offset = types.get_variable_offset(object_name);
-    gen.emit_mov_reg_mem(0, object_stack_offset); // RAX = object pointer
+    // Load the object pointer - different handling for 'this' vs regular variables
+    if (object_name == "this") {
+        // For 'this', the object_id is stored at stack offset -8 by the method prologue
+        gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+        std::cout << "[DEBUG] PropertyAccess: Loading 'this' from stack offset -8" << std::endl;
+    } else {
+        // For regular variables, load from their stack offset
+        int64_t object_stack_offset = types.get_variable_offset(object_name);
+        gen.emit_mov_reg_mem(0, object_stack_offset); // RAX = object pointer
+        std::cout << "[DEBUG] PropertyAccess: Loading " << object_name << " from stack offset " << object_stack_offset << std::endl;
+    }
     
     // LIGHTNING FAST: Direct offset access - zero performance penalty like C++
     gen.emit_mov_reg_reg_offset(0, 0, property_offset); // RAX = [RAX + property_offset]
@@ -3115,17 +3221,30 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
     // Handle different types of objects for property access
     if (object_type == DataType::CLASS_INSTANCE) {
         // Handle class instance property access with direct offset access
-        // For now, only support direct variable references as objects
-        auto* var_expr = dynamic_cast<Identifier*>(object.get());
-        if (!var_expr) {
-            throw std::runtime_error("Class property access currently only supports direct variable references");
-        }
+        std::string class_name;
         
-        std::string object_name = var_expr->name;
-        std::string class_name = types.get_variable_class_name(object_name);
-        
-        if (class_name.empty()) {
-            throw std::runtime_error("Property access on object with unknown class: " + object_name);
+        // Check if this is a 'this' expression
+        auto* this_expr = dynamic_cast<ThisExpression*>(object.get());
+        if (this_expr) {
+            // For 'this', get the class name from the current class context
+            class_name = types.get_current_class_context();
+            if (class_name.empty()) {
+                throw std::runtime_error("'this' used outside of class method");
+            }
+            std::cout << "[DEBUG] ExpressionPropertyAccess: 'this' resolved to class " << class_name << std::endl;
+        } else {
+            // For other expressions, try to get the class name from variable references
+            auto* var_expr = dynamic_cast<Identifier*>(object.get());
+            if (!var_expr) {
+                throw std::runtime_error("Class property access currently only supports direct variable references and 'this'");
+            }
+            
+            std::string object_name = var_expr->name;
+            class_name = types.get_variable_class_name(object_name);
+            
+            if (class_name.empty()) {
+                throw std::runtime_error("Property access on object with unknown class: " + object_name);
+            }
         }
         
         // Get the class info to find property offset
@@ -3208,9 +3327,9 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
 }
 
 void ThisExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // TODO: Implement 'this' code generation
-    // For now, just put 0 in RAX as placeholder
-    gen.emit_mov_reg_imm(0, 0);
+    // Load the object_id from the stack where it was saved in the method prologue
+    // Instance methods save the object_id (this) at stack offset -8
+    gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
 }
 
 
@@ -3407,6 +3526,16 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
         }
     }
     
+    // Clear default_value shared_ptrs after constructor generation to prevent double-free during cleanup
+    if (current_compiler_context) {
+        ClassInfo* class_info = current_compiler_context->get_class(class_name);
+        if (class_info) {
+            for (auto& field : class_info->fields) {
+                field.default_value.reset(); // Clear the shared_ptr to prevent double-free
+            }
+        }
+    }
+    
     // Generate constructor body
     for (const auto& stmt : body) {
         stmt->generate_code(gen, types);
@@ -3419,6 +3548,9 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
 void MethodDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Reset type inference for new method to avoid offset conflicts
     types.reset_for_function();
+    
+    // Set the current class context for 'this' handling
+    types.set_current_class_context(class_name);
     
     // Generate different labels and parameter handling for static vs instance methods
     std::string method_label = is_static ? "__static_" + name : "__method_" + name;

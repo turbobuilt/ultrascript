@@ -167,7 +167,7 @@ struct OperatorOverload {
 
 struct ClassInfo {
     std::string name;
-    std::string parent_class;
+    std::vector<std::string> parent_classes;
     std::vector<Variable> fields;
     std::unordered_map<std::string, Function> methods;
     std::unordered_map<TokenType, std::vector<OperatorOverload>> operator_overloads;  // Multiple overloads per operator
@@ -202,6 +202,9 @@ private:
     DataType current_assignment_array_element_type = DataType::ANY;  // For [type] arrays
     DataType current_element_type_context = DataType::ANY;  // For array element type inference
     DataType current_property_assignment_type = DataType::ANY;  // For property assignment type inference
+    
+    // Current class context for 'this' handling
+    std::string current_class_name;
     
 public:
     DataType infer_type(const std::string& expression);
@@ -242,6 +245,11 @@ public:
     void set_current_property_assignment_type(DataType property_type);
     DataType get_current_property_assignment_type() const;
     void clear_property_assignment_context();
+    
+    // Current class context for 'this' handling
+    void set_current_class_context(const std::string& class_name);
+    std::string get_current_class_context() const;
+    void clear_current_class_context();
     
     // Function parameter tracking for keyword arguments
     void register_function_params(const std::string& func_name, const std::vector<std::string>& param_names);
@@ -611,6 +619,7 @@ struct ConstructorDecl : ASTNode {
 
 struct MethodDecl : ASTNode {
     std::string name;
+    std::string class_name;  // Class this method belongs to
     std::vector<Variable> parameters;
     DataType return_type = DataType::ANY;
     std::vector<std::unique_ptr<ASTNode>> body;
@@ -618,6 +627,7 @@ struct MethodDecl : ASTNode {
     bool is_private = false;
     bool is_protected = false;
     MethodDecl(const std::string& n) : name(n) {}
+    MethodDecl(const std::string& n, const std::string& cls) : name(n), class_name(cls) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
@@ -637,7 +647,7 @@ struct SuperMethodCall : ExpressionNode {
 
 struct ClassDecl : ASTNode {
     std::string name;
-    std::string parent_class; // For inheritance
+    std::vector<std::string> parent_classes; // For multiple inheritance
     std::vector<Variable> fields;
     std::unique_ptr<ConstructorDecl> constructor;
     std::vector<std::unique_ptr<MethodDecl>> methods;
@@ -722,7 +732,7 @@ private:
     std::unique_ptr<ASTNode> parse_break_statement();
     std::unique_ptr<ASTNode> parse_expression_statement();
     std::unique_ptr<ASTNode> parse_class_declaration();
-    std::unique_ptr<MethodDecl> parse_method_declaration();
+    std::unique_ptr<MethodDecl> parse_method_declaration(const std::string& class_name);
     std::unique_ptr<ConstructorDecl> parse_constructor_declaration(const std::string& class_name);
     std::unique_ptr<OperatorOverloadDecl> parse_operator_overload_declaration(const std::string& class_name);
     std::unique_ptr<SliceExpression> parse_slice_expression();
@@ -831,6 +841,10 @@ public:
     void register_class(const ClassInfo& class_info);
     ClassInfo* get_class(const std::string& class_name);
     bool is_class_defined(const std::string& class_name);
+    
+    // Specialized method generation for inheritance
+    void generate_specialized_inherited_methods(const ClassDecl& class_decl, CodeGenerator& gen, TypeInference& types);
+    bool needs_specialized_methods(const ClassDecl& class_decl) const;
     
     // Operator overloading management
     void register_operator_overload(const std::string& class_name, const OperatorOverload& overload);
