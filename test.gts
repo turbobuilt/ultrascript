@@ -1,6 +1,6 @@
 class Dog {
-    age: int32;
+    name: string;
 }
 let d = new Dog();
-d.age = 10;
-console.log(d.age);
+d.name = "fido"
+console.log(d.name);

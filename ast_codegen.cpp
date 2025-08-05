@@ -3144,7 +3144,9 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
         DataType property_type = DataType::ANY;
         for (size_t i = 0; i < class_info->fields.size(); ++i) {
             if (class_info->fields[i].name == property_name) {
-                property_offset = i * 8; // Each property is 8 bytes (pointer or int64)
+                // Object layout: [class_name_ptr][property_count][property0][property1]...
+                // Properties start at offset 16 (2 * 8 bytes for metadata)
+                property_offset = 16 + (i * 8); // Each property is 8 bytes (pointer or int64)
                 property_type = class_info->fields[i].type;
                 break;
             }
@@ -3224,8 +3226,25 @@ void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
             // HIGH PERFORMANCE PATH: Use known instance size for direct allocation
             uint32_t instance_size = class_info->instance_size;
             
-            // Call the correct object creation function with class name and size
-            gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(class_name.c_str())); // RDI = class_name
+            // Create a GoTSString for the class name and pass that pointer
+            // First, create the class name string using string interning
+            static std::unordered_map<std::string, const char*> class_name_storage;
+            auto it = class_name_storage.find(class_name);
+            const char* str_ptr;
+            if (it != class_name_storage.end()) {
+                str_ptr = it->second;
+            } else {
+                // Allocate permanent storage for this class name
+                char* permanent_str = new char[class_name.length() + 1];
+                strcpy(permanent_str, class_name.c_str());
+                class_name_storage[class_name] = permanent_str;
+                str_ptr = permanent_str;
+            }
+            
+            uint64_t str_literal_addr = reinterpret_cast<uint64_t>(str_ptr);
+            gen.emit_mov_reg_imm(7, static_cast<int64_t>(str_literal_addr)); // RDI = class_name string
+            gen.emit_call("__string_intern"); // Create GoTSString
+            gen.emit_mov_reg_reg(7, 0); // RDI = GoTSString pointer from RAX
             gen.emit_mov_reg_imm(6, instance_size);   // RSI = instance_size
             gen.emit_call("__jit_object_create_sized");
             
@@ -3233,14 +3252,48 @@ void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
                      << " (size=" << instance_size << ")" << std::endl;
         } else {
             // Fallback for classes without known size - use basic creation
-            gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(class_name.c_str())); // RDI = class_name
+            // Create a GoTSString for the class name
+            static std::unordered_map<std::string, const char*> class_name_storage;
+            auto it = class_name_storage.find(class_name);
+            const char* str_ptr;
+            if (it != class_name_storage.end()) {
+                str_ptr = it->second;
+            } else {
+                // Allocate permanent storage for this class name
+                char* permanent_str = new char[class_name.length() + 1];
+                strcpy(permanent_str, class_name.c_str());
+                class_name_storage[class_name] = permanent_str;
+                str_ptr = permanent_str;
+            }
+            
+            uint64_t str_literal_addr = reinterpret_cast<uint64_t>(str_ptr);
+            gen.emit_mov_reg_imm(7, static_cast<int64_t>(str_literal_addr)); // RDI = class_name string
+            gen.emit_call("__string_intern"); // Create GoTSString
+            gen.emit_mov_reg_reg(7, 0); // RDI = GoTSString pointer from RAX
             gen.emit_call("__jit_object_create");
             
             std::cout << "[JIT] Basic object creation for " << class_name << std::endl;
         }
     } else {
         // No compiler context - use basic object creation
-        gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(class_name.c_str()));
+        // Create a GoTSString for the class name
+        static std::unordered_map<std::string, const char*> class_name_storage;
+        auto it = class_name_storage.find(class_name);
+        const char* str_ptr;
+        if (it != class_name_storage.end()) {
+            str_ptr = it->second;
+        } else {
+            // Allocate permanent storage for this class name
+            char* permanent_str = new char[class_name.length() + 1];
+            strcpy(permanent_str, class_name.c_str());
+            class_name_storage[class_name] = permanent_str;
+            str_ptr = permanent_str;
+        }
+        
+        uint64_t str_literal_addr = reinterpret_cast<uint64_t>(str_ptr);
+        gen.emit_mov_reg_imm(7, static_cast<int64_t>(str_literal_addr)); // RDI = class_name string
+        gen.emit_call("__string_intern"); // Create GoTSString
+        gen.emit_mov_reg_reg(7, 0); // RDI = GoTSString pointer from RAX
         gen.emit_call("__jit_object_create");
     }
     
@@ -3476,7 +3529,9 @@ void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInferen
     DataType property_type = DataType::ANY;
     for (size_t i = 0; i < class_info->fields.size(); ++i) {
         if (class_info->fields[i].name == property_name) {
-            property_offset = i * 8; // Each property is 8 bytes (pointer or int64)
+            // Object layout: [class_name_ptr][property_count][property0][property1]...
+            // Properties start at offset 16 (2 * 8 bytes for metadata)
+            property_offset = 16 + (i * 8); // Each property is 8 bytes (pointer or int64)
             property_type = class_info->fields[i].type;
             break;
         }
@@ -3489,7 +3544,10 @@ void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInferen
     std::cout << "[DEBUG] ExpressionPropertyAssignment: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;
     
     // Save the object pointer (currently in RAX from object->generate_code)
-    gen.emit_mov_reg_reg(2, 0); // RDX = object pointer
+    std::cout << "[DEBUG] ExpressionPropertyAssignment: Saving object pointer from RAX to stack" << std::endl;
+    std::cout.flush();
+    // Save object pointer to stack instead of RDX (which might be clobbered by function calls)
+    gen.emit_mov_mem_reg(-56, 0); // Save object pointer to [rbp-56]
     
     // Set the property assignment context for proper type conversion
     types.set_current_property_assignment_type(property_type);
@@ -3502,7 +3560,13 @@ void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInferen
     types.clear_property_assignment_context();
     
     // LIGHTNING FAST: Direct offset assignment - zero performance penalty like C++
+    std::cout << "[DEBUG] ExpressionPropertyAssignment: Loading object pointer from stack and storing value" << std::endl;
+    std::cout.flush();
+    // Load object pointer from stack to RDX, then store value
+    gen.emit_mov_reg_mem(2, -56); // RDX = object pointer from [rbp-56]
     gen.emit_mov_reg_offset_reg(2, property_offset, 0); // [RDX + property_offset] = RAX
+    std::cout << "[DEBUG] ExpressionPropertyAssignment: Direct offset assignment completed" << std::endl;
+    std::cout.flush();
     
     // Result of assignment is the assigned value (already in RAX)
     result_type = value->result_type;

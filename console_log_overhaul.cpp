@@ -224,9 +224,10 @@ extern "C" void __console_log_boolean(bool value) {
 extern "C" void __console_log_string_ptr(void* string_ptr) {
     std::lock_guard<std::mutex> lock(console_mutex);
     if (string_ptr) {
-        // Convert from internal string format to C string
-        const char* str = static_cast<const char*>(string_ptr);
-        std::cout << str;
+        // Handle GoTSString objects properly
+        ultraScript::GoTSString* gots_str = static_cast<ultraScript::GoTSString*>(string_ptr);
+        // Use data() and size() to properly handle null bytes
+        std::cout.write(gots_str->data(), gots_str->size());
     } else {
         std::cout << "null";
     }

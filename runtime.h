@@ -8,6 +8,8 @@
 #include <condition_variable>
 #include <atomic>
 #include <future>
+#include <cstdint>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -113,6 +115,29 @@ public:
             large.capacity = ((len + 16) & ~15) | 1; // Round up to 16-byte boundary, set odd flag
             large.data = new char[large.capacity & ~1]; // Mask off the flag bit
             memcpy(large.data, str, len + 1);
+            clear_small_flag();  // Make sure flag is clear for large strings
+        }
+    }
+    
+    // Constructor from data pointer and length - handles null bytes properly
+    GoTSString(const char* data, size_t len) {
+        if (!data || len == 0) {
+            *this = GoTSString();
+            return;
+        }
+        
+        if (len <= SSO_THRESHOLD && len <= 127) {  // Max 127 chars due to flag bit
+            // Small string optimization
+            memcpy(small.buffer, data, len);
+            small.buffer[len] = '\0';  // Always null-terminate for safety
+            small.size = static_cast<uint8_t>(len) | 0x80;  // Set flag bit + actual size
+        } else {
+            // Large string - allocate on heap
+            large.size = len;
+            large.capacity = ((len + 16) & ~15) | 1; // Round up to 16-byte boundary, set odd flag
+            large.data = new char[large.capacity & ~1]; // Mask off the flag bit
+            memcpy(large.data, data, len);
+            large.data[len] = '\0';  // Always null-terminate for safety
             clear_small_flag();  // Make sure flag is clear for large strings
         }
     }
@@ -272,6 +297,52 @@ public:
     
     bool operator>=(const GoTSString& other) const {
         return !(*this < other);
+    }
+    
+    // Raw data access for handling null bytes properly
+    inline const char* data() const {
+        return is_small() ? small.buffer : large.data;
+    }
+    
+    // Static factory method for creating from data with length
+    static GoTSString from_data(const char* data, size_t len) {
+        return GoTSString(data, len);
+    }
+    
+    // Static factory method for creating from C string
+    static GoTSString from_cstr(const char* str) {
+        return GoTSString(str);
+    }
+    
+    // Concatenation operator that handles null bytes properly
+    GoTSString& operator+=(const GoTSString& other) {
+        size_t my_size = size();
+        size_t other_size = other.size();
+        size_t total_size = my_size + other_size;
+        
+        if (total_size <= SSO_THRESHOLD && total_size <= 127 && is_small()) {
+            // Can extend small string
+            memcpy(small.buffer + my_size, other.data(), other_size);
+            small.buffer[total_size] = '\0';
+            small.size = static_cast<uint8_t>(total_size) | 0x80;
+        } else {
+            // Need to create new large string or grow existing one
+            char* new_data = new char[((total_size + 16) & ~15)];
+            memcpy(new_data, data(), my_size);
+            memcpy(new_data + my_size, other.data(), other_size);
+            new_data[total_size] = '\0';
+            
+            if (!is_small()) {
+                delete[] large.data;
+            }
+            
+            large.data = new_data;
+            large.size = total_size;
+            large.capacity = ((total_size + 16) & ~15) | 1;
+            clear_small_flag();
+        }
+        
+        return *this;
     }
 };
 
@@ -600,6 +671,7 @@ extern "C" {
     
     // Console functions
     void __console_log(const char* message);
+    void __console_log_gots(void* gots_string_ptr);
     void __console_log_newline();
     void __console_log_space();
     void __console_log_array(int64_t* array, int64_t size);
@@ -610,7 +682,18 @@ extern "C" {
     void __console_log_smart(int64_t value);
     const char* __gots_string_to_cstr(void* gots_string_ptr);
     bool __is_array_pointer(int64_t value);
-    void __console_time(const char* label);
+    void __console_time(void* label_ptr);
+    void __console_timeEnd(void* label_ptr);
+    
+    // String functions - updated to use GoTSString
+    void* __string_create(const char* str);
+    void* __string_intern(const char* str);
+    void* __string_create_with_length(const char* data, size_t length);
+    void* __string_create_from_std_string(const std::string& str);
+    size_t __string_length(void* string_ptr);
+    const char* __string_data(void* string_ptr);
+    void* __string_concat(void* str1, void* str2);
+    void __console_log_string(void* string_ptr);
     
     // Type-specific console.log functions - new type-aware system
     void __console_log_int8(int8_t value);
@@ -631,7 +714,6 @@ extern "C" {
     void __console_log_space_separator();
     void __console_log_final_newline();
     void __console_log_any_value_inspect(void* dynamic_value_ptr);
-    void __console_timeEnd(const char* label);
     
     // DynamicValue allocation functions for ANY type variables
     void* __dynamic_value_create_from_double(int64_t double_bits);
@@ -739,10 +821,12 @@ extern "C" {
     void __console_log_typed_array_float64(void* array);
     
     // Object management functions
-    int64_t __object_create(const char* class_name, int64_t property_count);
+    int64_t __object_create(void* class_name_ptr, int64_t property_count);
     void __object_set_property(int64_t object_id, int64_t property_index, int64_t value);
     int64_t __object_get_property(int64_t object_id, int64_t property_index);
     void __object_destroy(int64_t object_id);
+    void* __jit_object_create(void* class_name_ptr);
+    void* __jit_object_create_sized(void* class_name_ptr, size_t size);
     
     // Dynamic property access (for runtime property access)
     void __dynamic_set_property(int64_t object_id, const char* property_name, int64_t value);
@@ -790,8 +874,7 @@ extern "C" {
     int64_t* __array_data(void* array);
     int64_t __string_compare(void* str1, void* str2);
     
-    // String access
-    int64_t __string_length(void* string_ptr);
+    // String access (legacy - use new string functions above)
     const char* __string_c_str(void* string_ptr);
     char __string_char_at(void* string_ptr, int64_t index);
     
@@ -913,9 +996,6 @@ extern "C" {
     int64_t __string_search(void* string_ptr, void* regex_ptr);
     void* __string_split(void* string_ptr, void* delimiter_ptr);
     
-    // String property functions
-    int64_t __string_length(void* string_ptr);
-    
     // Regex property functions
     void* __regex_get_source(void* regex_ptr);
     bool __regex_get_global(void* regex_ptr);
@@ -928,7 +1008,7 @@ extern "C" {
     void* __static_stringify(void* value, int64_t type);
     
     // Pattern registry
-    void* __register_regex_pattern(const char* pattern);
+    void* __register_regex_pattern(void* pattern_ptr);
 }
 
 template<typename F, typename... Args>

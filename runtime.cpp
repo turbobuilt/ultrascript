@@ -398,6 +398,14 @@ void __console_log(const char* message) {
     std::cout << message;
 }
 
+// Console log for GoTSString objects
+void __console_log_gots(void* gots_string_ptr) {
+    if (gots_string_ptr) {
+        GoTSString* str = static_cast<GoTSString*>(gots_string_ptr);
+        std::cout.write(str->data(), str->size());
+    }
+}
+
 void __console_log_newline() {
     std::cout << std::endl;
 }
@@ -469,7 +477,7 @@ void __console_log_auto(int64_t value) {
         // This way we use the existing safe string handling
         void* ptr = reinterpret_cast<void*>(value);
         
-        // Try to call the string logger directly and see if it works
+        // Try to call the GoTSString logger directly and see if it works
         try {
             __console_log_string(ptr);
             return;
@@ -487,9 +495,10 @@ void __console_log_auto(int64_t value) {
 void __console_log_string(void* string_ptr) {
     std::lock_guard<std::mutex> lock(g_console_mutex);
     if (string_ptr) {
-        // Handle basic char* strings
-        const char* str = static_cast<const char*>(string_ptr);
-        std::cout << str;
+        // Handle GoTSString objects properly
+        GoTSString* gots_str = static_cast<GoTSString*>(string_ptr);
+        // Use data() and size() to properly handle null bytes
+        std::cout.write(gots_str->data(), gots_str->size());
         std::cout.flush();
     }
 }
@@ -521,13 +530,52 @@ extern "C" bool __gots_clear_interval(int64_t timer_id);
 
 // Stub implementations for functions used by runtime_syscalls.cpp
 void* __string_create(const char* str) {
-    return (void*)strdup(str);
+    GoTSString* gots_str = new GoTSString(str);
+    return static_cast<void*>(gots_str);
 }
 
 // String interning for literals - simple implementation for now
 void* __string_intern(const char* str) {
-    // For now, just return a copy - could optimize with interning later
-    return (void*)strdup(str);
+    std::cout << "[DEBUG] __string_intern called with: " << (str ? str : "null") << std::endl;
+    std::cout.flush();
+    
+    try {
+        // For now, just return a new GoTSString - could optimize with interning later
+        GoTSString* gots_str = new GoTSString(str);
+        std::cout << "[DEBUG] __string_intern created GoTSString at: " << gots_str << std::endl;
+        std::cout.flush();
+        return static_cast<void*>(gots_str);
+    } catch (const std::exception& e) {
+        std::cout << "[ERROR] __string_intern failed: " << e.what() << std::endl;
+        std::cout.flush();
+        return nullptr;
+    }
+}
+
+// String creation with length - handles null bytes properly
+extern "C" void* __string_create_with_length(const char* data, size_t length) {
+    GoTSString* gots_str = new GoTSString(data, length);
+    return static_cast<void*>(gots_str);
+}
+
+// String creation from std::string
+extern "C" void* __string_create_from_std_string(const std::string& str) {
+    GoTSString* gots_str = new GoTSString(str.data(), str.length());
+    return static_cast<void*>(gots_str);
+}
+
+// Get string length (handles null bytes properly)
+extern "C" size_t __string_length(void* string_ptr) {
+    if (!string_ptr) return 0;
+    GoTSString* str = static_cast<GoTSString*>(string_ptr);
+    return str->size();
+}
+
+// Get string data pointer (for interfacing with C code)
+extern "C" const char* __string_data(void* string_ptr) {
+    if (!string_ptr) return nullptr;
+    GoTSString* str = static_cast<GoTSString*>(string_ptr);
+    return str->data();
 }
 
 // Duplicate function definition removed
@@ -778,15 +826,17 @@ extern "C" void* __get_executable_memory_base() {
 
 // Timer system functions moved to goroutine_system.cpp
 
-extern "C" const char* __dynamic_method_toString(void* obj) {
+extern "C" void* __dynamic_method_toString(void* obj) {
     // For now, we'll treat this as a simple array toString
     // In a full implementation, this would check object type and call appropriate toString
     if (obj) {
         Array* array = static_cast<Array*>(obj);
         std::string str = array->toString();
-        return strdup(str.c_str());
+        GoTSString* result = new GoTSString(str.c_str(), str.length());
+        return static_cast<void*>(result);
     }
-    return strdup("undefined");
+    GoTSString* result = new GoTSString("undefined");
+    return static_cast<void*>(result);
 }
 
 // Typed array functions - stubs for now
@@ -953,30 +1003,37 @@ extern "C" void* __dynamic_value_create_from_string(void* string_ptr) {
 extern "C" void* __string_concat(void* str1, void* str2) {
     if (!str1 || !str2) return nullptr;
     
-    // Simple implementation - concatenate C strings
-    char* s1 = static_cast<char*>(str1);
-    char* s2 = static_cast<char*>(str2);
+    // Handle GoTSString concatenation properly
+    GoTSString* s1 = static_cast<GoTSString*>(str1);
+    GoTSString* s2 = static_cast<GoTSString*>(str2);
     
-    size_t len1 = strlen(s1);
-    size_t len2 = strlen(s2);
-    char* result = static_cast<char*>(malloc(len1 + len2 + 1));
+    // Create new GoTSString with proper concatenation
+    GoTSString* result = new GoTSString(*s1 + *s2);
     
-    strcpy(result, s1);
-    strcat(result, s2);
-    
-    return result;
+    return static_cast<void*>(result);
 }
 
 // Console timing functions
-extern "C" void __console_time(const char* label) {
+extern "C" void __console_time(void* label_ptr) {
     static std::unordered_map<std::string, std::chrono::high_resolution_clock::time_point> timers;
-    std::string timer_label = label ? label : "default";
+    std::string timer_label = "default";
+    
+    if (label_ptr) {
+        GoTSString* label_str = static_cast<GoTSString*>(label_ptr);
+        timer_label = std::string(label_str->data(), label_str->size());
+    }
+    
     timers[timer_label] = std::chrono::high_resolution_clock::now();
 }
 
-extern "C" void __console_timeEnd(const char* label) {
+extern "C" void __console_timeEnd(void* label_ptr) {
     static std::unordered_map<std::string, std::chrono::high_resolution_clock::time_point> timers;
-    std::string timer_label = label ? label : "default";
+    std::string timer_label = "default";
+    
+    if (label_ptr) {
+        GoTSString* label_str = static_cast<GoTSString*>(label_ptr);
+        timer_label = std::string(label_str->data(), label_str->size());
+    }
     
     auto it = timers.find(timer_label);
     if (it != timers.end()) {
@@ -1016,14 +1073,20 @@ extern "C" void* __promise_await(void* promise_ptr) {
 }
 
 // Regex functions
-extern "C" void* __register_regex_pattern(const char* pattern) {
+extern "C" void* __register_regex_pattern(void* pattern_ptr) {
     // Simple implementation - just return the pattern as ID
     static std::atomic<int64_t> pattern_id{1};
     int64_t id = pattern_id.fetch_add(1);
     
     // Store pattern in a registry (simplified)
     static std::unordered_map<int64_t, std::string> pattern_registry;
-    pattern_registry[id] = pattern ? pattern : "";
+    
+    if (pattern_ptr) {
+        GoTSString* pattern_str = static_cast<GoTSString*>(pattern_ptr);
+        pattern_registry[id] = std::string(pattern_str->data(), pattern_str->size());
+    } else {
+        pattern_registry[id] = "";
+    }
     
     return reinterpret_cast<void*>(id);
 }
@@ -1049,41 +1112,98 @@ extern "C" void* __string_match(void* string_ptr, void* regex_ptr) {
 
 // ==================== Object Creation Functions ====================
 
-int64_t __object_create(const char* class_name, int64_t property_count) {
-    // Simple object creation implementation
-    // For now, just allocate a basic object structure
+int64_t __object_create(void* class_name_ptr, int64_t property_count) {
+    std::cout << "[DEBUG] __object_create called with class_name_ptr=" << class_name_ptr << ", property_count=" << property_count << std::endl;
+    std::cout.flush();
     
-    struct SimpleObject {
-        const char* class_name;
-        size_t property_count;
-        void** properties;
-    };
-    
-    SimpleObject* obj = new SimpleObject();
-    obj->class_name = class_name;
-    obj->property_count = property_count;
-    obj->properties = property_count > 0 ? new void*[property_count] : nullptr;
-    
-    // Initialize properties to nullptr
-    for (int64_t i = 0; i < property_count; i++) {
-        obj->properties[i] = nullptr;
+    try {
+        // Object creation with direct property access layout
+        // Allocate object with inline property storage for performance
+        
+        // Calculate total size: metadata + inline properties
+        size_t metadata_size = sizeof(void*) * 2; // class_name pointer + property_count
+        size_t property_storage_size = property_count * sizeof(void*);
+        size_t total_size = metadata_size + property_storage_size;
+        
+        // Allocate contiguous memory block
+        void* raw_memory = malloc(total_size);
+        if (!raw_memory) {
+            throw std::bad_alloc();
+        }
+        
+        // Layout: [class_name_ptr][property_count][property0][property1]...
+        void** obj_data = static_cast<void**>(raw_memory);
+        
+        std::cout << "[DEBUG] __object_create allocated object at " << raw_memory << " (size=" << total_size << ")" << std::endl;
+        std::cout.flush();
+        
+        // Store class name pointer at offset 0
+        if (class_name_ptr) {
+            GoTSString* name_str = static_cast<GoTSString*>(class_name_ptr);
+            obj_data[0] = class_name_ptr; // Store the GoTSString pointer directly
+            std::cout << "[DEBUG] __object_create: class_name=\"" << std::string(name_str->data(), name_str->size()) << "\"" << std::endl;
+        } else {
+            obj_data[0] = nullptr;
+            std::cout << "[DEBUG] __object_create: null class_name" << std::endl;
+        }
+        
+        // Store property count at offset 1
+        obj_data[1] = reinterpret_cast<void*>(property_count);
+        
+        // Initialize property slots (starting at offset 2)
+        for (int64_t i = 0; i < property_count; i++) {
+            obj_data[2 + i] = nullptr;
+        }
+        
+        int64_t result = reinterpret_cast<int64_t>(raw_memory);
+        std::cout << "[DEBUG] __object_create returning object id: " << result << std::endl;
+        
+        // Verify object layout is correct
+        void** test_ptr = static_cast<void**>(raw_memory);
+        std::cout << "[DEBUG] __object_create verification: class_name_ptr=" << test_ptr[0] << ", property_count=" << reinterpret_cast<int64_t>(test_ptr[1]) << std::endl;
+        
+        // Test write to property slot 0 (offset 16)
+        test_ptr[2] = nullptr; // This should be safe
+        std::cout << "[DEBUG] __object_create: Successfully wrote to property slot 0" << std::endl;
+        
+        std::cout.flush();
+        return result;
+    } catch (const std::exception& e) {
+        std::cout << "[ERROR] __object_create failed: " << e.what() << std::endl;
+        std::cout.flush();
+        return 0;
     }
-    
-    return reinterpret_cast<int64_t>(obj);
-}
-
-extern "C" void* __jit_object_create(const char* class_name) {
-    // JIT-optimized object creation - for now, same as regular object creation
-    int64_t obj_id = __object_create(class_name, 0);
-    return reinterpret_cast<void*>(obj_id);
-}
-
-extern "C" void* __jit_object_create_sized(const char* class_name, size_t size) {
-    // JIT-optimized object creation with known size
-    // For now, same as regular object creation
-    (void)size; // Suppress unused parameter warning
-    int64_t obj_id = __object_create(class_name, 0);
-    return reinterpret_cast<void*>(obj_id);
 }
 
 } // namespace ultraScript
+
+extern "C" void* __jit_object_create(void* class_name_ptr) {
+    // JIT-optimized object creation - for now, same as regular object creation
+    int64_t obj_id = ultraScript::__object_create(class_name_ptr, 0);
+    return reinterpret_cast<void*>(obj_id);
+}
+
+extern "C" void* __jit_object_create_sized(void* class_name_ptr, size_t size) {
+    std::cout << "[DEBUG] __jit_object_create_sized called with class_name_ptr=" << class_name_ptr << ", size=" << size << std::endl;
+    std::cout.flush();
+    
+    try {
+        // JIT-optimized object creation with known size
+        // Convert size to property count - for Dog class with 1 field, size=8 means 1 property
+        // Object layout: metadata(16 bytes) + properties
+        // So property_count = max(0, (size - 16) / 8)
+        int64_t property_count = (size > 16) ? (size - 16) / 8 : 1; // At least 1 for Dog class
+        
+        std::cout << "[DEBUG] __jit_object_create_sized calculated property_count=" << property_count << std::endl;
+        std::cout.flush();
+        
+        int64_t obj_id = ultraScript::__object_create(class_name_ptr, property_count);
+        std::cout << "[DEBUG] __jit_object_create_sized created object with id=" << obj_id << std::endl;
+        std::cout.flush();
+        return reinterpret_cast<void*>(obj_id);
+    } catch (const std::exception& e) {
+        std::cout << "[ERROR] __jit_object_create_sized failed: " << e.what() << std::endl;
+        std::cout.flush();
+        return nullptr;
+    }
+}
