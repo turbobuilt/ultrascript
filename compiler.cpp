@@ -106,9 +106,12 @@ void GoTSCompiler::compile(const std::string& source) {
                 ClassInfo class_info(class_decl->name);
                 class_info.fields = class_decl->fields;
                 class_info.parent_class = class_decl->parent_class;
-                class_info.instance_size = class_decl->fields.size() * 8; // 8 bytes per property
+                // instance_size will be calculated in register_class() to handle inheritance
                 register_class(class_info);
-                std::cout << "Registered class: " << class_decl->name << " with " << class_decl->fields.size() << " fields";
+                
+                // Get the processed class info to show correct field count (including inherited)
+                ClassInfo* final_class_info = get_class(class_decl->name);
+                std::cout << "Registered class: " << class_decl->name << " with " << final_class_info->fields.size() << " fields";
                 if (!class_decl->parent_class.empty()) {
                     std::cout << " (extends " << class_decl->parent_class << ")";
                 }
@@ -433,7 +436,38 @@ void GoTSCompiler::execute() {
 
 // Class management methods
 void GoTSCompiler::register_class(const ClassInfo& class_info) {
-    classes[class_info.name] = class_info;
+    ClassInfo processed_class_info = class_info;
+    
+    // Handle inheritance - copy parent class properties to child class as first-class properties
+    if (!class_info.parent_class.empty()) {
+        ClassInfo* parent_info = get_class(class_info.parent_class);
+        if (!parent_info) {
+            throw std::runtime_error("Parent class '" + class_info.parent_class + "' not found for class '" + class_info.name + "'");
+        }
+        
+        // Create new fields vector with parent fields first, then child fields
+        std::vector<Variable> inherited_fields;
+        
+        // Copy all parent fields as first-class properties
+        for (const auto& parent_field : parent_info->fields) {
+            inherited_fields.push_back(parent_field);
+        }
+        
+        // Add child-specific fields after parent fields
+        for (const auto& child_field : class_info.fields) {
+            inherited_fields.push_back(child_field);
+        }
+        
+        // Update the processed class info
+        processed_class_info.fields = inherited_fields;
+        processed_class_info.instance_size = inherited_fields.size() * 8; // 8 bytes per property
+        
+        std::cout << "[INHERITANCE] Class " << class_info.name << " inherits " 
+                  << parent_info->fields.size() << " fields from " << class_info.parent_class
+                  << ", total fields: " << inherited_fields.size() << std::endl;
+    }
+    
+    classes[processed_class_info.name] = processed_class_info;
 }
 
 ClassInfo* GoTSCompiler::get_class(const std::string& class_name) {
