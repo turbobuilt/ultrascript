@@ -1565,20 +1565,6 @@ int64_t __runtime_mem_size(void* ptr) {
     return 0; // Placeholder
 }
 
-void __runtime_gc_collect() {
-    // Trigger garbage collection - would integrate with UltraScript GC
-}
-
-int64_t __runtime_gc_heap_size() {
-    // Return heap size
-    return 0; // Placeholder
-}
-
-int64_t __runtime_gc_heap_used() {
-    // Return used heap
-    return 0; // Placeholder
-}
-
 // Error syscalls
 void* __runtime_error_create(const char* message) {
     return __string_create(message ? message : "");

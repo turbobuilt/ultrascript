@@ -92,7 +92,7 @@ public:
     // Pre-allocate locks for JIT-compiled functions
     static void preallocate_locks(size_t count);
     
-    // Integration with garbage collector
+    // Integration with memory management
     static void register_with_gc();
     
     // Thread cleanup to prevent memory leaks

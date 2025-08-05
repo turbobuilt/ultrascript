@@ -3,7 +3,6 @@
 #include "ultra_fast_jit.h"
 #include "high_performance_scheduler.h"
 #include "simd_optimizations.h"
-#include "gc_optimized_barriers.h"
 
 namespace ultraScript {
 
@@ -86,14 +85,12 @@ public:
     // SIMD-ACCELERATED OPERATIONS
     // ============================================================================
     
-    void process_gc_operations_simd() {
+    void process_memory_operations_simd() {
         if (!SIMDOptimizations::is_avx2_supported()) {
             return;
         }
         
-        // SIMD-optimized card table scanning
-        uint8_t* card_table = OptimizedWriteBarrier::get_card_table();
-        size_t card_count = OptimizedWriteBarrier::get_card_table_size();
+        // SIMD-optimized memory operations
         
         uint32_t dirty_cards[1024];
         size_t found = SIMDOptimizations::scan_dirty_cards_avx2(
@@ -262,19 +259,18 @@ private:
             return allocate_stack_optimized(size, type_id);
         }
         
-        // Use TLAB allocation for larger objects
-        return allocate_tlab_optimized(size, type_id, is_array);
+        // Use simple malloc for larger objects
+        return malloc(size);
     }
     
     void* allocate_stack_optimized(size_t size, uint32_t type_id) {
         // This would be JIT-compiled to inline stack allocation
-        return alloca(size + 8); // + header size
+        return alloca(size);
     }
     
-    void* allocate_tlab_optimized(size_t size, uint32_t type_id, bool is_array) {
-        // Use the optimized TLAB allocation from goroutine_heap_manager.cpp
-        // This would integrate with the existing optimized allocate_fast() method
-        return nullptr; // Placeholder
+    void* allocate_simple(size_t size, uint32_t type_id, bool is_array) {
+        // Simple malloc allocation
+        return malloc(size);
     }
     
     void compile_allocation_sequence(const UltraFastJIT::AllocationPattern& pattern) {

@@ -285,7 +285,7 @@ void LockAllocationPool::preallocate_locks(size_t count) {
 }
 
 void LockAllocationPool::register_with_gc() {
-    // Register pool with garbage collector for proper cleanup
+    // Register pool for proper cleanup
     // This would integrate with the existing GC system
 }
 

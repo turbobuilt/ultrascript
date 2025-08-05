@@ -268,9 +268,6 @@ extern "C" {
     void __runtime_mem_free(void* ptr);
     void* __runtime_mem_realloc(void* ptr, int64_t size);
     int64_t __runtime_mem_size(void* ptr);
-    void __runtime_gc_collect();
-    int64_t __runtime_gc_heap_size();
-    int64_t __runtime_gc_heap_used();
     
     // Error syscalls
     void* __runtime_error_create(const char* message);
