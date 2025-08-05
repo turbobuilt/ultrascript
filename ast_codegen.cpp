@@ -3384,16 +3384,24 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
             for (size_t i = 0; i < class_info->fields.size(); i++) {
                 const auto& field = class_info->fields[i];
                 if (field.default_value) {
+                    // Set the property assignment context for proper type conversion
+                    types.set_current_property_assignment_type(field.type);
+                    
                     // Generate code for default value expression
                     field.default_value->generate_code(gen, types);
                     
-                    // Set the property on 'this' object
-                    // RAX contains the result of the default value expression
-                    gen.emit_mov_reg_reg(2, 0);  // RDX = value (from RAX)
-                    gen.emit_mov_reg_mem(7, -8); // RDI = object_id (from 'this')
-                    gen.emit_mov_reg_imm(6, i);  // RSI = property_index
-                    gen.emit_call("__object_set_property");
+                    // Clear the property assignment context
+                    types.clear_property_assignment_context();
                     
+                    // Set the property on 'this' object using direct offset access
+                    // RAX contains the result of the default value expression
+                    // Object layout: [class_name_ptr][property_count][property0][property1]...
+                    // Properties start at offset 16 (2 * 8 bytes for metadata)
+                    int64_t property_offset = 16 + (i * 8); // Each property is 8 bytes
+                    
+                    // Direct offset assignment - same as ExpressionPropertyAssignment
+                    gen.emit_mov_reg_mem(2, -8); // RDX = object_id (from 'this' at [rbp-8])
+                    gen.emit_mov_reg_offset_reg(2, property_offset, 0); // [RDX + property_offset] = RAX
                 }
             }
         }
