@@ -1,0 +1,50 @@
+# Simple Makefile for UltraScript Garbage Collection System (Standalone)
+
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -pthread -g -DSTANDALONE_GC
+INCLUDES = -I.
+
+# Core GC sources (minimal dependencies)
+GC_SOURCES = gc_system.cpp lexical_scope.cpp
+MINIMAL_COMPILER_SOURCES = minimal_compiler_stubs.cpp
+
+# Object files
+GC_OBJECTS = $(GC_SOURCES:.cpp=.o)
+STUB_OBJECTS = $(MINIMAL_COMPILER_SOURCES:.cpp=.o)
+
+# Executable targets
+TARGETS = test_gc_system_standalone
+
+# Default target
+all: $(TARGETS)
+
+# Test garbage collection system (standalone)
+test_gc_system_standalone: test_gc_system.o $(GC_OBJECTS) $(STUB_OBJECTS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(INCLUDES)
+
+# Special compile rule for test to use stubs
+test_gc_system.o: test_gc_system.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -DUSE_STUBS -c -o $@ $<
+
+# Object file rules
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c -o $@ $<
+
+# Clean target
+clean:
+	rm -f *.o $(TARGETS)
+
+# Run tests
+test: test_gc_system_standalone
+	@echo "Running Standalone Garbage Collection System Tests..."
+	./test_gc_system_standalone
+
+# Help target
+help:
+	@echo "Available targets:"
+	@echo "  all          - Build standalone GC system test"
+	@echo "  test         - Build and run GC system tests"
+	@echo "  clean        - Remove compiled files"
+	@echo "  help         - Show this help message"
+
+.PHONY: all clean test help

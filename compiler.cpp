@@ -1,4 +1,5 @@
 #include "compiler.h"
+#include "parser_gc_integration.h"  // For ParserGCIntegration implementation
 #include "x86_codegen_v2.h"  // For X86CodeGenV2 validation
 #include "runtime.h"
 #include "runtime_syscalls.h"

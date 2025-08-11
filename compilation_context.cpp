@@ -1,5 +1,6 @@
 #include "compilation_context.h"
 #include "compiler.h"
+#include "parser_gc_integration.h"  // For complete ParserGCIntegration definition
 #include <iostream>
 #include <algorithm>
 #include <unordered_set>

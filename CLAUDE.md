@@ -404,3 +404,31 @@ For performance
 - when variables are explicity typed, or ar initialized as the return value of a function that has typed return, the type are kept while compiling and typed versions of functions are emitted for max perf directly
 
 
+# Memory
+
+Supports manual memory management and destructors.
+
+var x = [new Obj(), new Obj()];
+var y = { a: new Obj(), b: new Obj() }
+free x; // deletes x and all children recursively
+free y; // deletes y and all children recursively
+
+free shallow x; // only destroys x, creating memory leak
+free shallow y; // only destroys y, children still exist
+
+class Test {
+    destructor() {
+        console.log('test deleted');
+    }
+}
+
+This emits high performance JIT code that is c++ level performance.
+For objects that have children, the
+
+
+# Garbage Collection
+
+During parsing, we keep track of all variables in each block/scope.
+We keep track of which ones "escape", i.e., they are passed into any other function, used in a callback, or are assigned to any object that escapes.
+
+Then during GC, we do mark-sweep-defrag.

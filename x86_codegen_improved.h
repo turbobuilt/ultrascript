@@ -2,7 +2,6 @@
 
 #include "codegen_forward.h"
 #include "x86_instruction_builder.h"
-#include "x86_pattern_builder.h"
 #include <memory>
 #include <unordered_set>
 

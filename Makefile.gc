@@ -1,0 +1,60 @@
+# Makefile for UltraScript Garbage Collection System
+
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -pthread -g
+INCLUDES = -I.
+
+# Source files
+GC_SOURCES = gc_system.cpp lexical_scope.cpp
+MAIN_SOURCES = compiler.cpp error_reporter.cpp
+
+# Object files
+GC_OBJECTS = $(GC_SOURCES:.cpp=.o)
+MAIN_OBJECTS = $(MAIN_SOURCES:.cpp=.o)
+
+# Executable targets
+TARGETS = test_gc_system
+
+# Default target
+all: $(TARGETS)
+
+# Test garbage collection system
+test_gc_system: test_gc_system.o $(GC_OBJECTS) $(MAIN_OBJECTS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(INCLUDES)
+
+# Object file rules
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c -o $@ $<
+
+# Clean target
+clean:
+	rm -f *.o $(TARGETS)
+
+# Run tests
+test: test_gc_system
+	@echo "Running Garbage Collection System Tests..."
+	./test_gc_system
+
+# Analyze memory usage
+valgrind: test_gc_system
+	valgrind --leak-check=full --show-leak-kinds=all ./test_gc_system
+
+# Debug build
+debug: CXXFLAGS += -DDEBUG -g -O0
+debug: $(TARGETS)
+
+# Install dependencies (if needed)
+install-deps:
+	@echo "No external dependencies required for GC system"
+
+# Help target
+help:
+	@echo "Available targets:"
+	@echo "  all          - Build all targets"
+	@echo "  test         - Build and run GC system tests"
+	@echo "  clean        - Remove compiled files"
+	@echo "  debug        - Build with debug symbols"
+	@echo "  valgrind     - Run with memory leak detection"
+	@echo "  help         - Show this help message"
+
+.PHONY: all clean test valgrind debug install-deps help

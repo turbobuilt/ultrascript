@@ -28,3 +28,7 @@ console.log(d.name);
 console.log(d.age);
 d.bark();
 d.growl();
+
+for (let key in d) {
+    console.log(key);
+}

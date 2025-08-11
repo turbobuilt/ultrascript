@@ -1,4 +1,5 @@
 #include "lexical_scope.h"
+#include "parser_gc_integration.h"  // For complete ParserGCIntegration definition
 #include <iostream>
 #include <algorithm>
 #include <stdexcept>

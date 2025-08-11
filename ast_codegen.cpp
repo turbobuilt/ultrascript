@@ -1,4 +1,5 @@
 #include "compiler.h"
+#include "x86_codegen_improved.h"  // For X86CodeGenImproved class
 #include "runtime.h"
 #include "runtime_object.h"
 #include "compilation_context.h"
@@ -529,7 +530,7 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
                     gen.emit_mov_reg_reg(6, 0);   // mov rsi, rax (right operand -> second argument)
                     
                     // Pop left operand from stack
-                    auto* x86_gen = static_cast<X86CodeGen*>(&gen);
+                    auto* x86_gen = static_cast<X86CodeGenImproved*>(&gen);
                     x86_gen->emit_mov_reg_mem(7, 0);   // mov rdi, [rsp] (left operand -> first argument)
                     gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
                     

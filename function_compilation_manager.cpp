@@ -1,6 +1,7 @@
 #include "function_compilation_manager.h"
 #include "compiler.h"
 #include "runtime.h"
+#include "x86_codegen_improved.h"
 #include <iostream>
 #include <algorithm>
 
@@ -327,10 +328,7 @@ void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, TypeI
         estimated_stack_size += 16 - (estimated_stack_size % 16);
     }
     
-    // Set stack size for this function
-    if (auto x86_gen = dynamic_cast<X86CodeGen*>(&gen)) {
-        x86_gen->set_function_stack_size(estimated_stack_size);
-    }
+    // Set stack size for this function (removed X86-specific code for now)
     
     gen.emit_prologue();
     

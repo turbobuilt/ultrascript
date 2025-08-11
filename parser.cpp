@@ -1,9 +1,26 @@
 #include "compiler.h"
+#include "minimal_parser_gc.h" // Use minimal GC instead of parser_gc_integration.h
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
 
 namespace ultraScript {
+
+void Parser::initialize_gc_integration() {
+    gc_integration_ = std::make_unique<MinimalParserGCIntegration>();
+    std::cout << "[Parser] Initialized minimal GC integration" << std::endl;
+}
+
+void Parser::finalize_gc_analysis() {
+    if (gc_integration_) {
+        gc_integration_->finalize_analysis();
+    }
+}
+
+Parser::~Parser() {
+    // Default destructor - the unique_ptr will handle cleanup properly now
+    // since ParserGCIntegration is a complete type in this translation unit
+}
 
 Token& Parser::current_token() {
     if (pos >= tokens.size()) {
@@ -59,6 +76,11 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
             std::string var_name = identifier->name;
             auto value = parse_assignment_expression();
             
+            // GC Integration: Track assignment for escape analysis
+            if (gc_integration_) {
+                gc_integration_->assign_variable(var_name);
+            }
+            
             expr.release();
             auto assignment = std::make_unique<Assignment>(var_name, std::move(value));
             return assignment;
@@ -66,6 +88,11 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
             std::string obj_name = property_access->object_name;
             std::string prop_name = property_access->property_name;
             auto value = parse_assignment_expression();
+            
+            // GC Integration: Track property assignment for escape analysis
+            if (gc_integration_) {
+                gc_integration_->mark_property_assignment(obj_name, prop_name);
+            }
             
             expr.release();
             auto prop_assignment = std::make_unique<PropertyAssignment>(obj_name, prop_name, std::move(value));
@@ -275,6 +302,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_call() {
                     error_reporter->report_parse_error("Expected ')' after function arguments", current_token());
                 }
                 throw std::runtime_error("Expected ')' after function arguments");
+            }
+            
+            // GC Integration: Track function call for escape analysis
+            if (gc_integration_) {
+                std::vector<std::string> arg_names;
+                // In a real implementation, we'd extract variable names from the expressions
+                // For now, just track that a function call happened
+                gc_integration_->mark_function_call(func_name, arg_names);
             }
             
             expr = std::move(call);
@@ -906,6 +941,11 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
     std::string func_name = tokens[pos - 1].value;
     auto func_decl = std::make_unique<FunctionDecl>(func_name);
     
+    // GC Integration: Enter function scope
+    if (gc_integration_) {
+        gc_integration_->enter_scope(func_name, true);
+    }
+    
     if (!match(TokenType::LPAREN)) {
         throw std::runtime_error("Expected '(' after function name");
     }
@@ -923,6 +963,11 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
             
             if (match(TokenType::COLON)) {
                 param.type = parse_type();
+            }
+            
+            // GC Integration: Track parameter declaration
+            if (gc_integration_) {
+                gc_integration_->declare_variable(param_name, param.type);
             }
             
             func_decl->parameters.push_back(param);
@@ -949,6 +994,11 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
         throw std::runtime_error("Expected '}' to end function body");
     }
     
+    // GC Integration: Exit function scope
+    if (gc_integration_) {
+        gc_integration_->exit_scope();
+    }
+    
     return std::move(func_decl);
 }
 
@@ -967,9 +1017,19 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
         type = parse_type();
     }
     
+    // GC Integration: Track variable declaration
+    if (gc_integration_) {
+        gc_integration_->declare_variable(var_name, type);
+    }
+    
     std::unique_ptr<ExpressionNode> value = nullptr;
     if (match(TokenType::ASSIGN)) {
         value = parse_expression();
+        
+        // GC Integration: Track assignment
+        if (gc_integration_) {
+            gc_integration_->assign_variable(var_name);
+        }
     }
     
     auto assignment = std::make_unique<Assignment>(var_name, std::move(value));
@@ -1178,6 +1238,13 @@ std::unique_ptr<ASTNode> Parser::parse_return_statement() {
     std::unique_ptr<ExpressionNode> value = nullptr;
     if (!check(TokenType::SEMICOLON) && !check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
         value = parse_expression();
+        
+        // GC Integration: Track escaped value in return statement
+        if (gc_integration_ && value) {
+            // Extract variable name if it's an identifier
+            // For now, just mark that a return happened
+            gc_integration_->mark_return_value("return_value");
+        }
     }
     
     if (match(TokenType::SEMICOLON)) {
@@ -1743,8 +1810,19 @@ std::unique_ptr<ASTNode> Parser::parse_export_statement() {
 std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
     std::vector<std::unique_ptr<ASTNode>> statements;
     
+    // GC Integration: Initialize GC tracking for top-level scope
+    if (gc_integration_) {
+        gc_integration_->enter_scope("global", false);
+    }
+    
     while (!check(TokenType::EOF_TOKEN)) {
         statements.push_back(parse_statement());
+    }
+    
+    // GC Integration: Finalize escape analysis
+    if (gc_integration_) {
+        gc_integration_->exit_scope();
+        gc_integration_->finalize_analysis();
     }
     
     return statements;

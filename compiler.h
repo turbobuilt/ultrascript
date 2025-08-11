@@ -1,16 +1,20 @@
 #pragma once
 
-#include <string>
+#include "minimal_parser_gc.h"
+#include "codegen_forward.h"
+#include <variant>
+#include <memory>
 #include <vector>
 #include <unordered_map>
-#include <memory>
-#include <cstdint>
+#include <unordered_set>
+#include <functional>
+#include <fstream>
+#include <string>
+#include <iostream>
+#include <cstring>
+#include <regex>
+#include <optional>
 #include <chrono>
-#include "ultra_performance_array.h"
-
-// Use forward declarations for CodeGenerator
-#include "codegen_forward.h"
-#include "x86_codegen_compat.h"
 
 namespace ultraScript {
 
@@ -698,6 +702,9 @@ private:
     ErrorReporter* error_reporter = nullptr;
     DataType last_parsed_array_element_type = DataType::ANY;  // Track element type from [type] syntax
     
+    // GC Integration - track variable lifetimes and escapes during parsing
+    std::unique_ptr<MinimalParserGCIntegration> gc_integration_;
+    
     Token& current_token();
     Token& peek_token(int offset = 1);
     void advance();
@@ -740,9 +747,19 @@ private:
     DataType parse_type();
     
 public:
-    Parser(std::vector<Token> toks) : tokens(std::move(toks)) {}
-    Parser(std::vector<Token> toks, ErrorReporter* reporter) : tokens(std::move(toks)), error_reporter(reporter) {}
+    Parser(std::vector<Token> toks) : tokens(std::move(toks)) {
+        initialize_gc_integration();
+    }
+    Parser(std::vector<Token> toks, ErrorReporter* reporter) : tokens(std::move(toks)), error_reporter(reporter) {
+        initialize_gc_integration();
+    }
+    ~Parser(); // Destructor declaration to handle unique_ptr with incomplete type
     std::vector<std::unique_ptr<ASTNode>> parse();
+    
+    // GC Integration methods
+    void initialize_gc_integration();
+    void finalize_gc_analysis();
+    MinimalParserGCIntegration* get_gc_integration() { return gc_integration_.get(); }
 };
 
 // Module system structures

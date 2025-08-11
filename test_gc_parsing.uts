@@ -1,0 +1,14 @@
+function testEscapeAnalysis() {
+    let x = 42;
+    let y = "hello";
+    
+    function inner(param) {
+        let z = param + x;  // x escapes here
+        return z;           // z escapes via return
+    }
+    
+    let result = inner(y);  // y escapes as function argument
+    return result;          // result escapes via return
+}
+
+let global = testEscapeAnalysis();
