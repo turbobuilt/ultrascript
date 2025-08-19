@@ -536,9 +536,190 @@ void GarbageCollector::mark_object(void* obj) {
     
     header->mark();
     
-    // TODO: Traverse object references and add to mark queue
-    // This requires type information to know which fields are pointers
-    // For now, we assume objects don't contain references to other GC objects
+    // Traverse object references based on type information
+    traverse_object_references(obj, header->type_id);
+}
+
+void GarbageCollector::traverse_object_references(void* obj, uint32_t type_id) {
+    if (!obj) return;
+    
+    // Integrate with UltraScript's sophisticated type system
+    if (type_id == 0) return; // Unknown type
+    
+    // Handle built-in types that may contain references
+    if (type_id < 1000) {
+        handle_builtin_type_traversal(obj, type_id);
+        return;
+    }
+    
+    // Handle user-defined class instances (type_id >= 1000)
+    handle_class_instance_traversal(obj, type_id);
+}
+
+void GarbageCollector::handle_builtin_type_traversal(void* obj, uint32_t type_id) {
+    switch (type_id) {
+        case 1: // STRING
+            // GoTSString objects don't contain GC references
+            break;
+            
+        case 2: // ARRAY (DynamicArray)
+            traverse_dynamic_array(obj);
+            break;
+            
+        case 3: // TYPED_ARRAY
+            // Typed arrays of primitives don't contain GC references
+            // Arrays of objects would need special handling
+            break;
+            
+        case 4: // OBJECT (generic object)
+            // Generic objects may contain property references
+            traverse_generic_object(obj);
+            break;
+            
+        default:
+            // Unknown builtin type - conservative scan
+            conservative_scan_memory(obj, 64); // Scan first 64 bytes conservatively
+            break;
+    }
+}
+
+void GarbageCollector::handle_class_instance_traversal(void* obj, uint32_t type_id) {
+    // Find the class metadata for this type
+    auto class_meta = find_class_metadata_by_type_id(type_id);
+    if (!class_meta) {
+        // No metadata found - do conservative scan
+        conservative_scan_memory(obj, 256);
+        return;
+    }
+    
+    // Use the class metadata to traverse only reference-containing properties
+    traverse_class_properties(obj, class_meta);
+}
+
+void GarbageCollector::traverse_class_properties(void* obj, ClassMetadata* class_meta) {
+    char* object_data = static_cast<char*>(obj);
+    
+    // Iterate through all properties defined in the class
+    for (const auto& prop : class_meta->properties) {
+        void* property_ptr = object_data + prop.offset;
+        
+        switch (prop.type) {
+            case PropertyType::OBJECT_PTR: {
+                // This property contains a pointer to another object
+                void** ptr_field = static_cast<void**>(property_ptr);
+                void* referenced_obj = *ptr_field;
+                if (referenced_obj && is_gc_managed(referenced_obj)) {
+                    mark_object(referenced_obj);
+                }
+                break;
+            }
+            
+            case PropertyType::STRING: {
+                // String properties may point to GC-managed strings
+                void** str_field = static_cast<void**>(property_ptr);
+                void* str_obj = *str_field;
+                if (str_obj && is_gc_managed(str_obj)) {
+                    mark_object(str_obj);
+                }
+                break;
+            }
+            
+            case PropertyType::INT64:
+            case PropertyType::FLOAT64:
+            case PropertyType::BOOL:
+                // Primitive types don't contain references
+                break;
+                
+            case PropertyType::DYNAMIC: {
+                // Dynamic properties might contain references
+                // Would need to check the actual DynamicValue type
+                traverse_dynamic_property(property_ptr);
+                break;
+            }
+        }
+    }
+}
+
+void GarbageCollector::traverse_dynamic_array(void* array_obj) {
+    // Cast to DynamicArray and traverse elements
+    // This would need access to the DynamicArray implementation
+    // For now, do conservative scanning
+    conservative_scan_memory(array_obj, sizeof(void*) * 16); // Scan array header
+}
+
+void GarbageCollector::traverse_generic_object(void* obj) {
+    // For generic objects without metadata, do conservative scanning
+    // Look for pointer-sized values that might be references
+    conservative_scan_memory(obj, 128);
+}
+
+void GarbageCollector::traverse_dynamic_property(void* prop_ptr) {
+    // DynamicValue might contain object references
+    // Would need integration with DynamicValue implementation
+    conservative_scan_memory(prop_ptr, sizeof(void*) * 4);
+}
+
+void GarbageCollector::conservative_scan_memory(void* ptr, size_t size) {
+    // Conservative scanning: check each pointer-sized word
+    char* mem = static_cast<char*>(ptr);
+    for (size_t i = 0; i + sizeof(void*) <= size; i += sizeof(void*)) {
+        void** potential_ptr = reinterpret_cast<void**>(mem + i);
+        void* candidate = *potential_ptr;
+        
+        if (candidate && is_gc_managed(candidate)) {
+            mark_object(candidate);
+        }
+    }
+}
+
+bool GarbageCollector::is_gc_managed(void* ptr) {
+    // Check if this pointer points to GC-managed memory
+    std::lock_guard<std::mutex> lock(mutex_);
+    return object_headers_.find(ptr) != object_headers_.end();
+}
+
+// Type ID mapping for GC integration
+uint32_t GarbageCollector::datatype_to_type_id(DataType type) {
+    switch (type) {
+        case DataType::STRING: return 1;
+        case DataType::ARRAY: return 2;
+        case DataType::TENSOR: return 3;
+        case DataType::CLASS_INSTANCE: return 4;
+        case DataType::FUNCTION: return 5;
+        case DataType::PROMISE: return 6;
+        case DataType::ANY: return 7;  // DynamicValue
+        default: return 0;  // Primitive types don't need GC
+    }
+}
+
+DataType GarbageCollector::type_id_to_datatype(uint32_t type_id) {
+    switch (type_id) {
+        case 1: return DataType::STRING;
+        case 2: return DataType::ARRAY;
+        case 3: return DataType::TENSOR;
+        case 4: return DataType::CLASS_INSTANCE;
+        case 5: return DataType::FUNCTION;
+        case 6: return DataType::PROMISE;
+        case 7: return DataType::ANY;
+        default: return DataType::UNKNOWN;
+    }
+}
+
+ClassMetadata* GarbageCollector::find_class_metadata_by_type_id(uint32_t type_id) {
+    // Access the global class registry to find metadata
+    // This requires integration with the ClassRegistry system
+    static std::unordered_map<uint32_t, ClassMetadata*> type_id_to_metadata;
+    static bool initialized = false;
+    
+    if (!initialized) {
+        // Build reverse lookup table from ClassRegistry
+        // Note: This would need to be integrated with the actual ClassRegistry
+        // For now, return nullptr - this will trigger conservative scanning
+        initialized = true;
+    }
+    
+    auto it = type_id_to_metadata.find(type_id);
+    return (it != type_id_to_metadata.end()) ? it->second : nullptr;
 }
 
 void GarbageCollector::mark_roots() {
@@ -558,19 +739,71 @@ void GarbageCollector::mark_roots() {
 void GarbageCollector::mark_scope_variables(std::shared_ptr<LexicalScope> scope) {
     if (!scope) return;
     
-    // TODO: Traverse scope variables and mark any that contain GC objects
-    // This requires integration with the lexical scope system
-    
-    // For now, just mark all variables that have escaped
+    // For now, we need to work with the VariableTracker to find escaped variables
+    // This is a temporary solution until we can directly iterate scope variables
     auto& tracker = VariableTracker::instance();
     auto escaping_vars = tracker.get_all_escaping_variables();
     
     for (size_t var_id : escaping_vars) {
         VariableInfo* var = tracker.get_variable(var_id);
         if (var && var->memory_location) {
-            mark_queue_.push(var->memory_location);
+            // Check if this variable contains GC references
+            if (contains_gc_references(var->type)) {
+                if (is_direct_gc_object(var->type)) {
+                    // The memory_location points to a GC object
+                    if (is_gc_managed(var->memory_location)) {
+                        mark_object(var->memory_location);
+                    }
+                } else if (is_reference_containing_type(var->type)) {
+                    // The memory_location points to a structure containing GC references
+                    scan_for_gc_references(var->memory_location, var->type);
+                }
+            }
         }
     }
+    
+    // TODO: Add direct scope variable iteration when LexicalScope API supports it
+    // This would be more efficient than relying on the VariableTracker
+}
+
+bool GarbageCollector::contains_gc_references(DataType type) {
+    switch (type) {
+        case DataType::STRING:
+        case DataType::ARRAY:
+        case DataType::CLASS_INSTANCE:
+        case DataType::FUNCTION:
+        case DataType::PROMISE:
+        case DataType::ANY:  // ANY might contain objects
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool GarbageCollector::is_direct_gc_object(DataType type) {
+    switch (type) {
+        case DataType::STRING:
+        case DataType::ARRAY:
+        case DataType::CLASS_INSTANCE:
+        case DataType::FUNCTION:
+        case DataType::PROMISE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool GarbageCollector::is_reference_containing_type(DataType type) {
+    // Types that are structures containing potential GC references
+    return type == DataType::ANY;  // DynamicValue can contain object references
+}
+
+void GarbageCollector::scan_for_gc_references(void* ptr, DataType type) {
+    if (type == DataType::ANY) {
+        // This is likely a DynamicValue - scan conservatively
+        conservative_scan_memory(ptr, sizeof(void*) * 4);
+    }
+    // Add other reference-containing types as needed
 }
 
 GCObjectHeader* GarbageCollector::get_header(void* obj) {

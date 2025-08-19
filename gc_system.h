@@ -19,6 +19,31 @@ namespace ultraScript {
 class LexicalScope;
 struct VariableBinding;
 
+// Type system integration - define here to avoid circular dependencies
+enum class PropertyType : uint8_t {
+    DYNAMIC = 0,
+    INT64 = 1,
+    FLOAT64 = 2,
+    STRING = 3,
+    OBJECT_PTR = 4,
+    BOOL = 5
+};
+
+// Minimal type system structures for GC integration
+struct PropertyDescriptor {
+    std::string name;
+    uint32_t offset;
+    PropertyType type;
+    uint16_t index;
+};
+
+class ClassMetadata {
+public:
+    std::string class_name;
+    std::vector<PropertyDescriptor> properties;
+    uint32_t instance_size;
+};
+
 // ============================================================================
 // ESCAPE ANALYSIS - Track variable lifetime and escape patterns
 // ============================================================================
@@ -278,6 +303,28 @@ private:
     // Memory management
     GCObjectHeader* get_header(void* obj);
     void* allocate_with_header(size_t size, uint32_t type_id);
+    
+    // Type system integration
+    void traverse_object_references(void* obj, uint32_t type_id);
+    void handle_builtin_type_traversal(void* obj, uint32_t type_id);
+    void handle_class_instance_traversal(void* obj, uint32_t type_id);
+    void traverse_class_properties(void* obj, ClassMetadata* class_meta);
+    void traverse_dynamic_array(void* array_obj);
+    void traverse_generic_object(void* obj);
+    void traverse_dynamic_property(void* prop_ptr);
+    void conservative_scan_memory(void* ptr, size_t size);
+    bool is_gc_managed(void* ptr);
+    ClassMetadata* find_class_metadata_by_type_id(uint32_t type_id);
+    
+    // Scope and variable scanning
+    bool contains_gc_references(DataType type);
+    bool is_direct_gc_object(DataType type);
+    bool is_reference_containing_type(DataType type);
+    void scan_for_gc_references(void* ptr, DataType type);
+    
+    // Type mapping utilities
+    uint32_t datatype_to_type_id(DataType type);
+    DataType type_id_to_datatype(uint32_t type_id);
     void update_stats();
 };
 
