@@ -7,8 +7,6 @@
 #include <chrono>
 #include <cassert>
 
-using namespace ultraScript;
-
 class TestExecutor {
 private:
     void* executable_memory;

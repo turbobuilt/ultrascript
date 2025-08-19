@@ -7,8 +7,6 @@
 #include <mutex>
 #include <cmath>
 
-namespace ultraScript {
-
 // ============================================================================
 // STATIC MEMBER DEFINITIONS
 // ============================================================================
@@ -146,7 +144,6 @@ bool TypeAwareConsoleLog::is_floating_point_type(DataType type) {
     return type == DataType::FLOAT32 || type == DataType::FLOAT64;
 }
 
-} // namespace ultraScript
 
 // ============================================================================
 // RUNTIME FUNCTION IMPLEMENTATIONS  
@@ -225,7 +222,7 @@ extern "C" void __console_log_string_ptr(void* string_ptr) {
     std::lock_guard<std::mutex> lock(console_mutex);
     if (string_ptr) {
         // Handle GoTSString objects properly
-        ultraScript::GoTSString* gots_str = static_cast<ultraScript::GoTSString*>(string_ptr);
+        GoTSString* gots_str = static_cast<GoTSString*>(string_ptr);
         // Use data() and size() to properly handle null bytes
         std::cout.write(gots_str->data(), gots_str->size());
     } else {
@@ -285,7 +282,7 @@ extern "C" void __console_log_any_value_inspect(void* dynamic_value_ptr) {
     }
     
     // Cast to DynamicValue and read the stored type and value
-    ultraScript::DynamicValue* dyn_val = static_cast<ultraScript::DynamicValue*>(dynamic_value_ptr);
+    DynamicValue* dyn_val = static_cast<DynamicValue*>(dynamic_value_ptr);
     
     // Debug output to see what type we got
     std::cout << "[DEBUG] DynamicValue type: " << static_cast<int>(dyn_val->type) << std::endl;
@@ -293,40 +290,40 @@ extern "C" void __console_log_any_value_inspect(void* dynamic_value_ptr) {
     
     // Use the stored type information to print correctly
     switch (dyn_val->type) {
-        case ultraScript::DataType::INT8:
+        case DataType::INT8:
             std::cout << static_cast<int>(dyn_val->as<int8_t>());
             break;
-        case ultraScript::DataType::INT16:
+        case DataType::INT16:
             std::cout << dyn_val->as<int16_t>();
             break;
-        case ultraScript::DataType::INT32:
+        case DataType::INT32:
             std::cout << dyn_val->as<int32_t>();
             break;
-        case ultraScript::DataType::INT64:
+        case DataType::INT64:
             std::cout << dyn_val->as<int64_t>();
             break;
-        case ultraScript::DataType::UINT8:
+        case DataType::UINT8:
             std::cout << static_cast<unsigned int>(dyn_val->as<uint8_t>());
             break;
-        case ultraScript::DataType::UINT16:
+        case DataType::UINT16:
             std::cout << dyn_val->as<uint16_t>();
             break;
-        case ultraScript::DataType::UINT32:
+        case DataType::UINT32:
             std::cout << dyn_val->as<uint32_t>();
             break;
-        case ultraScript::DataType::UINT64:
+        case DataType::UINT64:
             std::cout << dyn_val->as<uint64_t>();
             break;
-        case ultraScript::DataType::FLOAT32:
+        case DataType::FLOAT32:
             std::cout << dyn_val->as<float>();
             break;
-        case ultraScript::DataType::FLOAT64:
+        case DataType::FLOAT64:
             std::cout << dyn_val->as<double>();
             break;
-        case ultraScript::DataType::BOOLEAN:
+        case DataType::BOOLEAN:
             std::cout << (dyn_val->as<bool>() ? "true" : "false");
             break;
-        case ultraScript::DataType::STRING:
+        case DataType::STRING:
             std::cout << dyn_val->as<std::string>();
             break;
         default:

@@ -2,7 +2,7 @@
 #include <iostream>
 #include <string>
 
-using namespace ultraScript;
+
 
 // Static API wrapper for testing
 class GCParserIntegration {

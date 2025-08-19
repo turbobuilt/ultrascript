@@ -2,7 +2,7 @@
 #include <iostream>
 #include <chrono>
 
-using namespace ultraScript;
+
 
 // Test timer callback
 void timer_callback() {

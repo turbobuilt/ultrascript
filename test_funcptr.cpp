@@ -7,7 +7,7 @@ extern "C" int64_t test_func(int64_t n) {
 }
 
 int main() {
-    using namespace ultraScript;
+
     
     std::cout << "Testing function pointer call from thread..." << std::endl;
     

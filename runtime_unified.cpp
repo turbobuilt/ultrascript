@@ -6,9 +6,9 @@
 #include <cstring>
 
 // Forward declaration for global scheduler
-// extern ultraScript::WorkStealingScheduler* g_work_stealing_scheduler;
+// extern WorkStealingScheduler* g_work_stealing_scheduler;
 
-namespace ultraScript {
+
 
 // ============================================================================
 // UNIFIED RUNTIME FUNCTIONS - Replace old timer/goroutine functions
@@ -254,4 +254,3 @@ void __force_shutdown() {
     MainThreadController::instance().force_exit();
 }
 
-} // namespace ultraScript

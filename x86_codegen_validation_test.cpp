@@ -5,7 +5,7 @@
 #include <iostream>
 #include <cassert>
 
-namespace ultraScript {
+
 
 class X86CodeGenTester {
 private:
@@ -206,11 +206,11 @@ public:
     }
 };
 
-}  // namespace ultraScript
+
 
 // Main test runner
 int main() {
-    using namespace ultraScript;
+
     
     try {
         X86CodeGenTester::run_all_tests();

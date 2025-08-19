@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-using namespace ultraScript;
+
 
 // Test the minimal parser integration without the full compiler system
 int main() {

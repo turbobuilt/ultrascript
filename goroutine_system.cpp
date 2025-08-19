@@ -3,7 +3,6 @@
 #include <iostream>
 #include <algorithm>
 
-namespace ultraScript {
 
 // Thread-local current goroutine
 thread_local std::shared_ptr<Goroutine> current_goroutine = nullptr;
@@ -467,20 +466,19 @@ std::shared_ptr<Goroutine> spawn_goroutine(std::function<void()> task) {
     return GoroutineScheduler::instance().spawn(task, current_goroutine);
 }
 
-} // namespace ultraScript
 
 // Timer helper functions for compatibility - need C linkage
 extern "C" {
 int64_t create_timer_new(int64_t delay_ms, void* callback, bool is_interval) {
     if (is_interval) {
-        return ultraScript::__gots_set_interval(callback, delay_ms);
+        return __gots_set_interval(callback, delay_ms);
     } else {
-        return ultraScript::__gots_set_timeout(callback, delay_ms);
+        return __gots_set_timeout(callback, delay_ms);
     }
 }
 
 bool cancel_timer_new(int64_t timer_id) {
-    return ultraScript::__gots_clear_timeout(timer_id);
+    return __gots_clear_timeout(timer_id);
 }
 
 void __new_goroutine_system_init() {

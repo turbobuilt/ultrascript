@@ -32,12 +32,9 @@ extern "C" void* __lookup_function_by_id(int64_t function_id);
 // Global function ID to pointer map
 static std::unordered_map<int64_t, void*> g_function_id_map;
 static std::mutex g_function_id_mutex;
-static std::atomic<int64_t> g_next_function_id{1};
 
 // Global console output mutex for thread safety
 std::mutex g_console_mutex;
-
-namespace ultraScript {
 
 // Global instances
 // Using pointers to control initialization/destruction order
@@ -759,7 +756,6 @@ extern "C" void* __array_ones_float32(int64_t size) {
 
 // Timer management functions moved to goroutine_system.cpp
 
-} // extern "C"
 
 // Legacy function removed - use __lookup_function_fast(func_id) instead
 
@@ -767,9 +763,7 @@ extern "C" void* __array_ones_float32(int64_t size) {
 
 thread_local bool g_is_goroutine_context = false;
 
-namespace ultraScript {
-    extern std::atomic<int64_t> g_active_goroutine_count;
-}
+extern std::atomic<int64_t> g_active_goroutine_count;
 
 extern "C" void __set_goroutine_context(int64_t is_goroutine) {
     bool was_goroutine = g_is_goroutine_context;
@@ -778,17 +772,16 @@ extern "C" void __set_goroutine_context(int64_t is_goroutine) {
     if (g_is_goroutine_context && !was_goroutine) {
         // Setting up goroutine context
         // Increment active goroutine count
-        ultraScript::g_active_goroutine_count.fetch_add(1);
+        g_active_goroutine_count.fetch_add(1);
     } else if (!g_is_goroutine_context && was_goroutine) {
         // Cleaning up goroutine context
         // Decrement active goroutine count
-        ultraScript::g_active_goroutine_count.fetch_sub(1);
+        g_active_goroutine_count.fetch_sub(1);
     }
 }
 
 
 // Ultra-High-Performance Direct Address Goroutine Spawn
-namespace ultraScript {
 void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg) {
     
     printf("[DEBUG] __goroutine_spawn_func_ptr called with func_ptr=%p, arg=%p\n", func_ptr, arg);
@@ -1068,7 +1061,7 @@ extern "C" void __console_timeEnd(void* label_ptr) {
 // Promise functions
 extern "C" void* __promise_all(void* promises_array) {
     // Simplified implementation - create a new promise that resolves when all input promises resolve
-    using namespace ultraScript;
+
     
     auto promise = std::make_shared<Promise>();
     // For now, resolve immediately with the input array
@@ -1080,7 +1073,7 @@ extern "C" void* __promise_all(void* promises_array) {
 extern "C" void* __promise_await(void* promise_ptr) {
     if (!promise_ptr) return 0;
     
-    using namespace ultraScript;
+
     auto promise_shared = *static_cast<std::shared_ptr<Promise>*>(promise_ptr);
     
     // Simple blocking wait
@@ -1123,7 +1116,7 @@ extern "C" void* __string_match(void* string_ptr, void* regex_ptr) {
     // This would need proper regex matching implementation
     
     // Create a simple array with match results
-    using namespace ultraScript;
+
     Array* result = new Array();
     result->push(std::string("match")); // Simplified match result
     
@@ -1195,11 +1188,10 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
     }
 }
 
-} // namespace ultraScript
 
 extern "C" void* __jit_object_create(void* class_name_ptr) {
     // JIT-optimized object creation - for now, same as regular object creation
-    int64_t obj_id = ultraScript::__object_create(class_name_ptr, 0);
+    int64_t obj_id = __object_create(class_name_ptr, 0);
     return reinterpret_cast<void*>(obj_id);
 }
 
@@ -1217,7 +1209,7 @@ extern "C" void* __jit_object_create_sized(void* class_name_ptr, size_t size) {
         std::cout << "[DEBUG] __jit_object_create_sized calculated property_count=" << property_count << std::endl;
         std::cout.flush();
         
-        int64_t obj_id = ultraScript::__object_create(class_name_ptr, property_count);
+        int64_t obj_id = __object_create(class_name_ptr, property_count);
         std::cout << "[DEBUG] __jit_object_create_sized created object with id=" << obj_id << std::endl;
         std::cout.flush();
         return reinterpret_cast<void*>(obj_id);

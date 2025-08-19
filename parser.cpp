@@ -4,7 +4,6 @@
 #include <stdexcept>
 #include <iostream>
 
-namespace ultraScript {
 
 void Parser::initialize_gc_integration() {
     gc_integration_ = std::make_unique<MinimalParserGCIntegration>();
@@ -1908,6 +1907,4 @@ std::unique_ptr<OperatorOverloadDecl> Parser::parse_operator_overload_declaratio
     }
     
     return operator_decl;
-}
-
 }

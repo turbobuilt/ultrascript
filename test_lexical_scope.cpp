@@ -4,7 +4,7 @@
 #include <thread>
 #include <chrono>
 
-using namespace ultraScript;
+
 
 // Test basic scope operations
 void test_basic_scope() {

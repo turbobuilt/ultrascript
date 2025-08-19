@@ -3,7 +3,7 @@
 #include <iostream>
 #include <string>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "===============================================" << std::endl;

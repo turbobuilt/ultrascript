@@ -10,10 +10,8 @@
 #include <windows.h>
 #include <io.h>
 #else
-#include <unistd.h>
+#include <unistd.h>  // For isatty
 #endif
-
-namespace ultraScript {
 
 namespace Colors {
     // Color detection
@@ -346,6 +344,4 @@ std::string SyntaxHighlighter::highlight_line(const std::string& line) const {
     }
     
     return result;
-}
-
 }

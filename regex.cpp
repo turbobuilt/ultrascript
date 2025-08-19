@@ -6,7 +6,7 @@
 #include <cassert>
 #include <regex>
 
-namespace ultraScript {
+
 
 // CharacterClass Implementation
 void CharacterClass::add_char(char c) {
@@ -1459,4 +1459,3 @@ std::vector<std::string> split(const std::string& text, const GoTSRegExp& regexp
 
 } // namespace string_regex
 
-} // namespace ultraScript

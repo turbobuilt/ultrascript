@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <cstring>
 
-using namespace ultraScript;
+
 
 // Simple debug test without execution
 void debug_code_generation() {

@@ -4,7 +4,6 @@
 #include <thread>
 #include <stdexcept>
 
-namespace ultraScript {
 
 // Simple stub implementation for goroutine integration
 // In a full implementation, this would integrate with the goroutine scheduler
@@ -270,4 +269,3 @@ void LockFactory::register_with_runtime() {
     // Implementation depends on the runtime system structure
 }
 
-} // namespace ultraScript

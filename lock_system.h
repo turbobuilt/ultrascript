@@ -7,7 +7,6 @@
 #include <unordered_set>
 #include <chrono>
 
-namespace ultraScript {
 
 // Forward declaration for Goroutine (actual implementation in goroutine_system.h)
 class Goroutine;
@@ -90,4 +89,3 @@ private:
     Lock& lock_;
 };
 
-} // namespace ultraScript

@@ -5,7 +5,7 @@
 #include <immintrin.h>  // For SIMD intrinsics
 #include <cstring>      // For memcpy, memset
 
-namespace ultraScript::runtime {
+namespace runtime {
 
 // ============================================================================
 // Ultra-Fast Factory Functions - Called by Generated Code
@@ -402,4 +402,4 @@ int32_t jit_generated_get_int32_unchecked(void* arr_ptr, size_t index) {
     return static_cast<TypedArray<int32_t>*>(arr_ptr)->data()[index];
 }
 
-} // namespace ultraScript::runtime
+} // namespace runtime

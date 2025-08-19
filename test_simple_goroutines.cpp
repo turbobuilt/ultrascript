@@ -3,7 +3,7 @@
 #include <iostream>
 #include <functional>
 
-using namespace ultraScript;
+
 
 // Helper function to create a scoped goroutine
 template<typename F>

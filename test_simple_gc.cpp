@@ -5,7 +5,7 @@
 #include <string>
 
 // Minimal GC test without the full system dependencies
-namespace ultraScript {
+
 
 enum class DataType {
     ANY, INT8, INT16, INT32, INT64, UINT8, UINT16, UINT32, UINT64,
@@ -142,9 +142,9 @@ public:
     size_t get_total_freed() const { return total_freed_; }
 };
 
-} // namespace ultraScript
 
-using namespace ultraScript;
+
+
 
 int main() {
     std::cout << "===============================================" << std::endl;

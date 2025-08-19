@@ -11,7 +11,7 @@
 #include <signal.h>
 #include <atomic>
 
-using namespace ultraScript;
+
 
 // Forward declaration for timer functions
 extern "C" void __runtime_timer_wait_all();

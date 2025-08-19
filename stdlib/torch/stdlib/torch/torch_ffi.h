@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 
-namespace ultraScript {
+
 
 // Forward declarations for opaque handle types
 typedef struct TorchTensor_t* TorchTensor;
@@ -198,4 +198,4 @@ struct TorchObject {
     void* load_tensor;
 };
 
-} // namespace ultraScript
+

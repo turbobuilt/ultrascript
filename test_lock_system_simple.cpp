@@ -4,7 +4,7 @@
 #include <chrono>
 #include <vector>
 
-using namespace ultraScript;
+
 
 // Test the Lock class without runtime system dependencies
 int main() {

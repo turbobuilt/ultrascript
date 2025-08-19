@@ -6,7 +6,6 @@
 #include <future>
 #include <type_traits>
 
-namespace ultraScript {
 
 template<typename T>
 class PromiseAll {
@@ -178,6 +177,4 @@ auto promise_resolve(F&& value) {
 template<typename E>
 auto promise_reject(E&& error) {
     return PromiseAll<E>::reject(std::forward<E>(error));
-}
-
 }

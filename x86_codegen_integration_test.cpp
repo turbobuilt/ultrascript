@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <cstring>
 
-using namespace ultraScript;
+
 
 // Test helper to execute generated code
 class CodeExecutor {

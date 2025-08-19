@@ -1,7 +1,7 @@
 #include "x86_codegen_v2.h"
 #include <iostream>
 
-namespace ultraScript {
+
 
 // Simple stub implementations for X86CodeGenV2 to get build working
 void X86CodeGenV2::emit_byte(uint8_t byte) {
@@ -90,4 +90,4 @@ void X86CodeGenV2::enable_debug_mode(bool enabled) {
     debug_mode_enabled = enabled;
 }
 
-} // namespace ultraScript
+

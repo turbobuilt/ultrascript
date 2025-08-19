@@ -5,7 +5,6 @@
 #include <vector>
 #include <mutex>
 
-namespace ultraScript {
 
 // FFI argument stack for flexible calls
 static std::vector<void*> g_ffi_args;
@@ -380,4 +379,3 @@ void ffi_clear_error() {
 
 } // extern "C"
 
-} // namespace ultraScript

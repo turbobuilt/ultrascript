@@ -2,7 +2,7 @@
 #include <iostream>
 #include <cstring>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "Testing UltraScript String System with Null Bytes..." << std::endl;

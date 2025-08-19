@@ -1,7 +1,7 @@
 #include "runtime.h"
 #include <iostream>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "=== Testing basic threading without JIT ===\n";

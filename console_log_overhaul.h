@@ -5,8 +5,6 @@
 #include <vector>
 #include <unordered_map>
 
-namespace ultraScript {
-
 // ============================================================================
 // TYPE-AWARE CONSOLE.LOG SYSTEM
 // ============================================================================
@@ -76,5 +74,3 @@ extern "C" void __console_log_final_newline();
 
 // Any type console.log (reads DynamicValue and prints with proper type information)
 extern "C" void __console_log_any_value_inspect(void* dynamic_value_ptr);
-
-}

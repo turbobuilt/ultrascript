@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <climits>
 
-namespace ultraScript {
+
 
 // =============================================================================
 // X86InstructionBuilder Implementation
@@ -996,4 +996,4 @@ void X86InstructionBuilder::optimize_instruction_sequence() {
     // - Combine adjacent similar operations
 }
 
-}  // namespace ultraScript
+

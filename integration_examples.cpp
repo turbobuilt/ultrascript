@@ -2,7 +2,6 @@
 #include <iostream>
 #include <iomanip>
 
-using namespace ultraScript;
 
 // Example showing old vs new code generation approaches
 class CodeGenComparison {

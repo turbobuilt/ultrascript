@@ -13,13 +13,10 @@
 #include <stdexcept>
 #include <string>
 
-using namespace ultraScript;
 #include <queue>
 
 // Simple global constant storage for imported constants
 static std::unordered_map<std::string, double> global_imported_constants;
-
-namespace ultraScript {
 
 // Forward declarations for function ID registry
 void __register_function_id(int64_t function_id, const std::string& function_name);
@@ -3984,5 +3981,3 @@ void SliceExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Result (slice pointer) is now in RAX
     result_type = DataType::SLICE;
 }
-
-} // namespace ultraScript

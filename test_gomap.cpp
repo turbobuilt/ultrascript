@@ -3,7 +3,7 @@
 #include <iostream>
 #include <vector>
 
-using namespace ultraScript;
+
 
 int double_value(int x) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));

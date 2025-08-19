@@ -6,7 +6,7 @@
 #include <string>
 #include <cstring>
 
-namespace ultraScript {
+
 
 struct TimeObject {
     static constexpr const char* OBJECT_NAME = "time";
@@ -346,4 +346,3 @@ inline void* resolve_runtime_method(const char* object_name, const char* method_
 #define RUNTIME_METHOD_ADDRESS(obj, method) \
     ((void*)&global_runtime->obj.method)
 
-} // namespace ultraScript

@@ -4,7 +4,7 @@
 #include "codegen_forward.h"
 #include <memory>
 
-namespace ultraScript {
+
 
 // New high-performance X86 code generator using instruction builder abstraction
 class X86CodeGenV2 : public CodeGenerator {
@@ -188,4 +188,4 @@ public:
     static void benchmark_code_generation_speed();
 };
 
-}  // namespace ultraScript
+

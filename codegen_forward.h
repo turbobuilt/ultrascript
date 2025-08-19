@@ -6,7 +6,6 @@
 #include <string>
 #include <cstdint>
 
-namespace ultraScript {
 
 // Forward declarations to break circular dependencies
 class CodeGenerator {
@@ -99,4 +98,3 @@ public:
 // Factory function for creating X86 code generator
 std::unique_ptr<CodeGenerator> create_x86_codegen();
 
-}  // namespace ultraScript

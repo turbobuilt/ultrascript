@@ -3,7 +3,6 @@
 #include <atomic>
 #include <immintrin.h>
 
-namespace ultraScript {
 
 // X86-64 register definitions
 enum class X86Register : int {
@@ -439,4 +438,3 @@ void X86CodeGen::emit_u32(uint32_t value) {
     code.push_back((value >> 24) & 0xFF);
 }
 
-} // namespace ultraScript

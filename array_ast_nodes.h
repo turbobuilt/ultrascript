@@ -6,8 +6,6 @@
 #include <memory>
 #include <map>
 
-namespace ultraScript {
-
 // Forward declarations
 struct ExpressionNode;
 class CodeGenerator;
@@ -399,5 +397,3 @@ struct DynamicArrayAccess : ArrayExpressionNode {
         result_type = DataType::DYNAMIC_VALUE;
     }
 };
-
-} // namespace ultraScript

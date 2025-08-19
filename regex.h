@@ -12,7 +12,7 @@
 #include <iostream>
 #include "runtime.h"
 
-namespace ultraScript {
+
 
 // Forward declarations
 class RegexEngine;
@@ -582,4 +582,3 @@ namespace string_regex {
     std::vector<std::string> split(const std::string& text, const GoTSRegExp& regexp, int limit = -1);
 }
 
-} // namespace ultraScript

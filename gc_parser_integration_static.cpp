@@ -2,7 +2,6 @@
 #include "parser_gc_integration.h"
 #include <iostream>
 
-namespace ultraScript {
 
 std::unique_ptr<ParserGCIntegration> GCParserIntegration::instance_;
 
@@ -78,4 +77,3 @@ void GCParserIntegration::clear() {
     instance_.reset();
 }
 
-} // namespace ultraScript

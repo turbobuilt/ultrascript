@@ -1,7 +1,7 @@
 // Old goroutine system removed
 #include <iostream>
 
-using namespace ultraScript;
+
 
 // Callback function
 extern "C" void timeout_callback() {

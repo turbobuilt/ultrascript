@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 
-using namespace ultraScript;
+
 
 // ============================================================================
 // TEST 1: Basic Timer Functionality

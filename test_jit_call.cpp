@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <cstring>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "=== Testing JIT function call from C++ ===" << std::endl;

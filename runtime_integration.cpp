@@ -5,9 +5,9 @@
 #include <mutex>
 
 // Function registry (from runtime.cpp)
-extern std::unordered_map<std::string, void*> ultraScript::gots_function_registry;
+extern std::unordered_map<std::string, void*> gots_function_registry;
 
-namespace ultraScript {
+
 
 // Initialize the main goroutine for the main thread
 void initialize_main_goroutine() {
@@ -20,7 +20,7 @@ void initialize_main_goroutine() {
     current_goroutine = main_goroutine;
 }
 
-} // namespace ultraScript
+
 
 extern "C" {
 
@@ -29,8 +29,8 @@ void* __goroutine_spawn(const char* function_name) {
     std::cout << "DEBUG: __goroutine_spawn called with function: " << function_name << std::endl;
     
     // Look up function in registry
-    auto it = ultraScript::gots_function_registry.find(std::string(function_name));
-    if (it == ultraScript::gots_function_registry.end()) {
+    auto it = gots_function_registry.find(std::string(function_name));
+    if (it == gots_function_registry.end()) {
         std::cerr << "ERROR: Function " << function_name << " not found in registry" << std::endl;
         return nullptr;
     }
@@ -46,10 +46,10 @@ void* __goroutine_spawn(const char* function_name) {
     };
     
     // Spawn goroutine
-    auto goroutine = ultraScript::GoroutineScheduler::instance().spawn(task);
+    auto goroutine = GoroutineScheduler::instance().spawn(task);
     
     // Return a dummy promise for compatibility
-    auto promise = std::make_shared<ultraScript::Promise>();
+    auto promise = std::make_shared<Promise>();
     promise->resolve(0);
     return promise.get();
 }
@@ -66,10 +66,10 @@ void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg) {
     };
     
     // Spawn goroutine
-    auto goroutine = ultraScript::GoroutineScheduler::instance().spawn(task);
+    auto goroutine = GoroutineScheduler::instance().spawn(task);
     
     // Return a dummy promise for compatibility
-    auto promise = std::make_shared<ultraScript::Promise>();
+    auto promise = std::make_shared<Promise>();
     promise->resolve(0);
     return promise.get();
 }
@@ -100,10 +100,10 @@ void __runtime_main_loop() {
     std::cout << "DEBUG: Starting main runtime loop" << std::endl;
     
     // Initialize main goroutine
-    ultraScript::initialize_main_goroutine();
+    initialize_main_goroutine();
     
     // Wait for all goroutines to complete
-    ultraScript::GoroutineScheduler::instance().wait_all();
+    GoroutineScheduler::instance().wait_all();
     
     std::cout << "DEBUG: Main runtime loop completed" << std::endl;
 }

@@ -13,7 +13,6 @@
 #include <functional>
 #include "compiler.h"
 
-namespace ultraScript {
 
 // Forward declarations
 class LexicalScope;
@@ -382,4 +381,3 @@ extern "C" {
     void __gc_finalize_analysis();
 }
 
-} // namespace ultraScript

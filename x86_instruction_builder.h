@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace ultraScript {
+
 
 // X86-64 register enumeration
 enum class X86Reg : uint8_t {
@@ -262,4 +262,4 @@ public:
     void emit_array_push_operation(X86Reg array, X86Reg value, OpSize element_size);
 };
 
-}  // namespace ultraScript
+

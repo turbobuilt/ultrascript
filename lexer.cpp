@@ -4,7 +4,6 @@
 #include <stdexcept>
 #include <unordered_map>
 
-namespace ultraScript {
 
 static std::unordered_map<std::string, TokenType> keywords = {
     {"function", TokenType::FUNCTION},
@@ -479,6 +478,4 @@ std::vector<Token> Lexer::tokenize() {
     
     tokens.push_back({TokenType::EOF_TOKEN, "", line, column});
     return tokens;
-}
-
 }

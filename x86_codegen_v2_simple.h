@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <string>
 
-namespace ultraScript {
+
 
 // Simplified X86 code generator for free keyword implementation
 class X86CodeGenV2 : public CodeGenerator {
@@ -39,4 +39,4 @@ public:
     const std::vector<uint8_t>& get_code_buffer() const { return code_buffer; }
 };
 
-} // namespace ultraScript
+

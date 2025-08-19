@@ -5,7 +5,6 @@
 #include <vector>
 #include <memory>
 
-namespace ultraScript {
 
 /**
  * Static API for GC Parser Integration
@@ -36,4 +35,3 @@ private:
     static void ensure_initialized();
 };
 
-} // namespace ultraScript

@@ -13,7 +13,7 @@
 #include <queue>
 #include <condition_variable>
 
-namespace ultraScript {
+
 
 // Forward declarations
 class HTTPRequest;
@@ -233,4 +233,4 @@ extern "C" {
     void __runtime_http_response_json(void* response_ptr, const char* json_data);
 }
 
-} // namespace ultraScript
+

@@ -11,12 +11,12 @@
 
 // Forward declarations for JIT object system functions
 extern "C" {
-void* __jit_object_create(const char* class_name);
-void* __jit_object_create_sized(uint32_t size, uint32_t class_id);
+void* __jit_object_create(void* class_name_ptr);
+void* __jit_object_create_sized(void* class_name_ptr, size_t size);
 }
 #include <ostream>
 
-namespace ultraScript {
+
 
 // Forward declaration for goroutine function that's not in runtime.h
 void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg);
@@ -954,4 +954,4 @@ void X86CodeGenTester::benchmark_code_generation_speed() {
     // Implementation would time various code generation patterns
 }
 
-}  // namespace ultraScript
+

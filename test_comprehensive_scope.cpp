@@ -7,7 +7,7 @@
 #include <atomic>
 #include <cassert>
 
-using namespace ultraScript;
+
 
 // Test 1: Basic scope operations
 bool test_basic_scope() {

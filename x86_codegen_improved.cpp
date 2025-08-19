@@ -7,7 +7,7 @@
 #include <iostream>
 #include <iomanip>
 
-namespace ultraScript {
+
 
 // =============================================================================
 // Utility Functions with Enhanced Validation
@@ -662,4 +662,4 @@ std::unique_ptr<CodeGenerator> create_improved_x86_codegen() {
     return std::make_unique<X86CodeGenImproved>();
 }
 
-}  // namespace ultraScript
+

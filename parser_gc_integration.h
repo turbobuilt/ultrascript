@@ -6,7 +6,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace ultraScript {
 
 // Forward declarations
 struct ASTNode;
@@ -66,5 +65,3 @@ private:
     void mark_expression_escape(ExpressionNode* expr, EscapeType escape_type);
     size_t get_variable_id(const std::string& name) const;
 };
-
-} // namespace ultraScript

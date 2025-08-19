@@ -1,7 +1,7 @@
 #include "runtime.h"
 #include <iostream>
 
-using namespace ultraScript;
+
 
 // Simple test function that mimics a JIT function
 extern "C" int64_t test_func(int64_t x) {

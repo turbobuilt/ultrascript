@@ -22,12 +22,8 @@
 #include <optional>
 
 // Forward declare DataType from compiler.h to avoid circular dependency
-namespace ultraScript {
-    enum class DataType;
-    class LexicalScope;
-}
-
-namespace ultraScript {
+enum class DataType;
+class LexicalScope;
 
 // Global executable memory info structure
 struct ExecutableMemoryInfo {
@@ -421,9 +417,7 @@ struct Promise {
 };
 
 // Forward declaration - using new goroutine system
-namespace ultraScript {
-    class GoroutineScheduler;
-}
+class GoroutineScheduler;
 
 class ThreadPool {
     
@@ -1093,6 +1087,4 @@ extern "C" {
     int64_t __match_result_get_index(void* match_array_ptr);
     void* __match_result_get_input(void* match_array_ptr);
     void* __match_result_get_groups(void* match_array_ptr);
-}
-
 }

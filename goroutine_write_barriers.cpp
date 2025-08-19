@@ -5,7 +5,6 @@
 #include <cstdlib>
 
 // Simple write barriers without GC
-namespace ultraScript {
 
 class SimpleWriteBarrier {
 public:
@@ -20,4 +19,3 @@ public:
     }
 };
 
-} // namespace ultraScript

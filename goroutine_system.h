@@ -12,7 +12,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace ultraScript {
 
 // Forward declarations
 class Goroutine;
@@ -213,4 +212,3 @@ extern thread_local std::shared_ptr<Goroutine> current_goroutine;
 // Utility functions
 std::shared_ptr<Goroutine> spawn_goroutine(std::function<void()> task);
 
-} // namespace ultraScript

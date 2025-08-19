@@ -4,8 +4,6 @@
 #include <sstream>
 #include <vector>
 
-namespace ultraScript {
-
 std::string ErrorReporter::get_line_content(int line_number) const {
     if (line_number <= 0) return "";
     
@@ -123,6 +121,4 @@ void ErrorReporter::report_lexer_error(const std::string& message, int line, int
     std::string line_content = get_line_content(line);
     std::string formatted_error = format_error_context(message, line, column, line_content, unexpected_char);
     std::cerr << formatted_error << std::endl;
-}
-
 }

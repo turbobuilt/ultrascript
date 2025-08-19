@@ -4,7 +4,7 @@
 #include "array_ast_nodes.h"
 #include "ultra_performance_array.h"
 
-namespace ultraScript {
+
 
 // ============================================================================
 // Parser Type Inference Logic
@@ -312,4 +312,4 @@ void demonstrate_parser_output() {
     // Parser generates: DynamicArrayMethodCall
 }
 
-} // namespace ultraScript
+

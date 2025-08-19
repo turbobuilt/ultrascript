@@ -4,7 +4,7 @@
 #include "high_performance_scheduler.h"
 #include "simd_optimizations.h"
 
-namespace ultraScript {
+
 
 // ============================================================================
 // PERFORMANCE INTEGRATION LAYER
@@ -324,4 +324,3 @@ PerformanceEngine& get_performance_engine() {
 #define GOTS_HASH_STRING(str) \
     get_performance_engine().hash_string_optimized(str)
 
-} // namespace ultraScript

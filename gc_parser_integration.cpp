@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <iostream>
 
-namespace ultraScript {
 
 // Simple GC-integrated parser demonstration
 // This would normally integrate with the actual Parser class
@@ -60,4 +59,3 @@ public:
     }
 };
 
-} // namespace ultraScript

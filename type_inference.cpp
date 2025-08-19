@@ -5,8 +5,6 @@
 #include <iostream>
 #include <cmath>
 
-namespace ultraScript {
-
 DataType TypeInference::infer_type(const std::string& expression) {
     if (variable_types.find(expression) != variable_types.end()) {
         return variable_types[expression];
@@ -595,6 +593,4 @@ std::string TypeInference::get_current_class_context() const {
 
 void TypeInference::clear_current_class_context() {
     current_class_name.clear();
-}
-
 }

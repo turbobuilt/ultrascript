@@ -6,8 +6,6 @@
 #include <unordered_set>
 #include <functional>
 
-namespace ultraScript {
-
 // Global compilation context instance
 CompilationContext g_compilation_context;
 
@@ -144,5 +142,3 @@ size_t CompilationContext::get_compiled_functions() const {
     }
     return count;
 }
-
-} // namespace ultraScript

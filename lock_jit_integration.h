@@ -6,7 +6,6 @@
 #include <unordered_map>
 #include <functional>
 
-namespace ultraScript {
 
 // Lock operation types for JIT compilation
 enum class LockOperation {
@@ -126,4 +125,3 @@ namespace LockOptimizations {
     bool optimize_lock_ordering(CodeGenerator& gen);
 }
 
-} // namespace ultraScript

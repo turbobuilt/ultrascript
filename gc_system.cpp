@@ -5,7 +5,6 @@
 #include <iostream>
 #include <cassert>
 
-namespace ultraScript {
 
 // ============================================================================
 // ESCAPE ANALYZER IMPLEMENTATION
@@ -982,7 +981,6 @@ void GCParserIntegration::dump_analysis_results() {
     }
 }
 
-} // namespace ultraScript
 
 // ============================================================================
 // C API IMPLEMENTATION
@@ -991,60 +989,60 @@ void GCParserIntegration::dump_analysis_results() {
 extern "C" {
 
 void* __gc_alloc(size_t size, uint32_t type_id) {
-    return ultraScript::GarbageCollector::instance().gc_alloc(size, type_id);
+    return GarbageCollector::instance().gc_alloc(size, type_id);
 }
 
 void* __gc_alloc_array(size_t element_size, size_t count, uint32_t type_id) {
-    return ultraScript::GarbageCollector::instance().gc_alloc_array(element_size, count, type_id);
+    return GarbageCollector::instance().gc_alloc_array(element_size, count, type_id);
 }
 
 void __gc_free(void* ptr) {
-    ultraScript::GarbageCollector::instance().gc_free(ptr);
+    GarbageCollector::instance().gc_free(ptr);
 }
 
 void __gc_add_root(void** root_ptr) {
-    ultraScript::GarbageCollector::instance().add_root(root_ptr);
+    GarbageCollector::instance().add_root(root_ptr);
 }
 
 void __gc_remove_root(void** root_ptr) {
-    ultraScript::GarbageCollector::instance().remove_root(root_ptr);
+    GarbageCollector::instance().remove_root(root_ptr);
 }
 
 void __gc_collect() {
-    ultraScript::GarbageCollector::instance().collect();
+    GarbageCollector::instance().collect();
 }
 
 void __gc_collect_young() {
-    ultraScript::GarbageCollector::instance().collect_young();
+    GarbageCollector::instance().collect_young();
 }
 
 int __gc_should_collect() {
-    return ultraScript::GarbageCollector::instance().should_collect() ? 1 : 0;
+    return GarbageCollector::instance().should_collect() ? 1 : 0;
 }
 
 void __gc_enter_scope(const char* scope_name, int is_function) {
     std::string name = scope_name ? scope_name : "";
-    ultraScript::GCParserIntegration::on_enter_scope(name, is_function != 0);
+    GCParserIntegration::on_enter_scope(name, is_function != 0);
 }
 
 void __gc_exit_scope() {
-    ultraScript::GCParserIntegration::on_exit_scope();
+    GCParserIntegration::on_exit_scope();
 }
 
 void __gc_register_var(const char* name, int type) {
-    ultraScript::GCParserIntegration::on_variable_declaration(
-        name, static_cast<ultraScript::DataType>(type)
+    GCParserIntegration::on_variable_declaration(
+        name, static_cast<DataType>(type)
     );
 }
 
 void __gc_mark_escape(const char* name, int escape_type) {
-    ultraScript::VariableTracker::instance().mark_variable_escape(
-        name, static_cast<ultraScript::EscapeType>(escape_type)
+    VariableTracker::instance().mark_variable_escape(
+        name, static_cast<EscapeType>(escape_type)
     );
 }
 
 void __gc_finalize_analysis() {
-    ultraScript::GCParserIntegration::finalize_escape_analysis();
+    GCParserIntegration::finalize_escape_analysis();
 }
 
 }

@@ -3,7 +3,7 @@
 #include <thread>
 #include <chrono>
 
-using namespace ultraScript;
+
 
 // Test function to be run in goroutines
 int64_t test_function(int64_t value) {

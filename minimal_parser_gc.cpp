@@ -1,7 +1,6 @@
 #include "minimal_parser_gc.h"
 #include <iostream>
 
-namespace ultraScript {
 
 void MinimalParserGCIntegration::enter_scope(const std::string& scope_name, bool is_function) {
     ScopeInfo scope;
@@ -142,4 +141,3 @@ void MinimalParserGCIntegration::propagate_escape_to_parents(const std::string& 
     }
 }
 
-} // namespace ultraScript

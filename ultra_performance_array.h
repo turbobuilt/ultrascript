@@ -13,7 +13,7 @@
 #include <variant>
 #include <type_traits>
 
-namespace ultraScript {
+
 
 // Forward declare DataType from compiler.h
 enum class DataType;
@@ -630,4 +630,4 @@ using Float64Array = TypedArray<double>;
 // Default Array alias - compiler will choose based on type inference
 using Array = DynamicArray;  // For untyped arrays
 
-} // namespace ultraScript
+

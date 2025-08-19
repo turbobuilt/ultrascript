@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace ultraScript {
+
 
 // ============================================================================
 // SIMD-OPTIMIZED OPERATIONS FOR GOTS RUNTIME
@@ -401,4 +401,3 @@ public:
     };
 };
 
-} // namespace ultraScript

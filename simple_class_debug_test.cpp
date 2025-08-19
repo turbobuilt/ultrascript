@@ -1,7 +1,7 @@
 // #include "class_system_performance.h" // Removed - property access system redesigned
 #include <iostream>
 
-using namespace ultraScript;
+
 
 // Simple test that shows the different debug paths without CodeGenerator dependencies
 void simple_class_debug_test() {

@@ -8,7 +8,7 @@
 #include <thread>
 #include <chrono>
 
-using namespace ultraScript;
+
 
 // Example request handler that shows UltraScript-style async/goroutine integration
 void handle_request(HTTPRequest& req, HTTPResponse& res) {

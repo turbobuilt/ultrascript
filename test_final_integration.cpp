@@ -5,7 +5,7 @@
 #include <chrono>
 #include <cassert>
 
-using namespace ultraScript;
+
 
 // Helper function to create a scoped goroutine
 template<typename F>

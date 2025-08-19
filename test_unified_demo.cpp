@@ -7,13 +7,13 @@ int main() {
     std::cout << "=== UNIFIED EVENT SYSTEM DEMO ===" << std::endl;
     
     // Initialize unified system
-    ultraScript::initialize_unified_event_system();
+    initialize_unified_event_system();
     
     // Create lexical environment
-    auto root_env = std::make_shared<ultraScript::LexicalEnvironment>();
+    auto root_env = std::make_shared<LexicalEnvironment>();
     
     // Create a goroutine
-    auto goroutine = std::make_shared<ultraScript::Goroutine>(1, root_env);
+    auto goroutine = std::make_shared<Goroutine>(1, root_env);
     
     // Set a simple task
     goroutine->set_main_task([]() {
@@ -21,7 +21,7 @@ int main() {
     });
     
     // Create a timer
-    auto timer_id = ultraScript::GlobalTimerSystem::instance().set_timeout(
+    auto timer_id = GlobalTimerSystem::instance().set_timeout(
         1, 
         []() {
             std::cout << "Timer fired!" << std::endl;
@@ -32,7 +32,7 @@ int main() {
     std::cout << "Set timer " << timer_id << " for 100ms" << std::endl;
     
     // Register with main controller
-    ultraScript::MainThreadController::instance().goroutine_started(1, goroutine);
+    MainThreadController::instance().goroutine_started(1, goroutine);
     
     // Run goroutine
     std::thread([goroutine]() {
@@ -44,12 +44,12 @@ int main() {
     
     // Print stats
     std::cout << "\n=== FINAL STATS ===" << std::endl;
-    std::cout << "Active goroutines: " << ultraScript::MainThreadController::instance().get_active_goroutines() << std::endl;
-    std::cout << "Pending timers: " << ultraScript::MainThreadController::instance().get_pending_timers() << std::endl;
-    std::cout << "Timer queue size: " << ultraScript::GlobalTimerSystem::instance().get_pending_count() << std::endl;
+    std::cout << "Active goroutines: " << MainThreadController::instance().get_active_goroutines() << std::endl;
+    std::cout << "Pending timers: " << MainThreadController::instance().get_pending_timers() << std::endl;
+    std::cout << "Timer queue size: " << GlobalTimerSystem::instance().get_pending_count() << std::endl;
     
     // Shutdown
-    ultraScript::shutdown_unified_event_system();
+    shutdown_unified_event_system();
     
     std::cout << "=== DEMO COMPLETE ===" << std::endl;
     return 0;

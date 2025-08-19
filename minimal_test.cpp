@@ -5,7 +5,6 @@
 #include <unistd.h>
 #include <cstring>
 
-using namespace ultraScript;
 
 class MinimalExecutor {
 private:

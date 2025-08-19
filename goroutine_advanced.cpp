@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cstring>
 
-namespace ultraScript {
 
 // Global instances
 SharedMemoryPool g_shared_memory_pool;
@@ -427,4 +426,3 @@ std::shared_ptr<Goroutine> spawn_optimized(std::function<void()> task) {
     return nullptr; // TODO: Return actual goroutine handle
 }
 
-} // namespace ultraScript

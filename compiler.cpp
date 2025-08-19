@@ -11,7 +11,6 @@
 // External console mutex for thread safety
 extern std::mutex g_console_mutex;
 
-using namespace ultraScript;
 
 #include <fstream>
 #include <iostream>
@@ -24,8 +23,6 @@ using namespace ultraScript;
 // New goroutine system functions
 extern "C" void __runtime_spawn_main_goroutine(void* func_ptr);
 extern "C" void __runtime_wait_for_main_goroutine();
-
-namespace ultraScript {
 
 GoTSCompiler::GoTSCompiler(Backend backend) : target_backend(backend) {
     std::cout << "DEBUG: GoTSCompiler constructor starting" << std::endl;
@@ -1053,6 +1050,4 @@ void compile_deferred_function_expressions(CodeGenerator& gen, TypeInference& ty
     // any function expressions that were deferred during the initial pass
     (void)gen;
     (void)types;
-}
-
 }

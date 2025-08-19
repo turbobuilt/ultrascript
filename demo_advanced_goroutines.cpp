@@ -11,8 +11,6 @@
 #include <mutex>
 #include <chrono>
 
-namespace ultraScript {
-
 // ============================================================================
 // 1. SHARED MEMORY POOL - Zero-copy sharing between goroutines
 // ============================================================================
@@ -334,7 +332,6 @@ public:
     }
 };
 
-} // namespace ultraScript
 
 // ============================================================================
 // DEMONSTRATION
@@ -346,7 +343,7 @@ int main() {
     // 1. Shared Memory Pool Demo
     std::cout << "\n--- 1. SHARED MEMORY POOL ---" << std::endl;
     {
-        ultraScript::SimpleSharedMemoryPool pool;
+        SimpleSharedMemoryPool pool;
         
         void* mem1 = pool.allocate(1024);
         void* mem2 = pool.allocate(2048);
@@ -366,7 +363,7 @@ int main() {
     // 2. Lock-Free Queue Demo
     std::cout << "\n--- 2. LOCK-FREE QUEUE ---" << std::endl;
     {
-        ultraScript::SimpleLockFreeQueue<int> queue;
+        SimpleLockFreeQueue<int> queue;
         
         // Producer
         std::thread producer([&queue]() {
@@ -398,7 +395,7 @@ int main() {
     // 3. Work Stealing Scheduler Demo
     std::cout << "\n--- 3. WORK STEALING SCHEDULER ---" << std::endl;
     {
-        ultraScript::SimpleWorkStealingScheduler scheduler(2);
+        SimpleWorkStealingScheduler scheduler(2);
         
         // Schedule many tasks
         for (int i = 0; i < 20; ++i) {
@@ -415,7 +412,7 @@ int main() {
     // 4. Goroutine Pool Demo
     std::cout << "\n--- 4. GOROUTINE POOL ---" << std::endl;
     {
-        ultraScript::SimpleGoroutinePool pool(3);
+        SimpleGoroutinePool pool(3);
         
         // Execute multiple tasks
         for (int i = 0; i < 10; ++i) {

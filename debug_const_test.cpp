@@ -1,7 +1,6 @@
 #include "lexical_scope.h"
 #include <iostream>
 
-using namespace ultraScript;
 
 int main() {
     try {

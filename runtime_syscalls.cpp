@@ -5,9 +5,7 @@
 #include "ffi_syscalls.h"  // FFI functions
 
 // Forward declaration for Date object
-namespace ultraScript {
-    // DateObject initialization removed
-}
+// DateObject initialization removed
 
 // Forward declarations for HTTP functionality
 extern "C" {
@@ -49,11 +47,9 @@ bool has_active_timers();
 bool has_active_work();
 
 // Forward declarations for new timer system
-namespace ultraScript {
-    class GoroutineTimerManager;
-    GoroutineTimerManager& get_timer_manager();
-    extern thread_local std::unique_ptr<GoroutineTimerManager> g_thread_timer_manager;
-}
+class GoroutineTimerManager;
+GoroutineTimerManager& get_timer_manager();
+extern thread_local std::unique_ptr<GoroutineTimerManager> g_thread_timer_manager;
 
 // New timer system functions
 int64_t create_timer_new(int64_t delay_ms, void* callback, bool is_interval = false);
@@ -85,7 +81,6 @@ bool has_active_work_new();
 #include <termios.h>
 #include <sys/ioctl.h>
 
-namespace ultraScript {
 
 // Global runtime object instance
 RuntimeObject* global_runtime = nullptr;
@@ -1918,5 +1913,3 @@ void __runtime_register_global() {
     
 }
 } // extern "C"
-
-} // namespace ultraScript

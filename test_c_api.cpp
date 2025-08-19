@@ -2,7 +2,7 @@
 #include <iostream>
 #include <cassert>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "=== Testing C API for Lexical Scope ===" << std::endl;

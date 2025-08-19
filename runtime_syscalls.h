@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace ultraScript {
+
 
 // Runtime syscall interface - exposes all system APIs needed for Node.js compatibility
 // This provides the global 'runtime' object in UltraScript with comprehensive system access
@@ -379,4 +379,3 @@ extern "C" {
     void* __runtime_trace_events();
 }
 
-} // namespace ultraScript

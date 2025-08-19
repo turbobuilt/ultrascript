@@ -3,7 +3,7 @@
 #include "goroutine_system.h"
 #include <iostream>
 
-namespace ultraScript {
+
 
 // C interface for advanced goroutine features
 
@@ -107,4 +107,3 @@ void __print_scheduler_stats() {
     std::cout << "  - Total shared memory: " << g_shared_memory_pool.get_total_memory() << " bytes" << std::endl;
 }
 
-} // namespace ultraScript

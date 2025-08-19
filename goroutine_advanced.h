@@ -12,7 +12,6 @@
 #include <mutex>
 #include <condition_variable>
 
-namespace ultraScript {
 
 // Forward declarations
 class Goroutine;
@@ -321,4 +320,3 @@ std::shared_ptr<Channel<T>> make_channel(size_t capacity = 0) {
     return std::make_shared<Channel<T>>(capacity);
 }
 
-} // namespace ultraScript

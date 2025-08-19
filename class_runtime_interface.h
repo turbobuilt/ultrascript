@@ -2,7 +2,6 @@
 
 // // #include "class_system_performance.h" // Removed - property access system redesigned // Removed - property access system redesigned
 
-namespace ultraScript {
 
 // C runtime interface functions for maximum performance object operations
 extern "C" {
@@ -151,4 +150,3 @@ uint32_t __get_allocated_object_count_performance();
 #define SET_PROPERTY_FAST(obj, ClassName, PropertyName, value) \
     object_set_property_fast(obj, PROPERTY_OFFSET_FAST(ClassName, PropertyName), value)
 
-} // namespace ultraScript

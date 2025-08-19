@@ -8,7 +8,7 @@
 #include <cstring>
 
 // We'll dynamically load LibTorch to avoid hard linking requirements
-namespace ultraScript {
+
 
 // Global state for error handling
 static std::string last_error_message;
@@ -483,4 +483,4 @@ TorchTensor torch_load_tensor(const char* path) { return nullptr; }
 
 } // extern "C"
 
-} // namespace ultraScript
+

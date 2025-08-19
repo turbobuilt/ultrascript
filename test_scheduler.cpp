@@ -2,7 +2,7 @@
 #include <iostream>
 
 int main() {
-    using namespace ultraScript;
+
     
     std::cout << "Testing GoroutineScheduler..." << std::endl;
     

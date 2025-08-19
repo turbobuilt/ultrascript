@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstring>
 
-namespace ultraScript {
 
 // Thread-local current goroutine
 thread_local std::shared_ptr<Goroutine> current_goroutine = nullptr;
@@ -599,5 +598,3 @@ void initialize_goroutine_system() {
 
 void shutdown_goroutine_system() {
 }
-
-} // namespace ultraScript

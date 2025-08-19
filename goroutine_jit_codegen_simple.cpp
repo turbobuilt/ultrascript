@@ -5,7 +5,6 @@
 #include <sstream>
 #include <cstdlib>
 
-namespace ultraScript {
 
 // ============================================================================
 // SIMPLIFIED JIT CODE GENERATION (NO GC)
@@ -131,14 +130,12 @@ public:
     const uint8_t* get_code() const { return code_buffer_; }
 };
 
-} // namespace ultraScript
 
 // ============================================================================
 // SIMPLE DEMO MAIN
 // ============================================================================
 
 int main() {
-    using namespace ultraScript;
     
     std::cout << "UltraScript Simple JIT Code Generation Demo (No GC)\n";
     std::cout << "====================================================\n\n";

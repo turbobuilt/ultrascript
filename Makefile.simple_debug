@@ -29,7 +29,6 @@ simple_class_system.o: class_system_performance.h
 #include <cstring>
 #include <cstdlib>
 
-namespace ultraScript {
 
 // Mock DynamicValue
 struct DynamicValue {
@@ -150,7 +149,6 @@ void ClassRegistry::finalize_all_classes() {
     DEBUG_CLASS_META("All classes finalized");
 }
 
-} // namespace ultraScript
 EOF
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c simple_class_system.cpp -o simple_class_system.o
 

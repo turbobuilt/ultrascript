@@ -2,7 +2,6 @@
 #include "compiler.h"
 #include <iostream>
 
-namespace ultraScript {
 
 void ParserGCIntegration::enter_scope(const std::string& scope_name, bool is_function) {
     ScopeInfo scope;
@@ -194,4 +193,3 @@ void ParserGCIntegration::propagate_escape_to_parents(const std::string& var_nam
     }
 }
 
-} // namespace ultraScript

@@ -16,8 +16,6 @@
 #include <optional>
 #include <chrono>
 
-namespace ultraScript {
-
 // Forward declarations
 struct Token;
 enum class TokenType;
@@ -878,5 +876,3 @@ GoTSCompiler* get_current_compiler();
 
 // Function to compile all deferred function expressions
 void compile_deferred_function_expressions(CodeGenerator& gen, TypeInference& types);
-
-}

@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <stdexcept>
 
-namespace ultraScript {
 
 // Static member initialization
 std::atomic<uint64_t> LexicalScope::next_scope_id{1};
@@ -426,8 +425,6 @@ void __scope_init_thread_local(void* captured_scope) {
 
 void __scope_cleanup_thread_local() {
     ScopeChain::cleanup_thread_local_chain();
-}
-
 }
 
 }

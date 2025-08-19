@@ -35,7 +35,7 @@ static std::atomic<int64_t> g_next_function_id{1};
 // Global console output mutex for thread safety
 std::mutex g_console_mutex;
 
-namespace ultraScript {
+
 
 // Global instances
 // Using pointers to control initialization/destruction order
@@ -179,7 +179,7 @@ extern "C" void* __goroutine_spawn(const char* function_name) {
     };
     
     // Spawn using NEW goroutine system
-    ultraScript::GoroutineScheduler::instance().spawn(task);
+    GoroutineScheduler::instance().spawn(task);
     
     // Return dummy for compatibility
     return reinterpret_cast<void*>(1);
@@ -344,4 +344,4 @@ void __new_goroutine_system_cleanup() {
 
 } // extern "C"
 
-} // namespace ultraScript
+

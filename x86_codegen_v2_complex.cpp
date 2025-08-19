@@ -11,11 +11,9 @@
 
 // Forward declarations for JIT object system functions
 extern "C" {
-void* __jit_object_create(const char* class_name);
-void* __jit_object_create_sized(uint32_t size, uint32_t class_id);
+void* __jit_object_create(void* class_name_ptr);
+void* __jit_object_create_sized(void* class_name_ptr, size_t size);
 }
-
-namespace ultraScript {
 
 // Forward declaration for goroutine function that's not in runtime.h
 void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg);
@@ -150,7 +148,6 @@ void X86CodeGenV2::emit_jump_back(int label_id) {
     }
 }
 
-} // namespace ultraScriptger register IDs to X86Reg enum
 // This is needed for the CodeGenerator interface which uses int register IDs
 static X86Reg int_to_x86reg(int reg_id) {
     // Add comprehensive debugging to track register corruption
@@ -1078,5 +1075,3 @@ void X86CodeGenTester::benchmark_code_generation_speed() {
     std::cout << "Benchmarking code generation speed...\n";
     // Implementation would time various code generation patterns
 }
-
-}  // namespace ultraScript

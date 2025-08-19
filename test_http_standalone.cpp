@@ -7,7 +7,7 @@
 #include <chrono>
 #include <signal.h>
 
-using namespace ultraScript;
+
 
 // Global server pointer for signal handling
 HTTPServer* global_server = nullptr;

@@ -3,7 +3,7 @@
 #include <thread>
 #include <chrono>
 
-using namespace ultraScript;
+
 
 // Simple test that doesn't depend on runtime
 int main() {

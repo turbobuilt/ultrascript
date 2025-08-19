@@ -4,7 +4,6 @@
 #include <iostream>
 #include <string>
 
-using namespace ultraScript;
 
 void test_ultra_performance_arrays() {
     std::cout << "\n=== Testing Ultra-Performance Array System ===" << std::endl;

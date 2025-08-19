@@ -12,7 +12,7 @@
 // Quick debug macros
 #define DEBUG_CLASS_META(msg) do { std::cout << "[CLASS_META] " << msg << std::endl; } while(0)
 
-namespace ultraScript {
+
 
 // Fast string hashing using FNV-1a for property lookups
 constexpr uint32_t FNV_OFFSET_BASIS_32 = 2166136261u;
@@ -229,9 +229,9 @@ public:
     }
 };
 
-} // namespace ultraScript
 
-using namespace ultraScript;
+
+
 
 void test_class_system_debug() {
     std::cout << "\n=== UltraScript Class System Debug Test ===" << std::endl;

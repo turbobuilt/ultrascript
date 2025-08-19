@@ -2,7 +2,6 @@
 #include "goroutine_system.h"
 #include <algorithm>
 
-namespace ultraScript {
 
 // Static member initialization
 std::unordered_map<std::string, LockOperation> LockJITCompiler::method_map_;
@@ -350,5 +349,3 @@ namespace LockOptimizations {
         return false; // Placeholder
     }
 }
-
-} // namespace ultraScript

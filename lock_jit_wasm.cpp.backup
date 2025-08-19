@@ -2,7 +2,6 @@
 #include "lock_system.h"
 #include <atomic>
 
-namespace ultraScript {
 
 // WebAssembly opcodes for atomic operations (threads extension)
 constexpr uint8_t WASM_ATOMIC_PREFIX = 0xFE;
@@ -542,4 +541,3 @@ uint32_t WasmCodeGen::get_current_local_index() {
     return next_local_index_ - 1;
 }
 
-} // namespace ultraScript

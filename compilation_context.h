@@ -5,8 +5,6 @@
 #include <string>
 #include <queue>
 
-namespace ultraScript {
-
 // Forward declarations
 class FunctionExpression;
 class CodeGenerator;
@@ -58,5 +56,3 @@ private:
 
 // Global compilation context
 extern CompilationContext g_compilation_context;
-
-} // namespace ultraScript

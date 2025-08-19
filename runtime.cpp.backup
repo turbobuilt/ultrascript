@@ -36,7 +36,7 @@ static std::atomic<int64_t> g_next_function_id{1};
 // Global console output mutex for thread safety
 std::mutex g_console_mutex;
 
-namespace ultraScript {
+
 
 // Global instances
 // Using pointers to control initialization/destruction order
@@ -716,10 +716,10 @@ extern "C" void __set_goroutine_context(int64_t is_goroutine) {
 }
 
 
-} // namespace ultraScript
+
 
 // Ultra-High-Performance Direct Address Goroutine Spawn
-namespace ultraScript {
+
 void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg) {
     
     // Cast function pointer to proper type and spawn goroutine directly
@@ -1097,7 +1097,7 @@ extern "C" void* __simple_array_zeros_typed_wrapper(int64_t size, void* dtype_pt
     }
 }
 
-} // namespace ultraScript
+
 
 // Wrapper function that accepts void* for string (from __string_intern)
 extern "C" void* __simple_array_zeros_typed_wrapper(int64_t size, void* dtype_ptr) {
@@ -1107,7 +1107,7 @@ extern "C" void* __simple_array_zeros_typed_wrapper(int64_t size, void* dtype_pt
     if (dtype_ptr == nullptr) {
         std::cout << "[DEBUG] dtype_ptr is null, using regular zeros" << std::endl;
         std::cout.flush();
-        return ultraScript::__simple_array_zeros(size);
+        return __simple_array_zeros(size);
     }
     
     // Cast void* to const char*
@@ -1115,5 +1115,5 @@ extern "C" void* __simple_array_zeros_typed_wrapper(int64_t size, void* dtype_pt
     std::cout << "[DEBUG] Converted void* to const char*, calling main function" << std::endl;
     std::cout.flush();
     
-    return ultraScript::__simple_array_zeros_typed(size, dtype);
+    return __simple_array_zeros_typed(size, dtype);
 }

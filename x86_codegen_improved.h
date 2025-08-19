@@ -5,7 +5,7 @@
 #include <memory>
 #include <unordered_set>
 
-namespace ultraScript {
+
 
 // Enhanced X86 code generator with error reduction and performance optimizations
 class X86CodeGenImproved : public CodeGenerator {
@@ -156,4 +156,4 @@ public:
 // Factory function
 std::unique_ptr<CodeGenerator> create_improved_x86_codegen();
 
-}  // namespace ultraScript
+

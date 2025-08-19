@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <sstream>
 
-namespace ultraScript {
+
 
 // Simple HTTP Client Implementation without libcurl dependency
 class HTTPClient {
@@ -286,4 +286,4 @@ void* __runtime_http_create_server_simple(void* callback_ptr) {
 
 } // extern "C"
 
-} // namespace ultraScript
+

@@ -5,7 +5,7 @@
 #include <thread>
 #include <chrono>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "=== Testing Real Goroutine Integration ===" << std::endl;

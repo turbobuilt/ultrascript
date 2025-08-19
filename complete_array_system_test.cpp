@@ -8,7 +8,7 @@
 #include <iostream>
 #include <random>
 
-namespace ultraScript::test {
+namespace test {
 
 // ============================================================================
 // Performance Benchmark Framework
@@ -302,13 +302,13 @@ void run_all_tests() {
     std::cout << "5. Single unified Array system for all use cases\n";
 }
 
-} // namespace ultraScript::test
+} // namespace test
 
 // ============================================================================
 // Demonstration of Generated JIT Code
 // ============================================================================
 
-namespace ultraScript::jit_examples {
+namespace jit_examples {
 
 // What the JIT would generate for different array operations
 
@@ -349,9 +349,9 @@ float jit_array_sum_float32(void* arr_ptr) {
     return runtime::typed_array_sum<float>(arr_ptr);
 }
 
-} // namespace ultraScript::jit_examples
+} // namespace jit_examples
 
 int main() {
-    ultraScript::test::run_all_tests();
+    test::run_all_tests();
     return 0;
 }

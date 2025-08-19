@@ -2,7 +2,7 @@
 #include <iostream>
 #include <cassert>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "=== UltraScript String Overhaul Test ===" << std::endl;

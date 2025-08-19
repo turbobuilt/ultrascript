@@ -8,7 +8,6 @@
 #include <vector>
 #include <mutex>
 
-namespace ultraScript {
 
 // Forward declaration
 class WorkStealingScheduler;
@@ -89,4 +88,3 @@ void __lexical_env_set_variable(const char* name, void* value, int type);
 // Wait for all goroutines to complete
 void __wait_for_all_goroutines();
 
-} // namespace ultraScript

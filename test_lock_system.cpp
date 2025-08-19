@@ -5,7 +5,7 @@
 #include <chrono>
 #include <vector>
 
-using namespace ultraScript;
+
 
 // Forward declarations
 extern "C" {

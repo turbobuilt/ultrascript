@@ -16,7 +16,7 @@
 #include <iostream>
 #include <condition_variable>
 
-namespace ultraScript {
+
 
 // Forward declarations
 class Goroutine;
@@ -384,4 +384,3 @@ void cleanup_thread_local_resources();
 void initialize_unified_event_system();
 void shutdown_unified_event_system();
 
-} // namespace ultraScript

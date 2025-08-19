@@ -14,7 +14,6 @@
 #include <optional>
 #include <iostream>
 
-namespace ultraScript {
 
 // Forward declarations
 class Goroutine;
@@ -246,4 +245,3 @@ void closeServer(uint64_t server_id);
 void initialize_goroutine_system();
 void shutdown_goroutine_system();
 
-} // namespace ultraScript

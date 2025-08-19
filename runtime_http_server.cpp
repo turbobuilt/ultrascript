@@ -12,7 +12,7 @@
 #include <cstring>
 #include <fstream>
 
-namespace ultraScript {
+
 
 // Static members initialization
 std::atomic<uint64_t> HTTPServerRegistry::next_server_id_{1};
@@ -834,4 +834,4 @@ void __runtime_http_response_json(void* response_ptr, const char* json_data) {
 
 } // extern "C"
 
-} // namespace ultraScript
+

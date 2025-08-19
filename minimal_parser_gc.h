@@ -7,7 +7,6 @@
 #include <mutex>
 #include <iostream>
 
-namespace ultraScript {
 
 // Forward declarations - DataType will be provided by compiler.h
 enum class DataType; // Forward declaration
@@ -61,4 +60,3 @@ private:
     void propagate_escape_to_parents(const std::string& var_name);
 };
 
-} // namespace ultraScript

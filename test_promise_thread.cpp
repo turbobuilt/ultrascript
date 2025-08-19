@@ -2,7 +2,7 @@
 #include <iostream>
 #include <thread>
 
-using namespace ultraScript;
+
 
 void worker_with_promise(std::shared_ptr<Promise>* promise_ptr) {
     std::cout << "Worker: Starting..." << std::endl;

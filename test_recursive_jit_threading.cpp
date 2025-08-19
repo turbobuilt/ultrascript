@@ -3,7 +3,7 @@
 #include "lexical_scope.h"
 #include <iostream>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "=== Testing recursive JIT function in threads ===\n";

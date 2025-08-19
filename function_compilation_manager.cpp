@@ -6,16 +6,13 @@
 #include <algorithm>
 
 // Additional forward declarations for AST traversal
-namespace ultraScript {
-    class MethodCall;
-    class ExpressionMethodCall;
-    class BinaryOp;
-    class Assignment;
-    class IfStatement;
-    class ReturnStatement;
-}
+class MethodCall;
+class ExpressionMethodCall;
+class BinaryOp;
+class Assignment;
+class IfStatement;
+class ReturnStatement;
 
-namespace ultraScript {
 
 FunctionCompilationManager& FunctionCompilationManager::instance() {
     static FunctionCompilationManager instance;
@@ -355,5 +352,3 @@ void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, TypeI
     gen.emit_epilogue();
     
 }
-
-} // namespace ultraScript

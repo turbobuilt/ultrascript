@@ -2,7 +2,7 @@
 #include "compiler.h"
 #include <iostream>
 
-using namespace ultraScript;
+
 
 int main() {
     std::cout << "Testing UltraScript Typed Arrays (Maximum Performance)\n";

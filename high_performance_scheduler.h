@@ -8,7 +8,6 @@
 #include <deque>
 #include <memory>
 
-namespace ultraScript {
 
 // ============================================================================
 // LOCK-FREE WORK-STEALING SCHEDULER
@@ -360,4 +359,3 @@ private:
     }
 };
 
-} // namespace ultraScript

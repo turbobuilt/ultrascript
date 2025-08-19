@@ -2,7 +2,6 @@
 #include <iostream>
 #include <iomanip>
 
-using namespace ultraScript;
 
 void debug_basic_mov() {
     std::cout << "Debugging basic MOV instruction generation...\n";

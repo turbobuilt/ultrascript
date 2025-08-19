@@ -18,7 +18,6 @@ extern "C" int64_t test_alignment() {
 }
 
 int main() {
-    using namespace ultraScript;
     
     std::cout << "Testing stack alignment..." << std::endl;
     

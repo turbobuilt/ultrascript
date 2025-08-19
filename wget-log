@@ -1,0 +1,15 @@
+--2025-08-18 19:47:05--  https://www.navicat.com/download/direct-download?product=navicat17-premium-lite-en-x86_64.AppImage
+Resolving www.navicat.com (www.navicat.com)... 34.210.174.199
+Connecting to www.navicat.com (www.navicat.com)|34.210.174.199|:443... connected.
+HTTP request sent, awaiting response... 301 Moved Permanently
+Location: https://www.navicat.com/en/download/direct-download?product=navicat17-premium-lite-en-x86_64.AppImage [following]
+--2025-08-18 19:47:06--  https://www.navicat.com/en/download/direct-download?product=navicat17-premium-lite-en-x86_64.AppImage
+Reusing existing connection to www.navicat.com:443.
+HTTP request sent, awaiting response... 200 OK
+Length: unspecified [text/html]
+Saving to: ‘direct-download?product=navicat17-premium-lite-en-x86_64.AppImage’
+
+             direct-downl     [<=>                                ]       0  --.-KB/s               direct-download?product=n     [ <=>                               ]  28.04K  --.-KB/s    in 0.03s   
+
+2025-08-18 19:47:06 (820 KB/s) - ‘direct-download?product=navicat17-premium-lite-en-x86_64.AppImage’ saved [28713]
+

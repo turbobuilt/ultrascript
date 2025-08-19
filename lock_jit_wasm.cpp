@@ -1,7 +1,6 @@
 #include "compiler.h"
 #include "lock_system.h"
 
-namespace ultraScript {
 
 // Stub implementations for WebAssembly lock operations
 // TODO: Implement these properly when needed
@@ -48,4 +47,3 @@ void WasmCodeGen::emit_memory_fence(int fence_type) {
     (void)fence_type;
 }
 
-} // namespace ultraScript

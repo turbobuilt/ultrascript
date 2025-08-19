@@ -1,7 +1,7 @@
 #include "x86_instruction_builder.h"
 #include <algorithm>
 
-namespace ultraScript {
+
 
 // =============================================================================
 // X86PatternBuilder Implementation  
@@ -322,4 +322,4 @@ void X86PatternBuilder::emit_array_push_operation(X86Reg array, X86Reg value, Op
     builder.mov(MemoryOperand(array, 8), temp);
 }
 
-}  // namespace ultraScript
+

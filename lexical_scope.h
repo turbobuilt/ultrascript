@@ -11,7 +11,6 @@
 #include <type_traits>
 #include "compiler.h"
 
-namespace ultraScript {
 
 // Forward declaration
 class ScopeChain;
@@ -290,6 +289,4 @@ extern "C" {
     void* __scope_capture_for_closure(const char** var_names, int var_count);
     void __scope_init_thread_local(void* captured_scope);
     void __scope_cleanup_thread_local();
-}
-
 }

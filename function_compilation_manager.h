@@ -6,7 +6,6 @@
 #include <memory>
 #include "compiler.h"
 
-namespace ultraScript {
 
 // Forward declarations
 class FunctionExpression;
@@ -64,5 +63,3 @@ private:
     std::string generate_unique_function_name(const std::string& base_name);
     void compile_function_body(CodeGenerator& gen, TypeInference& types, FunctionInfo* func_info);
 };
-
-} // namespace ultraScript

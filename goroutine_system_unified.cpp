@@ -4,9 +4,8 @@
 #include <algorithm>
 
 // Forward declaration for global scheduler
-// extern ultraScript::WorkStealingScheduler* g_work_stealing_scheduler;
+// extern WorkStealingScheduler* g_work_stealing_scheduler;
 
-namespace ultraScript {
 
 // ============================================================================
 // GOROUTINE SCHEDULER IMPLEMENTATION
@@ -77,7 +76,7 @@ std::shared_ptr<Goroutine> GoroutineScheduler::spawn_main(std::function<void()> 
 }
 
 std::shared_ptr<Goroutine> GoroutineScheduler::get_current_goroutine() {
-    return ::ultraScript::get_current_goroutine();
+    return ::get_current_goroutine();
 }
 
 void GoroutineScheduler::schedule_task(std::function<void()> task) {
@@ -275,4 +274,3 @@ void __wait_for_all_goroutines() {
     std::cout << "DEBUG: All goroutines completed" << std::endl;
 }
 
-} // namespace ultraScript

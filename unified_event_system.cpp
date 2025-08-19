@@ -5,9 +5,9 @@
 #include <any>
 
 // Forward declaration for global scheduler
-// extern ultraScript::WorkStealingScheduler* g_work_stealing_scheduler;
+// extern WorkStealingScheduler* g_work_stealing_scheduler;
 
-namespace ultraScript {
+
 
 // Thread-local storage
 thread_local std::shared_ptr<Goroutine> current_goroutine;
@@ -522,4 +522,3 @@ void shutdown_unified_event_system() {
     
 }
 
-} // namespace ultraScript

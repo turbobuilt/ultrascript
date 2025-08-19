@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace ultraScript {
+
 
 // High-performance FFI syscalls for dynamic library loading and function calling
 // Optimized for zero-overhead calls with JIT specialization
@@ -85,4 +85,4 @@ extern "C" {
     void ffi_clear_error();
 }
 
-} // namespace ultraScript
+
