@@ -56,14 +56,14 @@ When not autocasting, types are predicted for all computations, generating ultra
 
 GoRoutines are designed to be javascripty, so things that are dangerous work. For example, a goroutine has access to all globals and all variables in the lexical scope. Callbacks, closures and all work as you would expect with a typical event loop, single thread implementation. But the code internally is running on multiple cores.
 
-This poses safety challenges. To resolve, all variables are "unsafe" by default.  However, we have the "safe" keyword which will use atomic operations.
+This poses safety challenges. To resolve, all variables are "unsafe" by default.  However, we have the "atomic" keyword which will use atomic operations.
 
 var x = 0;
 
 go function() {
     x++; // unsafe
-    safe x++; // safe;
-    safe { // everything in this block uses atomics.
+    atomic x++; // safe;
+    atomic { // everything in this block uses atomics.
         x++;
         x--;
     }
@@ -443,3 +443,7 @@ During parsing, we keep track of all variables in each block/scope.
 We keep track of which ones "escape", i.e., they are passed into any other function, used in a callback, or are assigned to any object that escapes.
 
 Then during GC, we do mark-sweep-defrag.
+
+To reduce memory pressure, we also do reference counting. So we do both.
+
+The code also contains the "free shallow" command which immediately (unsafely) frees memory.

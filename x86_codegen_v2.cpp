@@ -14,6 +14,7 @@
 extern "C" {
 void* __jit_object_create(void* class_name_ptr);
 void* __jit_object_create_sized(void* class_name_ptr, size_t size);
+int64_t __class_property_lookup(void* object, void* property_name_string, void* class_info_ptr);
 }
 #include <ostream>
 
@@ -395,6 +396,9 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__array_access_float64", reinterpret_cast<void*>(__array_access_float64)},
         {"__array_access_int32", reinterpret_cast<void*>(__array_access_int32)},
         {"__array_access_float32", reinterpret_cast<void*>(__array_access_float32)},
+        
+        // Class property lookup for optimized bracket access
+        {"__class_property_lookup", reinterpret_cast<void*>(__class_property_lookup)},
         
         // Type-aware array creation functions  
         {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},

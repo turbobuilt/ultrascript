@@ -371,6 +371,68 @@ extern "C" int64_t __array_access_float32(void* array, int64_t index) {
     converter.d = static_cast<double>(value);
     return converter.i;
 }
+
+// Class property lookup for optimized bracket access
+extern "C" int64_t __class_property_lookup(void* object, void* property_name_string, void* class_info_ptr) {
+    if (!object || !property_name_string || !class_info_ptr) {
+        return 0;
+    }
+    
+    ClassInfo* class_info = static_cast<ClassInfo*>(class_info_ptr);
+    
+    // Extract the property name from the GoTSString
+    GoTSString* gots_str = static_cast<GoTSString*>(property_name_string);
+    std::string property_name;
+    if (gots_str && gots_str->data()) {
+        property_name = std::string(gots_str->data(), gots_str->length());
+    } else {
+        return 0;
+    }
+    
+    // Find the property in the class fields
+    for (size_t i = 0; i < class_info->fields.size(); ++i) {
+        if (class_info->fields[i].name == property_name) {
+            // Object layout: [class_name_ptr][property_count][property0][property1]...
+            // Properties start at offset 16 (2 * 8 bytes for metadata)
+            int64_t property_offset = 16 + (i * 8);
+            
+            // Direct memory access to get the property value
+            int64_t* object_ptr = static_cast<int64_t*>(object);
+            void* property_value = reinterpret_cast<void*>(object_ptr[property_offset / 8]);
+            
+            // Determine the property type and create appropriate DynamicValue
+            DataType property_type = class_info->fields[i].type;
+            switch (property_type) {
+                case DataType::STRING: {
+                    // Create DynamicValue from string
+                    DynamicValue* dyn_val = new DynamicValue(std::string(static_cast<GoTSString*>(property_value)->c_str()));
+                    return reinterpret_cast<int64_t>(dyn_val);
+                }
+                case DataType::INT64: {
+                    // Create DynamicValue from int64
+                    int64_t int_value = reinterpret_cast<int64_t>(property_value);
+                    DynamicValue* dyn_val = new DynamicValue(static_cast<double>(int_value));
+                    return reinterpret_cast<int64_t>(dyn_val);
+                }
+                case DataType::FLOAT64: {
+                    // Create DynamicValue from double
+                    double* double_ptr = static_cast<double*>(property_value);
+                    DynamicValue* dyn_val = new DynamicValue(*double_ptr);
+                    return reinterpret_cast<int64_t>(dyn_val);
+                }
+                default: {
+                    // For other types, create a generic DynamicValue
+                    DynamicValue* dyn_val = new DynamicValue(property_value);
+                    dyn_val->type = property_type;
+                    return reinterpret_cast<int64_t>(dyn_val);
+                }
+            }
+        }
+    }
+    
+    // Property not found
+    return 0;
+}
 }
 
 // Array raw data access (returns pointer to first element)

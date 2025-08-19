@@ -2541,35 +2541,118 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
             result_type = DataType::ANY;
         }
     } else {
-        // Standard array access
-        // Generate code for the object expression
-        object->generate_code(gen, types);
-        
-        // Save object on stack
-        gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8 (allocate stack space)
-        gen.emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax (save object on stack)
-        
-        // Generate code for the index expression
-        if (index) {
-            index->generate_code(gen, types);
-        } else if (!slices.empty()) {
-            // For new slice syntax, generate slice object code
-            slices[0]->generate_code(gen, types);
-        } else {
-            // Fallback - generate a zero index
-            gen.emit_mov_reg_imm(0, 0);
+        // Check if this is a class instance with property access optimization
+        bool optimized_property_access = false;
+        if (auto* var_expr = dynamic_cast<Identifier*>(object.get())) {
+            DataType var_type = types.get_variable_type(var_expr->name);
+            if (var_type == DataType::CLASS_INSTANCE) {
+                std::string class_name = types.get_variable_class_name(var_expr->name);
+                
+                // Check if index is a string literal - can optimize to direct property access
+                if (auto* string_literal = dynamic_cast<StringLiteral*>(index.get())) {
+                    std::string property_name = string_literal->value;
+                    
+                    // Remove quotes if present
+                    if (property_name.size() >= 2 && property_name.front() == '"' && property_name.back() == '"') {
+                        property_name = property_name.substr(1, property_name.size() - 2);
+                    }
+                    
+                    auto* compiler = get_current_compiler();
+                    if (compiler) {
+                        ClassInfo* class_info = compiler->get_class(class_name);
+                        if (class_info) {
+                            // Find the property in the class fields
+                            int64_t property_offset = -1;
+                            DataType property_type = DataType::ANY;
+                            for (size_t i = 0; i < class_info->fields.size(); ++i) {
+                                if (class_info->fields[i].name == property_name) {
+                                    // Object layout: [class_name_ptr][property_count][property0][property1]...
+                                    // Properties start at offset 16 (2 * 8 bytes for metadata)
+                                    property_offset = 16 + (i * 8); // Each property is 8 bytes
+                                    property_type = class_info->fields[i].type;
+                                    break;
+                                }
+                            }
+                            
+                            if (property_offset != -1) {
+                                std::cout << "[DEBUG] ArrayAccess: Optimizing d[\"" << property_name << "\"] to direct offset access" << std::endl;
+                                
+                                // Generate code for the object expression
+                                object->generate_code(gen, types);
+                                
+                                // LIGHTNING FAST: Direct offset access - same as d.property_name
+                                gen.emit_mov_reg_reg_offset(0, 0, property_offset); // RAX = [RAX + property_offset]
+                                
+                                result_type = property_type;
+                                optimized_property_access = true;
+                            }
+                        }
+                    }
+                }
+                // Check if index is a variable containing a string - emit runtime property lookup
+                else if (auto* var_index = dynamic_cast<Identifier*>(index.get())) {
+                    DataType index_type = types.get_variable_type(var_index->name);
+                    if (index_type == DataType::STRING || index_type == DataType::ANY) {
+                        std::cout << "[DEBUG] ArrayAccess: Optimizing d[prop] with runtime property lookup" << std::endl;
+                        
+                        auto* compiler = get_current_compiler();
+                        if (compiler) {
+                            ClassInfo* class_info = compiler->get_class(class_name);
+                            if (class_info) {
+                                // Generate code for the object expression
+                                object->generate_code(gen, types);
+                                gen.emit_mov_reg_reg(7, 0); // RDI = object pointer
+                                
+                                // Generate code for the property name string
+                                index->generate_code(gen, types);
+                                gen.emit_mov_reg_reg(6, 0); // RSI = property name string
+                                
+                                // Pass class info as third parameter
+                                gen.emit_mov_reg_imm(2, reinterpret_cast<int64_t>(class_info)); // RDX = class_info pointer
+                                
+                                // Call optimized runtime property lookup
+                                gen.emit_call("__class_property_lookup");
+                                
+                                result_type = DataType::ANY; // Runtime lookup returns ANY
+                                optimized_property_access = true;
+                            }
+                        }
+                    }
+                }
+            }
         }
-        gen.emit_mov_reg_reg(6, 0); // Move index to RSI
         
-        // Pop object into RDI
-        gen.emit_mov_reg_mem(7, 0);   // mov rdi, [rsp] (load object from stack)
-        gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
-        
-        // Call array access function
-        gen.emit_call("__array_access");
-        
-        // Result is in RAX
-        result_type = DataType::ANY; // Array access returns unknown type for JavaScript compatibility
+        if (!optimized_property_access) {
+            // Standard array access
+            // Generate code for the object expression
+            object->generate_code(gen, types);
+            
+            // Save object on stack
+            gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8 (allocate stack space)
+            gen.emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax (save object on stack)
+            
+            // Generate code for the index expression
+            if (index) {
+                index->generate_code(gen, types);
+            } else if (!slices.empty()) {
+                // For new slice syntax, generate slice object code
+                slices[0]->generate_code(gen, types);
+            } else {
+                // Fallback - generate a zero index
+                gen.emit_mov_reg_imm(0, 0);
+            }
+            gen.emit_mov_reg_reg(6, 0); // Move index to RSI
+            
+            // Pop object into RDI
+            gen.emit_mov_reg_mem(7, 0);   // mov rdi, [rsp] (load object from stack)
+            gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
+            
+            // Call array access function
+            gen.emit_call("__array_access");
+            
+            // Result is in RAX
+            result_type = DataType::ANY; // Array access returns unknown type for JavaScript compatibility
+        }
     }
     
 }

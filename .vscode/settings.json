@@ -2,6 +2,12 @@
     "files.associations": {
         "*.dbclient-js": "javascript",
         "iostream": "cpp",
-        "atomic": "cpp"
+        "atomic": "cpp",
+        "array": "cpp",
+        "string": "cpp",
+        "string_view": "cpp",
+        "span": "cpp",
+        "bitset": "cpp",
+        "regex": "cpp"
     }
 }
