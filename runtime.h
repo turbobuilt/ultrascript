@@ -714,6 +714,8 @@ extern "C" {
     void* __dynamic_value_create_from_int64(int64_t value);
     void* __dynamic_value_create_from_bool(bool value);
     void* __dynamic_value_create_from_string(void* string_ptr);
+    void* __dynamic_value_create_from_object(void* object_ptr);
+    void* __dynamic_value_create_from_array(void* array_ptr);
     
     // Promise functions
     void* __promise_all(void* promises_array);

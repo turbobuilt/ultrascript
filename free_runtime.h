@@ -26,6 +26,9 @@ void __get_free_stats(size_t* stats_out);
 void __print_free_stats();
 void __set_free_debug_mode(int enabled);
 
+// Error functions
+void __throw_deep_free_not_implemented();
+
 #ifdef __cplusplus
 }
 #endif

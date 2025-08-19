@@ -2660,6 +2660,14 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
                     gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
                     gen.emit_call("__dynamic_value_create_from_string");
                     break;
+                case DataType::CLASS_INSTANCE:
+                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
+                    gen.emit_call("__dynamic_value_create_from_object");
+                    break;
+                case DataType::ARRAY:
+                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
+                    gen.emit_call("__dynamic_value_create_from_array");
+                    break;
                 default:
                     // For other types, treat as double for now
                     gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
@@ -3003,6 +3011,97 @@ void BreakStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
         // No active switch/loop context
         // For now, just emit a nop or comment
         gen.emit_label("__break_without_context");
+    }
+}
+
+void FreeStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+    // Generate code to evaluate the target expression (puts result in RAX)
+    target->generate_code(gen, types);
+    
+    // Get the type of the target expression for optimized code generation
+    DataType target_type = target->result_type;
+    
+    // For ultra-fast performance, we generate different optimized assembly 
+    // for each type rather than using runtime type dispatch
+    
+    if (is_shallow) {
+        // SHALLOW FREE - Ultra-optimized type-specific assembly
+        switch (target_type) {
+            case DataType::STRING: {
+                // Direct inline string freeing - faster than function call
+                // Test if pointer is null: test rax, rax
+                gen.emit_mov_reg_imm(1, 0);   // mov rcx, 0
+                gen.emit_compare(0, 1);       // Compare RAX with 0
+                std::string skip_free = "skip_string_free_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_free);
+                
+                // Free string buffer directly with optimized inline assembly
+                // mov rdi, rax      ; string pointer to first argument
+                gen.emit_mov_reg_reg(7, 0);  // RDI = RAX (first arg for function call)
+                gen.emit_call("__free_string");
+                
+                gen.emit_label(skip_free);
+                break;
+            }
+            
+            case DataType::ARRAY: {
+                // Ultra-fast array container freeing (not elements)
+                gen.emit_mov_reg_imm(1, 0);   // mov rcx, 0
+                gen.emit_compare(0, 1);       // Compare RAX with 0
+                std::string skip_free = "skip_array_free_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_free);
+                
+                // mov rdi, rax      ; array pointer to first argument
+                gen.emit_mov_reg_reg(7, 0);
+                gen.emit_call("__free_array_shallow");
+                
+                gen.emit_label(skip_free);
+                break;
+            }
+            
+            case DataType::CLASS_INSTANCE: {
+                // Class instance shallow free - only the object structure
+                gen.emit_mov_reg_imm(1, 0);   // mov rcx, 0
+                gen.emit_compare(0, 1);       // Compare RAX with 0
+                std::string skip_free = "skip_class_free_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_free);
+                
+                // mov rdi, rax      ; object pointer to first argument
+                gen.emit_mov_reg_reg(7, 0);
+                gen.emit_call("__free_class_instance_shallow");
+                
+                gen.emit_label(skip_free);
+                break;
+            }
+            
+            case DataType::ANY: {
+                // Dynamic type - need runtime type checking but still optimized
+                gen.emit_mov_reg_imm(1, 0);   // mov rcx, 0
+                gen.emit_compare(0, 1);       // Compare RAX with 0
+                std::string skip_free = "skip_dynamic_free_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_free);
+                
+                // mov rdi, rax      ; pointer to first argument
+                // mov rsi, 1        ; shallow flag (1 = shallow, 0 = deep)
+                gen.emit_mov_reg_reg(7, 0);    // RDI = pointer
+                gen.emit_mov_reg_imm(6, 1);    // RSI = 1 (shallow)
+                gen.emit_call("__free_dynamic_value");
+                
+                gen.emit_label(skip_free);
+                break;
+            }
+            
+            default: {
+                // For primitive types (int, float, boolean), freeing is a no-op
+                // Generate debug log call in debug mode
+                gen.emit_call("__debug_log_primitive_free_ignored");
+                break;
+            }
+        }
+    } else {
+        // DEEP FREE - Not implemented yet, throw runtime error
+        // This should never be reached due to parser validation, but just in case:
+        gen.emit_call("__throw_deep_free_not_implemented");
     }
 }
 

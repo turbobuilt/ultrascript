@@ -2,6 +2,7 @@
 #include "runtime.h"  // For runtime function declarations
 #include "console_log_overhaul.h"  // For console.log runtime functions
 #include "runtime_syscalls.h"  // For runtime syscalls
+#include "free_runtime.h"  // For free runtime functions
 #include <cassert>
 #include <iostream>
 #include <iomanip>
@@ -556,6 +557,16 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         
         // Goroutine functions (dynamic name patterns need special handling)
         // All console.log functions resolved to direct pointers for ZERO overhead
+        
+        // Free runtime functions for ultra-fast memory management
+        {"__free_class_instance_shallow", reinterpret_cast<void*>(__free_class_instance_shallow)},
+        {"__free_class_instance_deep", reinterpret_cast<void*>(__free_class_instance_deep)},
+        {"__free_array_shallow", reinterpret_cast<void*>(__free_array_shallow)},
+        {"__free_array_deep", reinterpret_cast<void*>(__free_array_deep)},
+        {"__free_string", reinterpret_cast<void*>(__free_string)},
+        {"__free_dynamic_value", reinterpret_cast<void*>(__free_dynamic_value)},
+        {"__debug_log_primitive_free_ignored", reinterpret_cast<void*>(__debug_log_primitive_free_ignored)},
+        {"__throw_deep_free_not_implemented", reinterpret_cast<void*>(__throw_deep_free_not_implemented)},
     };
     
     auto it = runtime_functions.find(function_name);

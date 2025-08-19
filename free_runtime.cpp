@@ -197,40 +197,108 @@ void __free_dynamic_value(void* ptr, int is_shallow) {
     // Cast to DynamicValue to check runtime type
     DynamicValue* dyn_val = static_cast<DynamicValue*>(ptr);
     
-    // Check the runtime type and dispatch to appropriate free function
+    std::cout << "[FREE-DEBUG] DynamicValue type: " << static_cast<int>(dyn_val->type) << std::endl;
+    
+    // For DynamicValue, handle each type appropriately
     switch (dyn_val->type) {
-        case DataType::STRING:
-            std::cout << "[FREE-JIT] Dynamic value is string" << std::endl;
-            __free_string(dyn_val);
+        case DataType::STRING: {
+            std::cout << "[FREE-JIT] Dynamic value contains string - will be freed automatically" << std::endl;
+            // std::string in the variant will be automatically destructed
             break;
-            
-        case DataType::CLASS_INSTANCE:
-            std::cout << "[FREE-JIT] Dynamic value is class instance" << std::endl;
-            if (is_shallow) {
-                __free_class_instance_shallow(dyn_val);
-            } else {
-                __free_class_instance_deep(dyn_val);
+        }
+        
+        case DataType::CLASS_INSTANCE: {
+            std::cout << "[FREE-JIT] Dynamic value contains class instance pointer" << std::endl;
+            // Extract the object pointer from the variant
+            try {
+                void* obj_ptr = std::get<void*>(dyn_val->value);
+                if (obj_ptr) {
+                    if (is_shallow) {
+                        __free_class_instance_shallow(obj_ptr);
+                    } else {
+                        __free_class_instance_deep(obj_ptr);
+                    }
+                }
+            } catch (const std::bad_variant_access&) {
+                std::cout << "[FREE-ERROR] DynamicValue marked as CLASS_INSTANCE but doesn't contain pointer" << std::endl;
             }
             break;
-            
-        case DataType::ARRAY:
-            std::cout << "[FREE-JIT] Dynamic value is array" << std::endl;
-            if (is_shallow) {
-                __free_array_shallow(dyn_val);
-            } else {
-                __free_array_deep(dyn_val);
+        }
+        
+        case DataType::ARRAY: {
+            std::cout << "[FREE-JIT] Dynamic value contains array pointer" << std::endl;
+            // Extract the array pointer from the variant
+            try {
+                void* arr_ptr = std::get<void*>(dyn_val->value);
+                if (arr_ptr) {
+                    if (is_shallow) {
+                        __free_array_shallow(arr_ptr);
+                    } else {
+                        __free_array_deep(arr_ptr);
+                    }
+                }
+            } catch (const std::bad_variant_access&) {
+                std::cout << "[FREE-ERROR] DynamicValue marked as ARRAY but doesn't contain pointer" << std::endl;
             }
+            break;
+        }
+        
+        // All primitive types - optionally zero out for safety
+        case DataType::INT8:
+            std::cout << "[FREE-JIT] Zeroing int8 value" << std::endl;
+            dyn_val->value = static_cast<int8_t>(0);
+            break;
+        case DataType::INT16:
+            std::cout << "[FREE-JIT] Zeroing int16 value" << std::endl;
+            dyn_val->value = static_cast<int16_t>(0);
+            break;
+        case DataType::INT32:
+            std::cout << "[FREE-JIT] Zeroing int32 value" << std::endl;
+            dyn_val->value = static_cast<int32_t>(0);
+            break;
+        case DataType::INT64:
+            std::cout << "[FREE-JIT] Zeroing int64 value" << std::endl;
+            dyn_val->value = static_cast<int64_t>(0);
+            break;
+        case DataType::UINT8:
+            std::cout << "[FREE-JIT] Zeroing uint8 value" << std::endl;
+            dyn_val->value = static_cast<uint8_t>(0);
+            break;
+        case DataType::UINT16:
+            std::cout << "[FREE-JIT] Zeroing uint16 value" << std::endl;
+            dyn_val->value = static_cast<uint16_t>(0);
+            break;
+        case DataType::UINT32:
+            std::cout << "[FREE-JIT] Zeroing uint32 value" << std::endl;
+            dyn_val->value = static_cast<uint32_t>(0);
+            break;
+        case DataType::UINT64:
+            std::cout << "[FREE-JIT] Zeroing uint64 value" << std::endl;
+            dyn_val->value = static_cast<uint64_t>(0);
+            break;
+        case DataType::FLOAT32:
+            std::cout << "[FREE-JIT] Zeroing float32 value" << std::endl;
+            dyn_val->value = static_cast<float>(0.0f);
+            break;
+        case DataType::FLOAT64:
+            std::cout << "[FREE-JIT] Zeroing float64 value" << std::endl;
+            dyn_val->value = static_cast<double>(0.0);
+            break;
+        case DataType::BOOLEAN:
+            std::cout << "[FREE-JIT] Zeroing boolean value" << std::endl;
+            dyn_val->value = false;
             break;
             
         default:
-            // Primitive types stored in DynamicValue don't need freeing
-            std::cout << "[FREE-JIT] Dynamic value contains primitive type" << std::endl;
-            if (g_debug_mode) {
-                mark_pointer_freed(ptr);
-            }
-            delete dyn_val;
+            std::cout << "[FREE-JIT] Unknown DynamicValue type: " << static_cast<int>(dyn_val->type) << std::endl;
             break;
     }
+    
+    // Always delete the DynamicValue wrapper itself
+    if (g_debug_mode) {
+        mark_pointer_freed(ptr);
+    }
+    delete dyn_val;
 }
 
 // Get free statistics for debugging
@@ -265,6 +333,12 @@ void __print_free_stats() {
 void __set_free_debug_mode(int enabled) {
     g_debug_mode = (enabled != 0);
     std::cout << "[FREE-RUNTIME] Debug mode " << (enabled ? "ENABLED" : "DISABLED") << std::endl;
+}
+
+// Error function for deep free not implemented
+void __throw_deep_free_not_implemented() {
+    std::cerr << "ERROR: Deep free not yet implemented. Use 'free shallow' for shallow freeing." << std::endl;
+    abort();
 }
 
 } // extern "C"

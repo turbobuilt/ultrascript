@@ -56,7 +56,18 @@ When not autocasting, types are predicted for all computations, generating ultra
 
 GoRoutines are designed to be javascripty, so things that are dangerous work. For example, a goroutine has access to all globals and all variables in the lexical scope. Callbacks, closures and all work as you would expect with a typical event loop, single thread implementation. But the code internally is running on multiple cores.
 
-This poses safety challenges, which are resolved under the hood with atomics, mutexes, etc. Most importantly, the program never crashes because thread safety is fully implemented in an extremely high performance way.
+This poses safety challenges. To resolve, all variables are "unsafe" by default.  However, we have the "safe" keyword which will use atomic operations.
+
+var x = 0;
+
+go function() {
+    x++; // unsafe
+    safe x++; // safe;
+    safe { // everything in this block uses atomics.
+        x++;
+        x--;
+    }
+}
 
 The code does not contain ANY low performance "interpretation". Instead everything is JIT compiled on the fly with a custom compiler to the correct backend.
 

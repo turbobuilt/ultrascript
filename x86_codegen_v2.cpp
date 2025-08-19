@@ -2,6 +2,7 @@
 #include "runtime.h"  // For runtime function declarations
 #include "console_log_overhaul.h"  // For console.log runtime functions
 #include "runtime_syscalls.h"  // For runtime syscalls
+#include "free_runtime.h"  // For free runtime functions
 #include <cassert>
 #include <iostream>
 #include <iomanip>
@@ -348,6 +349,10 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         // Core runtime functions
         {"__dynamic_value_create_from_double", reinterpret_cast<void*>(__dynamic_value_create_from_double)},
         {"__dynamic_value_create_from_int64", reinterpret_cast<void*>(__dynamic_value_create_from_int64)},
+        {"__dynamic_value_create_from_bool", reinterpret_cast<void*>(__dynamic_value_create_from_bool)},
+        {"__dynamic_value_create_from_string", reinterpret_cast<void*>(__dynamic_value_create_from_string)},
+        {"__dynamic_value_create_from_object", reinterpret_cast<void*>(__dynamic_value_create_from_object)},
+        {"__dynamic_value_create_from_array", reinterpret_cast<void*>(__dynamic_value_create_from_array)},
         {"__get_executable_memory_base", reinterpret_cast<void*>(__get_executable_memory_base)},
         {"__goroutine_spawn_func_ptr", reinterpret_cast<void*>(__goroutine_spawn_func_ptr)},
         {"__string_intern", reinterpret_cast<void*>(__string_intern)},
@@ -434,6 +439,16 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         
         // Goroutine functions (dynamic name patterns need special handling)
         // All console.log functions resolved to direct pointers for ZERO overhead
+        
+        // Free runtime functions for ultra-fast memory management
+        {"__free_class_instance_shallow", reinterpret_cast<void*>(__free_class_instance_shallow)},
+        {"__free_class_instance_deep", reinterpret_cast<void*>(__free_class_instance_deep)},
+        {"__free_array_shallow", reinterpret_cast<void*>(__free_array_shallow)},
+        {"__free_array_deep", reinterpret_cast<void*>(__free_array_deep)},
+        {"__free_string", reinterpret_cast<void*>(__free_string)},
+        {"__free_dynamic_value", reinterpret_cast<void*>(__free_dynamic_value)},
+        {"__debug_log_primitive_free_ignored", reinterpret_cast<void*>(__debug_log_primitive_free_ignored)},
+        {"__throw_deep_free_not_implemented", reinterpret_cast<void*>(__throw_deep_free_not_implemented)},
     };
     
     auto it = runtime_functions.find(function_name);

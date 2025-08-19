@@ -97,6 +97,7 @@ enum class TokenType {
     PUBLIC, PRIVATE, PROTECTED, STATIC,
     EACH, IN, PIPE,  // Added for for-each syntax
     OPERATOR,  // Added for operator overloading
+    FREE, SHALLOW,  // Added for memory management
     LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET,
     SLICE_BRACKET,  // Added for [:] slice operator
     SEMICOLON, COMMA, DOT, COLON, QUESTION,
@@ -520,6 +521,15 @@ struct BreakStatement : ASTNode {
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
+struct FreeStatement : ASTNode {
+    std::unique_ptr<ExpressionNode> target;
+    bool is_shallow;
+    
+    FreeStatement(std::unique_ptr<ExpressionNode> tgt, bool shallow = false) 
+        : target(std::move(tgt)), is_shallow(shallow) {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+};
+
 struct CaseClause : ASTNode {
     std::unique_ptr<ExpressionNode> value;  // nullptr for default case
     std::vector<std::unique_ptr<ASTNode>> body;
@@ -735,6 +745,7 @@ private:
     std::unique_ptr<CaseClause> parse_case_clause();
     std::unique_ptr<ASTNode> parse_return_statement();
     std::unique_ptr<ASTNode> parse_break_statement();
+    std::unique_ptr<ASTNode> parse_free_statement();
     std::unique_ptr<ASTNode> parse_expression_statement();
     std::unique_ptr<ASTNode> parse_class_declaration();
     std::unique_ptr<MethodDecl> parse_method_declaration(const std::string& class_name);

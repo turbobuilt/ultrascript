@@ -38,6 +38,8 @@ static std::unordered_map<std::string, TokenType> keywords = {
     {"protected", TokenType::PROTECTED},
     {"static", TokenType::STATIC},
     {"operator", TokenType::OPERATOR},
+    {"free", TokenType::FREE},
+    {"shallow", TokenType::SHALLOW},
     {"true", TokenType::BOOLEAN},
     {"false", TokenType::BOOLEAN}
 };

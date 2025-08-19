@@ -925,6 +925,10 @@ std::unique_ptr<ASTNode> Parser::parse_statement() {
         return parse_break_statement();
     }
     
+    if (check(TokenType::FREE)) {
+        return parse_free_statement();
+    }
+    
     return parse_expression_statement();
 }
 
@@ -1263,6 +1267,34 @@ std::unique_ptr<ASTNode> Parser::parse_break_statement() {
     }
     
     return std::make_unique<BreakStatement>();
+}
+
+std::unique_ptr<ASTNode> Parser::parse_free_statement() {
+    if (!match(TokenType::FREE)) {
+        throw std::runtime_error("Expected 'free'");
+    }
+    
+    bool is_shallow = false;
+    
+    // Check for optional 'shallow' keyword
+    if (check(TokenType::SHALLOW)) {
+        is_shallow = true;
+        advance();
+    }
+    
+    // If no 'shallow' keyword, this is a deep free - throw error
+    if (!is_shallow) {
+        throw std::runtime_error("Deep free not yet implemented. Use 'free shallow' for shallow freeing.");
+    }
+    
+    // Parse the target expression to free
+    auto target = parse_expression();
+    
+    if (match(TokenType::SEMICOLON)) {
+        // Optional semicolon
+    }
+    
+    return std::make_unique<FreeStatement>(std::move(target), is_shallow);
 }
 
 std::unique_ptr<ASTNode> Parser::parse_switch_statement() {

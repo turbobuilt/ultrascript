@@ -988,6 +988,18 @@ extern "C" void* __dynamic_value_create_from_string(void* string_ptr) {
     return static_cast<void*>(dyn_val);
 }
 
+extern "C" void* __dynamic_value_create_from_object(void* object_ptr) {
+    DynamicValue* dyn_val = new DynamicValue(object_ptr);
+    dyn_val->type = DataType::CLASS_INSTANCE;
+    return static_cast<void*>(dyn_val);
+}
+
+extern "C" void* __dynamic_value_create_from_array(void* array_ptr) {
+    DynamicValue* dyn_val = new DynamicValue(array_ptr);
+    dyn_val->type = DataType::ARRAY;
+    return static_cast<void*>(dyn_val);
+}
+
 // Object creation function removed - will be reimplemented according to new architecture
 
 // Property access runtime functions removed - will be reimplemented according to new architecture

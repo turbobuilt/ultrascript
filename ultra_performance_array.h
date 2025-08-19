@@ -60,7 +60,8 @@ struct DynamicValue {
         int8_t, int16_t, int32_t, int64_t,
         uint8_t, uint16_t, uint32_t, uint64_t,
         float, double,
-        bool, std::string
+        bool, std::string,
+        void*  // For objects and arrays
     > value;
     DataType type;
     
@@ -80,6 +81,7 @@ struct DynamicValue {
         else if constexpr (std::is_same_v<T, double>) type = static_cast<DataType>(11);
         else if constexpr (std::is_same_v<T, bool>) type = static_cast<DataType>(12);
         else if constexpr (std::is_same_v<T, std::string>) type = static_cast<DataType>(13);
+        else if constexpr (std::is_same_v<T, void*>) type = static_cast<DataType>(14); // ARRAY or CLASS_INSTANCE
         else type = static_cast<DataType>(11); // Default to FLOAT64
     }
     
@@ -94,6 +96,8 @@ struct DynamicValue {
             using T = std::decay_t<decltype(arg)>;
             if constexpr (std::is_arithmetic_v<T>) {
                 return static_cast<double>(arg);
+            } else if constexpr (std::is_same_v<T, void*>) {
+                return 0.0; // Pointers convert to 0 for numeric operations
             } else {
                 return 0.0; // String or other non-numeric types
             }
@@ -107,6 +111,8 @@ struct DynamicValue {
                 return arg;
             } else if constexpr (std::is_arithmetic_v<T>) {
                 return std::to_string(arg);
+            } else if constexpr (std::is_same_v<T, void*>) {
+                return "[object]"; // Generic representation for pointers
             } else {
                 return "";
             }
