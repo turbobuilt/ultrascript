@@ -392,9 +392,9 @@ extern "C" int64_t __class_property_lookup(void* object, void* property_name_str
     // Find the property in the class fields
     for (size_t i = 0; i < class_info->fields.size(); ++i) {
         if (class_info->fields[i].name == property_name) {
-            // Object layout: [class_name_ptr][property_count][property0][property1]...
-            // Properties start at offset 16 (2 * 8 bytes for metadata)
-            int64_t property_offset = 16 + (i * 8);
+            // Object layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
+            // Properties start at offset 24 (3 * 8 bytes for metadata)
+            int64_t property_offset = 24 + (i * 8);
             
             // Direct memory access to get the property value
             int64_t* object_ptr = static_cast<int64_t*>(object);
@@ -1204,11 +1204,11 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
     std::cout.flush();
     
     try {
-        // Object creation with direct property access layout
+        // Object creation with direct property access layout + dynamic property support
         // Allocate object with inline property storage for performance
         
-        // Calculate total size: metadata + inline properties
-        size_t metadata_size = sizeof(void*) * 2; // class_name pointer + property_count
+        // Calculate total size: metadata + dynamic map pointer + inline properties
+        size_t metadata_size = sizeof(void*) * 3; // class_name pointer + property_count + dynamic_map_ptr
         size_t property_storage_size = property_count * sizeof(void*);
         size_t total_size = metadata_size + property_storage_size;
         
@@ -1218,7 +1218,7 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
             throw std::bad_alloc();
         }
         
-        // Layout: [class_name_ptr][property_count][property0][property1]...
+        // Layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
         void** obj_data = static_cast<void**>(raw_memory);
         
         std::cout << "[DEBUG] __object_create allocated object at " << raw_memory << " (size=" << total_size << ")" << std::endl;
@@ -1237,9 +1237,12 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
         // Store property count at offset 1
         obj_data[1] = reinterpret_cast<void*>(property_count);
         
-        // Initialize property slots (starting at offset 2)
+        // Initialize dynamic property map pointer to nullptr (lazy initialization)
+        obj_data[2] = nullptr;
+        
+        // Initialize property slots (starting at offset 3)
         for (int64_t i = 0; i < property_count; i++) {
-            obj_data[2 + i] = nullptr;
+            obj_data[3 + i] = nullptr;
         }
         
         int64_t result = reinterpret_cast<int64_t>(raw_memory);
@@ -1247,11 +1250,15 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
         
         // Verify object layout is correct
         void** test_ptr = static_cast<void**>(raw_memory);
-        std::cout << "[DEBUG] __object_create verification: class_name_ptr=" << test_ptr[0] << ", property_count=" << reinterpret_cast<int64_t>(test_ptr[1]) << std::endl;
+        std::cout << "[DEBUG] __object_create verification: class_name_ptr=" << test_ptr[0] 
+                  << ", property_count=" << reinterpret_cast<int64_t>(test_ptr[1]) 
+                  << ", dynamic_map_ptr=" << test_ptr[2] << std::endl;
         
-        // Test write to property slot 0 (offset 16)
-        test_ptr[2] = nullptr; // This should be safe
-        std::cout << "[DEBUG] __object_create: Successfully wrote to property slot 0" << std::endl;
+        // Test write to property slot 0 (offset 24)
+        if (property_count > 0) {
+            test_ptr[3] = nullptr; // This should be safe
+            std::cout << "[DEBUG] __object_create: Successfully wrote to property slot 0" << std::endl;
+        }
         
         std::cout.flush();
         return result;

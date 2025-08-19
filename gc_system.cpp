@@ -593,6 +593,20 @@ void GarbageCollector::handle_class_instance_traversal(void* obj, uint32_t type_
     
     // Use the class metadata to traverse only reference-containing properties
     traverse_class_properties(obj, class_meta);
+    
+    // Also traverse dynamic properties if they exist
+    // Object layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
+    void** obj_data = static_cast<void**>(obj);
+    void* dynamic_map_ptr = obj_data[2]; // Dynamic map is at offset 16 (index 2)
+    
+    if (dynamic_map_ptr) {
+        // Mark the dynamic property map itself
+        mark_object(dynamic_map_ptr);
+        
+        // TODO: Traverse contents of dynamic property map
+        // For now, conservatively scan the entire map structure
+        conservative_scan_memory(dynamic_map_ptr, 512);
+    }
 }
 
 void GarbageCollector::traverse_class_properties(void* obj, ClassMetadata* class_meta) {

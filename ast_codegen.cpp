@@ -6,6 +6,7 @@
 #include "function_compilation_manager.h"
 #include "console_log_overhaul.h"
 #include "class_runtime_interface.h"
+#include "dynamic_properties.h"
 #include <iostream>
 #include <unordered_map>
 #include <cstring>
@@ -465,9 +466,9 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
                             std::cout << "[DEBUG] Identifier: Converting '" << name << "' to implicit 'this." << name << "'" << std::endl;
                             
                             // PERFORMANCE: Direct property access with calculated offset
-                            // Object layout: [class_name_ptr][property_count][property0][property1]...
-                            // Properties start at offset 16 (2 * 8 bytes for metadata)
-                            int64_t property_offset = 16 + (i * 8); // Each property is 8 bytes
+                            // Object layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
+                            // Properties start at offset 24 (3 * 8 bytes for metadata)
+                            int64_t property_offset = 24 + (i * 8); // Each property is 8 bytes
                             DataType property_type = class_info->fields[i].type;
                             
                             // Load 'this' from stack offset -8 (where method prologue stored it)
@@ -2566,9 +2567,9 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
                             DataType property_type = DataType::ANY;
                             for (size_t i = 0; i < class_info->fields.size(); ++i) {
                                 if (class_info->fields[i].name == property_name) {
-                                    // Object layout: [class_name_ptr][property_count][property0][property1]...
-                                    // Properties start at offset 16 (2 * 8 bytes for metadata)
-                                    property_offset = 16 + (i * 8); // Each property is 8 bytes
+                                    // Object layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
+                                    // Properties start at offset 24 (3 * 8 bytes for metadata)
+                                    property_offset = 24 + (i * 8); // Each property is 8 bytes
                                     property_type = class_info->fields[i].type;
                                     break;
                                 }
@@ -2584,6 +2585,33 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
                                 gen.emit_mov_reg_reg_offset(0, 0, property_offset); // RAX = [RAX + property_offset]
                                 
                                 result_type = property_type;
+                                optimized_property_access = true;
+                            } else {
+                                // Property not found in static fields, try dynamic property lookup
+                                std::cout << "[DEBUG] ArrayAccess: Property '" << property_name << "' not found in static fields, using dynamic property lookup" << std::endl;
+                                
+                                // Generate code for the object expression  
+                                object->generate_code(gen, types);
+                                gen.emit_mov_reg_reg(7, 0); // RDI = object pointer
+                                
+                                // Use the same approach as ExpressionPropertyAccess for consistent behavior
+                                static std::unordered_map<std::string, const char*> property_name_storage;
+                                auto it = property_name_storage.find(property_name);
+                                const char* name_ptr;
+                                if (it != property_name_storage.end()) {
+                                    name_ptr = it->second;
+                                } else {
+                                    // Allocate permanent storage for this property name
+                                    char* permanent_name = new char[property_name.length() + 1];
+                                    strcpy(permanent_name, property_name.c_str());
+                                    property_name_storage[property_name] = permanent_name;
+                                    name_ptr = permanent_name;
+                                }
+                                
+                                gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(name_ptr)); // RSI = property_name
+                                gen.emit_call("__dynamic_property_get");
+                                
+                                result_type = DataType::ANY; // Dynamic properties return ANY
                                 optimized_property_access = true;
                             }
                         }
@@ -3356,15 +3384,53 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
     for (size_t i = 0; i < class_info->fields.size(); ++i) {
         if (class_info->fields[i].name == property_name) {
             // Object layout: [class_name_ptr][property_count][property0][property1]...
-            // Properties start at offset 16 (2 * 8 bytes for metadata)
-            property_offset = 16 + (i * 8); // Each property is 8 bytes (pointer or int64)
+            // Properties start at offset 24 (3 * 8 bytes for metadata)
+            property_offset = 24 + (i * 8); // Each property is 8 bytes (pointer or int64)
             property_type = class_info->fields[i].type;
             break;
         }
     }
     
     if (property_offset == -1) {
-        throw std::runtime_error("Property '" + property_name + "' not found in class " + class_name);
+        // Property not found in static class fields - check dynamic properties
+        std::cout << "[DEBUG] PropertyAccess: Property '" << property_name << "' not found in static fields, using dynamic property lookup" << std::endl;
+        
+        // Load the object pointer - different handling for 'this' vs regular variables
+        if (object_name == "this") {
+            // For 'this', the object_id is stored at stack offset -8 by the method prologue
+            gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+            std::cout << "[DEBUG] PropertyAccess: Loading 'this' from stack offset -8" << std::endl;
+        } else {
+            // For regular variables, load from their stack offset
+            int64_t object_stack_offset = types.get_variable_offset(object_name);
+            gen.emit_mov_reg_mem(0, object_stack_offset); // RAX = object pointer
+            std::cout << "[DEBUG] PropertyAccess: Loading " << object_name << " from stack offset " << object_stack_offset << std::endl;
+        }
+        
+        // Call dynamic property getter: __dynamic_property_get(object_ptr, property_name)
+        gen.emit_mov_reg_reg(7, 0); // RDI = object pointer
+        
+        // Create property name string storage
+        static std::unordered_map<std::string, const char*> property_name_storage;
+        auto it = property_name_storage.find(property_name);
+        const char* name_ptr;
+        if (it != property_name_storage.end()) {
+            name_ptr = it->second;
+        } else {
+            // Allocate permanent storage for this property name
+            char* permanent_name = new char[property_name.length() + 1];
+            strcpy(permanent_name, property_name.c_str());
+            property_name_storage[property_name] = permanent_name;
+            name_ptr = permanent_name;
+        }
+        
+        gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(name_ptr)); // RSI = property_name
+        gen.emit_call("__dynamic_property_get");
+        // RAX now contains DynamicValue* or nullptr
+        
+        result_type = DataType::ANY; // Dynamic properties return ANY type
+        std::cout << "[DEBUG] PropertyAccess: Generated dynamic property access for " << class_name << "." << property_name << std::endl;
+        return;
     }
     
     std::cout << "[DEBUG] PropertyAccess: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;
@@ -3444,15 +3510,42 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
         for (size_t i = 0; i < class_info->fields.size(); ++i) {
             if (class_info->fields[i].name == property_name) {
                 // Object layout: [class_name_ptr][property_count][property0][property1]...
-                // Properties start at offset 16 (2 * 8 bytes for metadata)
-                property_offset = 16 + (i * 8); // Each property is 8 bytes (pointer or int64)
+                // Properties start at offset 24 (3 * 8 bytes for metadata)
+                property_offset = 24 + (i * 8); // Each property is 8 bytes (pointer or int64)
                 property_type = class_info->fields[i].type;
                 break;
             }
         }
         
         if (property_offset == -1) {
-            throw std::runtime_error("Property '" + property_name + "' not found in class " + class_name);
+            // Property not found in static class fields - check dynamic properties
+            std::cout << "[DEBUG] ExpressionPropertyAccess: Property '" << property_name << "' not found in static fields, using dynamic property lookup" << std::endl;
+            
+            // Object pointer is already in RAX from object->generate_code()
+            // Call dynamic property getter: __dynamic_property_get(object_ptr, property_name)
+            gen.emit_mov_reg_reg(7, 0); // RDI = object pointer
+            
+            // Create property name string storage
+            static std::unordered_map<std::string, const char*> property_name_storage;
+            auto it = property_name_storage.find(property_name);
+            const char* name_ptr;
+            if (it != property_name_storage.end()) {
+                name_ptr = it->second;
+            } else {
+                // Allocate permanent storage for this property name
+                char* permanent_name = new char[property_name.length() + 1];
+                strcpy(permanent_name, property_name.c_str());
+                property_name_storage[property_name] = permanent_name;
+                name_ptr = permanent_name;
+            }
+            
+            gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(name_ptr)); // RSI = property_name
+            gen.emit_call("__dynamic_property_get");
+            // RAX now contains DynamicValue* or nullptr
+            
+            result_type = DataType::ANY; // Dynamic properties return ANY type
+            std::cout << "[DEBUG] ExpressionPropertyAccess: Generated dynamic property access for " << class_name << "." << property_name << std::endl;
+            return;
         }
         
         std::cout << "[DEBUG] ExpressionPropertyAccess: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;
@@ -3638,6 +3731,9 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Reset type inference for new constructor to avoid offset conflicts
     types.reset_for_function();
     
+    // Set the current class context for 'this' handling in constructors
+    types.set_current_class_context(class_name);
+    
     // Generate constructor as a function with 'this' (object_id) as first parameter, then constructor parameters
     std::string constructor_label = "__constructor_" + class_name;
     
@@ -3695,8 +3791,8 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
                     // Set the property on 'this' object using direct offset access
                     // RAX contains the result of the default value expression
                     // Object layout: [class_name_ptr][property_count][property0][property1]...
-                    // Properties start at offset 16 (2 * 8 bytes for metadata)
-                    int64_t property_offset = 16 + (i * 8); // Each property is 8 bytes
+                    // Properties start at offset 24 (3 * 8 bytes for metadata)
+                    int64_t property_offset = 24 + (i * 8); // Each property is 8 bytes
                     
                     // Direct offset assignment - same as ExpressionPropertyAssignment
                     gen.emit_mov_reg_mem(2, -8); // RDX = object_id (from 'this' at [rbp-8])
@@ -3804,11 +3900,139 @@ void MethodDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     gen.emit_function_return();
 }
 
-// Property assignment code generation removed - will be reimplemented according to new architecture
+// Property assignment code generation - supports both static and dynamic properties
 void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // TODO: Implement new property assignment system according to CLAUDE.md architecture
-    // This will support direct offset writes for known properties and dynamic assignment
-    throw std::runtime_error("PropertyAssignment code generation not yet implemented - awaiting new architecture");
+    std::cout << "[DEBUG] PropertyAssignment::generate_code - object=" << object_name << ", property=" << property_name << std::endl;
+    
+    DataType object_type;
+    std::string class_name;
+    
+    // Special handling for 'this' keyword
+    if (object_name == "this") {
+        // Get the current class context from the type system
+        class_name = types.get_current_class_context();
+        if (class_name.empty()) {
+            throw std::runtime_error("'this' used outside of class method");
+        }
+        object_type = DataType::CLASS_INSTANCE;
+        
+        std::cout << "[DEBUG] PropertyAssignment: 'this' resolved to class " << class_name << std::endl;
+    } else {
+        // Get the object's variable type and class name for regular variables
+        object_type = types.get_variable_type(object_name);
+        class_name = types.get_variable_class_name(object_name);
+        
+        if (object_type != DataType::CLASS_INSTANCE || class_name.empty()) {
+            throw std::runtime_error("Property assignment on non-object or unknown class: " + object_name);
+        }
+    }
+    
+    // Get the class info to find property offset
+    auto* compiler = get_current_compiler();
+    if (!compiler) {
+        throw std::runtime_error("No compiler context available for property assignment");
+    }
+    
+    ClassInfo* class_info = compiler->get_class(class_name);
+    if (!class_info) {
+        throw std::runtime_error("Unknown class: " + class_name);
+    }
+    
+    // Find the property in the class fields
+    int64_t property_offset = -1;
+    DataType property_type = DataType::ANY;
+    for (size_t i = 0; i < class_info->fields.size(); ++i) {
+        if (class_info->fields[i].name == property_name) {
+            // Object layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
+            // Properties start at offset 24 (3 * 8 bytes for metadata)
+            property_offset = 24 + (i * 8); // Each property is 8 bytes (pointer or int64)
+            property_type = class_info->fields[i].type;
+            break;
+        }
+    }
+    
+    if (property_offset == -1) {
+        // Property not found in static class fields - create dynamic property
+        std::cout << "[DEBUG] PropertyAssignment: Property '" << property_name << "' not found in static fields, using dynamic property assignment" << std::endl;
+        
+        // Load the object pointer
+        if (object_name == "this") {
+            // For 'this', the object_id is stored at stack offset -8 by the method prologue
+            gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+        } else {
+            // For regular variables, load from their stack offset
+            int64_t object_stack_offset = types.get_variable_offset(object_name);
+            gen.emit_mov_reg_mem(0, object_stack_offset); // RAX = object pointer
+        }
+        
+        // Save the object pointer
+        gen.emit_mov_mem_reg(-56, 0); // Save object pointer to [rbp-56]
+        
+        // Generate code for the value expression
+        value->generate_code(gen, types);
+        // Value is now in RAX
+        
+        // Convert the value to a DynamicValue
+        DataType value_type = value->result_type;
+        gen.emit_mov_reg_reg(7, 0); // RDI = value
+        gen.emit_mov_reg_imm(6, static_cast<int>(value_type)); // RSI = type_id
+        gen.emit_call("__dynamic_value_create_any");
+        // RAX now contains DynamicValue*
+        
+        // Save DynamicValue pointer
+        gen.emit_mov_mem_reg(-64, 0); // Save DynamicValue* to [rbp-64]
+        
+        // Load object pointer and call dynamic property setter
+        gen.emit_mov_reg_mem(7, -56); // RDI = object pointer
+        
+        // Create property name string storage
+        static std::unordered_map<std::string, const char*> property_name_storage;
+        auto it = property_name_storage.find(property_name);
+        const char* name_ptr;
+        if (it != property_name_storage.end()) {
+            name_ptr = it->second;
+        } else {
+            // Allocate permanent storage for this property name
+            char* permanent_name = new char[property_name.length() + 1];
+            strcpy(permanent_name, property_name.c_str());
+            property_name_storage[property_name] = permanent_name;
+            name_ptr = permanent_name;
+        }
+        
+        gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(name_ptr)); // RSI = property_name
+        gen.emit_mov_reg_mem(2, -64); // RDX = DynamicValue*
+        gen.emit_call("__dynamic_property_set");
+        
+        std::cout << "[DEBUG] PropertyAssignment: Generated dynamic property assignment for " << class_name << "." << property_name << std::endl;
+        return;
+    }
+    
+    std::cout << "[DEBUG] PropertyAssignment: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;
+    
+    // Set the property assignment context for proper type conversion
+    types.set_current_property_assignment_type(property_type);
+    
+    // Generate code for the value expression
+    value->generate_code(gen, types);
+    // Value is now in RAX
+    
+    // Clear the property assignment context
+    types.clear_property_assignment_context();
+    
+    // Load the object pointer and store the value
+    if (object_name == "this") {
+        // For 'this', the object_id is stored at stack offset -8 by the method prologue
+        gen.emit_mov_reg_mem(2, -8); // RDX = object_id (this)
+    } else {
+        // For regular variables, load from their stack offset
+        int64_t object_stack_offset = types.get_variable_offset(object_name);
+        gen.emit_mov_reg_mem(2, object_stack_offset); // RDX = object pointer
+    }
+    
+    // LIGHTNING FAST: Direct offset assignment - zero performance penalty like C++
+    gen.emit_mov_reg_offset_reg(2, property_offset, 0); // [RDX + property_offset] = RAX
+    
+    std::cout << "[DEBUG] PropertyAssignment: Generated direct offset assignment for " << class_name << "." << property_name << std::endl;
 }
 
 // Expression property assignment code generation - high-performance direct offset access for declared properties
@@ -3850,15 +4074,57 @@ void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInferen
     for (size_t i = 0; i < class_info->fields.size(); ++i) {
         if (class_info->fields[i].name == property_name) {
             // Object layout: [class_name_ptr][property_count][property0][property1]...
-            // Properties start at offset 16 (2 * 8 bytes for metadata)
-            property_offset = 16 + (i * 8); // Each property is 8 bytes (pointer or int64)
+            // Properties start at offset 24 (3 * 8 bytes for metadata)
+            property_offset = 24 + (i * 8); // Each property is 8 bytes (pointer or int64)
             property_type = class_info->fields[i].type;
             break;
         }
     }
     
     if (property_offset == -1) {
-        throw std::runtime_error("Property '" + property_name + "' not found in class " + class_name);
+        // Property not found in static class fields - create dynamic property
+        std::cout << "[DEBUG] ExpressionPropertyAssignment: Property '" << property_name << "' not found in static fields, using dynamic property assignment" << std::endl;
+        
+        // Save the object pointer (currently in RAX from object->generate_code)
+        gen.emit_mov_mem_reg(-56, 0); // Save object pointer to [rbp-56]
+        
+        // Generate code for the value expression
+        value->generate_code(gen, types);
+        // Value is now in RAX
+        
+        // Convert the value to a DynamicValue
+        DataType value_type = value->result_type;
+        gen.emit_mov_reg_reg(7, 0); // RDI = value
+        gen.emit_mov_reg_imm(6, static_cast<int>(value_type)); // RSI = type_id
+        gen.emit_call("__dynamic_value_create_any");
+        // RAX now contains DynamicValue*
+        
+        // Save DynamicValue pointer
+        gen.emit_mov_mem_reg(-64, 0); // Save DynamicValue* to [rbp-64]
+        
+        // Load object pointer and call dynamic property setter
+        gen.emit_mov_reg_mem(7, -56); // RDI = object pointer
+        
+        // Create property name string storage
+        static std::unordered_map<std::string, const char*> property_name_storage;
+        auto it = property_name_storage.find(property_name);
+        const char* name_ptr;
+        if (it != property_name_storage.end()) {
+            name_ptr = it->second;
+        } else {
+            // Allocate permanent storage for this property name
+            char* permanent_name = new char[property_name.length() + 1];
+            strcpy(permanent_name, property_name.c_str());
+            property_name_storage[property_name] = permanent_name;
+            name_ptr = permanent_name;
+        }
+        
+        gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(name_ptr)); // RSI = property_name
+        gen.emit_mov_reg_mem(2, -64); // RDX = DynamicValue*
+        gen.emit_call("__dynamic_property_set");
+        
+        std::cout << "[DEBUG] ExpressionPropertyAssignment: Generated dynamic property assignment for " << class_name << "." << property_name << std::endl;
+        return;
     }
     
     std::cout << "[DEBUG] ExpressionPropertyAssignment: Found property at offset " << property_offset << " with type " << static_cast<int>(property_type) << std::endl;

@@ -3,6 +3,7 @@
 #include "console_log_overhaul.h"  // For console.log runtime functions
 #include "runtime_syscalls.h"  // For runtime syscalls
 #include "free_runtime.h"  // For free runtime functions
+#include "dynamic_properties.h"  // For dynamic property functions
 #include <cassert>
 #include <iostream>
 #include <iomanip>
@@ -399,6 +400,14 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         
         // Class property lookup for optimized bracket access
         {"__class_property_lookup", reinterpret_cast<void*>(__class_property_lookup)},
+        
+        // Dynamic property functions
+        {"__dynamic_property_set", reinterpret_cast<void*>(__dynamic_property_set)},
+        {"__dynamic_property_get", reinterpret_cast<void*>(__dynamic_property_get)},
+        {"__dynamic_property_has", reinterpret_cast<void*>(__dynamic_property_has)},
+        {"__dynamic_property_delete", reinterpret_cast<void*>(__dynamic_property_delete)},
+        {"__dynamic_property_keys", reinterpret_cast<void*>(__dynamic_property_keys)},
+        {"__dynamic_value_create_any", reinterpret_cast<void*>(__dynamic_value_create_any)},
         
         // Type-aware array creation functions  
         {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},

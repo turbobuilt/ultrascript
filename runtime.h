@@ -835,6 +835,14 @@ extern "C" {
     // Method calling
     int64_t __object_call_method(int64_t object_id, const char* method_name, int64_t* args, int64_t arg_count);
     
+    // Dynamic property support for JavaScript-style dynamic properties
+    void* __dynamic_property_get(void* object_ptr, const char* property_name);
+    void __dynamic_property_set(void* object_ptr, const char* property_name, void* dynamic_value);
+    int __dynamic_property_has(void* object_ptr, const char* property_name);
+    int __dynamic_property_delete(void* object_ptr, const char* property_name);
+    void* __dynamic_property_keys(void* object_ptr);
+    void* __dynamic_value_create_any(void* value, int type_id);
+    
     // Static property management
     void __static_set_property(const char* class_name, const char* property_name, int64_t value);
     int64_t __static_get_property(const char* class_name, const char* property_name);

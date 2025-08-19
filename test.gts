@@ -24,7 +24,7 @@ let d = new Dog();
 console.log("initial name", d.name)
 d.name = "fido"
 d.unknown = "unknown";
-console.log("d.unknown", d.unknown)
+console.log("d.unknown", d.unknown, d["unknown"])
 console.log("name is", d.name);
 console.log('d["name"]', d["name"])
 var prop = "name";
