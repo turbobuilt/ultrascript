@@ -86,6 +86,7 @@ public:
     void emit_jump(const std::string& label) override;
     void emit_jump_if_zero(const std::string& label) override;
     void emit_jump_if_not_zero(const std::string& label) override;
+    void emit_jump_if_greater_equal(const std::string& label);
     void emit_compare(int reg1, int reg2) override;
     void emit_setl(int reg) override;
     void emit_setg(int reg) override;

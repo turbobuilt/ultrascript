@@ -404,20 +404,40 @@ extern "C" int64_t __class_property_lookup(void* object, void* property_name_str
             DataType property_type = class_info->fields[i].type;
             switch (property_type) {
                 case DataType::STRING: {
-                    // Create DynamicValue from string
-                    DynamicValue* dyn_val = new DynamicValue(std::string(static_cast<GoTSString*>(property_value)->c_str()));
+                    // Create DynamicValue from string - check for null/uninitialized
+                    if (property_value && property_value != nullptr) {
+                        GoTSString* str_ptr = static_cast<GoTSString*>(property_value);
+                        if (str_ptr && str_ptr->data()) {
+                            DynamicValue* dyn_val = new DynamicValue(std::string(str_ptr->c_str()));
+                            return reinterpret_cast<int64_t>(dyn_val);
+                        }
+                    }
+                    // Return empty string for uninitialized string properties
+                    DynamicValue* dyn_val = new DynamicValue(std::string(""));
                     return reinterpret_cast<int64_t>(dyn_val);
                 }
                 case DataType::INT64: {
-                    // Create DynamicValue from int64
-                    int64_t int_value = reinterpret_cast<int64_t>(property_value);
-                    DynamicValue* dyn_val = new DynamicValue(static_cast<double>(int_value));
+                    // Create DynamicValue from int64 - handle uninitialized values
+                    if (property_value && property_value != nullptr) {
+                        int64_t int_value = reinterpret_cast<int64_t>(property_value);
+                        DynamicValue* dyn_val = new DynamicValue(static_cast<double>(int_value));
+                        return reinterpret_cast<int64_t>(dyn_val);
+                    }
+                    // Return 0 for uninitialized int64 properties
+                    DynamicValue* dyn_val = new DynamicValue(0.0);
                     return reinterpret_cast<int64_t>(dyn_val);
                 }
                 case DataType::FLOAT64: {
-                    // Create DynamicValue from double
-                    double* double_ptr = static_cast<double*>(property_value);
-                    DynamicValue* dyn_val = new DynamicValue(*double_ptr);
+                    // Create DynamicValue from double - handle uninitialized values
+                    if (property_value && property_value != nullptr) {
+                        double* double_ptr = static_cast<double*>(property_value);
+                        if (double_ptr) {
+                            DynamicValue* dyn_val = new DynamicValue(*double_ptr);
+                            return reinterpret_cast<int64_t>(dyn_val);
+                        }
+                    }
+                    // Return 0.0 for uninitialized float64 properties
+                    DynamicValue* dyn_val = new DynamicValue(0.0);
                     return reinterpret_cast<int64_t>(dyn_val);
                 }
                 default: {
@@ -635,6 +655,113 @@ extern "C" const char* __string_data(void* string_ptr) {
     if (!string_ptr) return nullptr;
     GoTSString* str = static_cast<GoTSString*>(string_ptr);
     return str->data();
+}
+
+// String comparison functions for high-performance string operations
+extern "C" bool __string_equals(void* str1_ptr, void* str2_ptr) {
+    if (!str1_ptr || !str2_ptr) {
+        return (str1_ptr == str2_ptr);  // Both null = equal, one null = not equal
+    }
+    
+    GoTSString* str1 = static_cast<GoTSString*>(str1_ptr);
+    GoTSString* str2 = static_cast<GoTSString*>(str2_ptr);
+    
+    // Fast path: same length check first
+    if (str1->length() != str2->length()) {
+        return false;
+    }
+    
+    // Use memcmp for high-performance comparison (handles null bytes correctly)
+    return (memcmp(str1->data(), str2->data(), str1->length()) == 0);
+}
+
+extern "C" int64_t __string_compare(void* str1_ptr, void* str2_ptr) {
+    if (!str1_ptr && !str2_ptr) return 0;
+    if (!str1_ptr) return -1;
+    if (!str2_ptr) return 1;
+    
+    GoTSString* str1 = static_cast<GoTSString*>(str1_ptr);
+    GoTSString* str2 = static_cast<GoTSString*>(str2_ptr);
+    
+    size_t min_len = std::min(str1->length(), str2->length());
+    int result = memcmp(str1->data(), str2->data(), min_len);
+    
+    if (result == 0) {
+        // Strings are equal up to min_len, compare lengths
+        if (str1->length() < str2->length()) return -1;
+        if (str1->length() > str2->length()) return 1;
+        return 0;
+    }
+    
+    return (result < 0) ? -1 : 1;
+}
+
+// DynamicValue to typed value extraction functions
+extern "C" void* __dynamic_value_extract_string(void* dynamic_value_ptr) {
+    if (!dynamic_value_ptr) {
+        // Return empty string for null
+        return __string_intern("");
+    }
+    
+    DynamicValue* dyn_val = static_cast<DynamicValue*>(dynamic_value_ptr);
+    
+    // Allow coercion for basic types, throw for object types
+    switch (dyn_val->type) {
+        case DataType::STRING:
+        case DataType::INT8:
+        case DataType::INT16:
+        case DataType::INT32:
+        case DataType::INT64:
+        case DataType::UINT8:
+        case DataType::UINT16:
+        case DataType::UINT32:
+        case DataType::UINT64:
+        case DataType::FLOAT32:
+        case DataType::FLOAT64:
+        case DataType::BOOLEAN: {
+            // Allow conversion of basic types to string
+            std::string str_value = dyn_val->to_string();
+            return __string_intern(str_value.c_str());
+        }
+        case DataType::ARRAY:
+        case DataType::CLASS_INSTANCE:
+        case DataType::ANY:
+        default: {
+            // Throw for object types and other complex types
+            std::string type_name;
+            switch (dyn_val->type) {
+                case DataType::ARRAY: type_name = "array"; break;
+                case DataType::CLASS_INSTANCE: type_name = "object"; break;
+                case DataType::ANY: type_name = "any"; break;
+                default: type_name = "type " + std::to_string(static_cast<int>(dyn_val->type)); break;
+            }
+            
+            std::string error_msg = "TypeError: Cannot convert " + type_name + " to string. " +
+                                   "Use JSON.stringify() for objects/arrays or call .toString() method explicitly.";
+            throw std::runtime_error(error_msg);
+        }
+    }
+}
+
+extern "C" int64_t __dynamic_value_extract_int64(void* dynamic_value_ptr) {
+    if (!dynamic_value_ptr) {
+        return 0;
+    }
+    
+    DynamicValue* dyn_val = static_cast<DynamicValue*>(dynamic_value_ptr);
+    
+    // Convert to number and cast to int64
+    double num_value = dyn_val->to_number();
+    return static_cast<int64_t>(num_value);
+}
+
+extern "C" double __dynamic_value_extract_float64(void* dynamic_value_ptr) {
+    if (!dynamic_value_ptr) {
+        return 0.0;
+    }
+    
+    DynamicValue* dyn_val = static_cast<DynamicValue*>(dynamic_value_ptr);
+    return dyn_val->to_number();
 }
 
 // Duplicate function definition removed
@@ -1282,10 +1409,9 @@ extern "C" void* __jit_object_create_sized(void* class_name_ptr, size_t size) {
     
     try {
         // JIT-optimized object creation with known size
-        // Convert size to property count - for Dog class with 1 field, size=8 means 1 property
-        // Object layout: metadata(16 bytes) + properties
-        // So property_count = max(0, (size - 16) / 8)
-        int64_t property_count = (size > 16) ? (size - 16) / 8 : 1; // At least 1 for Dog class
+        // The size represents the total field size (each field is 8 bytes)
+        // So property_count = size / 8
+        int64_t property_count = size / 8;
         
         std::cout << "[DEBUG] __jit_object_create_sized calculated property_count=" << property_count << std::endl;
         std::cout.flush();

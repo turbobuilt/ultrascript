@@ -38,6 +38,7 @@ public:
     virtual void emit_jump(const std::string& label) = 0;
     virtual void emit_jump_if_zero(const std::string& label) = 0;
     virtual void emit_jump_if_not_zero(const std::string& label) = 0;
+    virtual void emit_jump_if_greater_equal(const std::string& label) = 0;
     virtual void emit_compare(int reg1, int reg2) = 0;
     virtual void emit_setl(int reg) = 0;
     virtual void emit_setg(int reg) = 0;

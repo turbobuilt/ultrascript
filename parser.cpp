@@ -909,6 +909,39 @@ std::unique_ptr<ASTNode> Parser::parse_statement() {
         if (peek_token(1).type == TokenType::EACH) {
             return parse_for_each_statement();
         } else {
+            // Look ahead to see if this is a for-in loop
+            // Pattern: for (let/var/const? identifier in expression) or for let/var/const? identifier in expression
+            int lookahead = 1;
+            
+            // Check for for-in with parentheses: for (let key in obj)
+            if (peek_token(lookahead).type == TokenType::LPAREN) {
+                lookahead++;
+                // Skip optional let/var/const
+                if (peek_token(lookahead).type == TokenType::LET || 
+                    peek_token(lookahead).type == TokenType::VAR ||
+                    peek_token(lookahead).type == TokenType::CONST) {
+                    lookahead++;
+                }
+                // Check for identifier followed by 'in'
+                if (peek_token(lookahead).type == TokenType::IDENTIFIER &&
+                    peek_token(lookahead + 1).type == TokenType::IN) {
+                    return parse_for_in_statement();
+                }
+            }
+            // Check for for-in without parentheses: for let key in obj
+            else {
+                // Skip optional let/var/const
+                if (peek_token(lookahead).type == TokenType::LET || 
+                    peek_token(lookahead).type == TokenType::VAR ||
+                    peek_token(lookahead).type == TokenType::CONST) {
+                    lookahead++;
+                }
+                // Check for identifier followed by 'in'
+                if (peek_token(lookahead).type == TokenType::IDENTIFIER &&
+                    peek_token(lookahead + 1).type == TokenType::IN) {
+                    return parse_for_in_statement();
+                }
+            }
             return parse_for_statement();
         }
     }
@@ -1231,6 +1264,62 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
     }
     
     return std::move(for_each);
+}
+
+std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
+    if (!match(TokenType::FOR)) {
+        throw std::runtime_error("Expected 'for'");
+    }
+    
+    // Check if parentheses are used
+    bool has_parentheses = check(TokenType::LPAREN);
+    if (has_parentheses) {
+        advance(); // consume '('
+    }
+    
+    // Optional variable declaration (let/var/const)
+    bool has_declaration = false;
+    if (check(TokenType::LET) || check(TokenType::VAR) || check(TokenType::CONST)) {
+        has_declaration = true;
+        advance(); // consume the declaration keyword
+    }
+    
+    // Parse the key variable name
+    if (!match(TokenType::IDENTIFIER)) {
+        throw std::runtime_error("Expected variable name in for-in loop");
+    }
+    std::string key_var = tokens[pos - 1].value;
+    
+    if (!match(TokenType::IN)) {
+        throw std::runtime_error("Expected 'in' after variable name in for-in loop");
+    }
+    
+    // Parse the object expression
+    auto object = parse_expression();
+    
+    if (has_parentheses) {
+        if (!match(TokenType::RPAREN)) {
+            throw std::runtime_error("Expected ')' after for-in header");
+        }
+    }
+    
+    auto for_in = std::make_unique<ForInStatement>(key_var);
+    for_in->object = std::move(object);
+    
+    // Parse the body
+    if (match(TokenType::LBRACE)) {
+        while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+            for_in->body.push_back(parse_statement());
+        }
+        
+        if (!match(TokenType::RBRACE)) {
+            throw std::runtime_error("Expected '}' after for-in body");
+        }
+    } else {
+        for_in->body.push_back(parse_statement());
+    }
+    
+    return std::move(for_in);
 }
 
 std::unique_ptr<ASTNode> Parser::parse_return_statement() {

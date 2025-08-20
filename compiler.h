@@ -510,6 +510,15 @@ struct ForEachLoop : ASTNode {
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
+struct ForInStatement : ASTNode {
+    std::string key_var_name;     // the key variable name
+    std::unique_ptr<ExpressionNode> object;  // the object to iterate over
+    std::vector<std::unique_ptr<ASTNode>> body;
+    ForInStatement(const std::string& key_name)
+        : key_var_name(key_name) {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+};
+
 struct ReturnStatement : ASTNode {
     std::unique_ptr<ExpressionNode> value;
     ReturnStatement(std::unique_ptr<ExpressionNode> val) : value(std::move(val)) {}
@@ -741,6 +750,7 @@ private:
     std::unique_ptr<ASTNode> parse_if_statement();
     std::unique_ptr<ASTNode> parse_for_statement();
     std::unique_ptr<ASTNode> parse_for_each_statement();
+    std::unique_ptr<ASTNode> parse_for_in_statement();
     std::unique_ptr<ASTNode> parse_switch_statement();
     std::unique_ptr<CaseClause> parse_case_clause();
     std::unique_ptr<ASTNode> parse_return_statement();

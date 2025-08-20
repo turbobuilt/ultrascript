@@ -8,6 +8,7 @@
 #include <iostream>
 #include <iomanip>
 #include <cstdio>
+#include <cstring>  // For strlen
 #include <execinfo.h>  // For backtrace
 #include <unistd.h>    // For STDOUT_FILENO
 
@@ -16,6 +17,11 @@ extern "C" {
 void* __jit_object_create(void* class_name_ptr);
 void* __jit_object_create_sized(void* class_name_ptr, size_t size);
 int64_t __class_property_lookup(void* object, void* property_name_string, void* class_info_ptr);
+bool __string_equals(void* str1_ptr, void* str2_ptr);
+int64_t __string_compare(void* str1_ptr, void* str2_ptr);
+void* __dynamic_value_extract_string(void* dynamic_value_ptr);
+int64_t __dynamic_value_extract_int64(void* dynamic_value_ptr);
+double __dynamic_value_extract_float64(void* dynamic_value_ptr);
 }
 #include <ostream>
 
@@ -384,6 +390,15 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         // String functions
         {"__string_concat", reinterpret_cast<void*>(__string_concat)},
         {"__string_match", reinterpret_cast<void*>(__string_match)},
+        {"__string_create_with_length", reinterpret_cast<void*>(__string_create_with_length)},
+        {"__string_equals", reinterpret_cast<void*>(__string_equals)},
+        {"__string_compare", reinterpret_cast<void*>(__string_compare)},
+        {"__dynamic_value_extract_string", reinterpret_cast<void*>(__dynamic_value_extract_string)},
+        {"__dynamic_value_extract_int64", reinterpret_cast<void*>(__dynamic_value_extract_int64)},
+        {"__dynamic_value_extract_float64", reinterpret_cast<void*>(__dynamic_value_extract_float64)},
+        
+        // Standard C library functions
+        {"strlen", reinterpret_cast<void*>(strlen)},
         
         // Array functions (legacy - use type-aware versions below)
         {"__array_create", reinterpret_cast<void*>(__array_create)},
@@ -408,6 +423,17 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__dynamic_property_delete", reinterpret_cast<void*>(__dynamic_property_delete)},
         {"__dynamic_property_keys", reinterpret_cast<void*>(__dynamic_property_keys)},
         {"__dynamic_value_create_any", reinterpret_cast<void*>(__dynamic_value_create_any)},
+        
+        // For-in loop support functions
+        {"__get_class_property_count", reinterpret_cast<void*>(__get_class_property_count)},
+        {"__get_class_property_name", reinterpret_cast<void*>(__get_class_property_name)},
+        {"__debug_reached_static_loop_body", reinterpret_cast<void*>(__debug_reached_static_loop_body)},
+        {"__debug_reached_static_loop_body_with_values", reinterpret_cast<void*>(__debug_reached_static_loop_body_with_values)},
+        {"__debug_about_to_call_property_name", reinterpret_cast<void*>(__debug_about_to_call_property_name)},
+        {"__debug_loop_compare", reinterpret_cast<void*>(__debug_loop_compare)},
+        {"__get_dynamic_map", reinterpret_cast<void*>(__get_dynamic_map)},
+        {"__get_dynamic_property_count", reinterpret_cast<void*>(__get_dynamic_property_count)},
+        {"__get_dynamic_property_name", reinterpret_cast<void*>(__get_dynamic_property_name)},
         
         // Type-aware array creation functions  
         {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},
@@ -501,6 +527,10 @@ void X86CodeGenV2::emit_jump_if_zero(const std::string& label) {
 
 void X86CodeGenV2::emit_jump_if_not_zero(const std::string& label) {
     instruction_builder->jnz(label);
+}
+
+void X86CodeGenV2::emit_jump_if_greater_equal(const std::string& label) {
+    instruction_builder->jge(label);
 }
 
 void X86CodeGenV2::emit_compare(int reg1, int reg2) {

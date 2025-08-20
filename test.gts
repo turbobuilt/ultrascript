@@ -1,37 +1,21 @@
-class Animal {
+class Dog {
     age: int64;
-
-    growl() {
-        console.log("grrr");
-    }
-}
-
-class Friend {
-    friendYears: int64;
-
-    printFriendYears() {
-        console.log("friend years", this.friendYears);
-    }
-}
-
-class Dog extends Animal {
-    name: string = "'ol pal"
-    bark() {
-        console.log("woof")
-    }
+    name: string;
 }
 let d = new Dog();
-console.log("initial name", d.name)
-d.name = "fido"
-d.unknown = "unknown";
-console.log("d.unknown", d.unknown, d["unknown"])
-console.log("name is", d.name);
-console.log('d["name"]', d["name"])
-var prop = "name";
-console.log(d[prop])
-d.bark();
-d.growl();
+d.age = 10;
+d.name = "fido"; // uncommenting this prevents segfault.
+d.dynamicProperty = "dynamic property!";
 
-//for (let key in d) {
-//    console.log(key);
-//}
+var str: string;
+console.log("Starting for-in loop");
+for let key in d {
+    console.log("key is", key, "value is", d[key]);
+    if (key == "name")
+        str = d[key];
+}
+console.log("Finished for-in loop");
+console.log("str is", str);
+for let char of "bob" {
+    console.log(char)
+}

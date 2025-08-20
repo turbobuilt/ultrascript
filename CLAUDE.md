@@ -447,3 +447,7 @@ Then during GC, we do mark-sweep-defrag.
 To reduce memory pressure, we also do reference counting. So we do both.
 
 The code also contains the "free shallow" command which immediately (unsafely) frees memory.
+
+when adding new runtime functions you need to register them in
+void* X86CodeGenV2::get_runtime_function_address(const std::string& function_name) {
+in x86_codegen_v2.cpp

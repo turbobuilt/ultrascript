@@ -133,6 +133,18 @@ extern "C" {
     // Get all dynamic property keys (for for...in loops)
     void* __dynamic_property_keys(void* object_ptr);
     
+    // For-in loop support functions
+    int64_t __get_class_property_count(void* object_ptr);
+    const char* __get_class_property_name(void* object_ptr, int64_t index);
+    void __debug_reached_static_loop_body();
+    void __debug_reached_static_loop_body_with_values(int64_t index, int64_t count);
+    void __debug_about_to_call_property_name();
+    int64_t __get_dynamic_property_count(void* object_ptr);
+    const char* __get_dynamic_property_name(void* object_ptr, int64_t index);
+    
+    // Debug function for loop tracing (can be removed in production)
+    void __debug_loop_compare(int64_t index, int64_t count);
+    
     // Create DynamicValue from various types
     void* __dynamic_value_create_any(void* value, int type_id);
     

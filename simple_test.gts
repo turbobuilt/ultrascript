@@ -1,1 +1,1 @@
-console.log('Hello from UltraScript');
+let d = new Dog() console.log("test finished")

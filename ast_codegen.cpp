@@ -2576,15 +2576,37 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
                             }
                             
                             if (property_offset != -1) {
-                                std::cout << "[DEBUG] ArrayAccess: Optimizing d[\"" << property_name << "\"] to direct offset access" << std::endl;
+                                std::cout << "[DEBUG] ArrayAccess: Using safe property access for d[\"" << property_name << "\"]" << std::endl;
+                                
+                                // Use safe runtime property lookup instead of direct access to handle nullptr properly
+                                // This ensures JavaScript-compatible undefined behavior for uninitialized properties
                                 
                                 // Generate code for the object expression
                                 object->generate_code(gen, types);
+                                gen.emit_mov_reg_reg(7, 0); // RDI = object pointer
                                 
-                                // LIGHTNING FAST: Direct offset access - same as d.property_name
-                                gen.emit_mov_reg_reg_offset(0, 0, property_offset); // RAX = [RAX + property_offset]
+                                // Create string for property name
+                                static std::unordered_map<std::string, const char*> property_name_storage;
+                                auto it = property_name_storage.find(property_name);
+                                const char* name_ptr;
+                                if (it != property_name_storage.end()) {
+                                    name_ptr = it->second;
+                                } else {
+                                    // Allocate permanent storage for this property name
+                                    char* permanent_name = new char[property_name.length() + 1];
+                                    strcpy(permanent_name, property_name.c_str());
+                                    property_name_storage[property_name] = permanent_name;
+                                    name_ptr = permanent_name;
+                                }
                                 
-                                result_type = property_type;
+                                gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(name_ptr)); // RSI = property_name
+                                gen.emit_mov_reg_imm(2, reinterpret_cast<int64_t>(class_info)); // RDX = class_info pointer
+                                
+                                // Call safe runtime property lookup that handles nullptr properly
+                                gen.emit_call("__class_property_lookup");
+                                
+                                result_type = DataType::ANY; // Runtime lookup returns ANY
+                                std::cout << "[DEBUG] ArrayAccess: Set result_type to ANY for runtime property lookup" << std::endl;
                                 optimized_property_access = true;
                             } else {
                                 // Property not found in static fields, try dynamic property lookup
@@ -2642,6 +2664,7 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
                                 gen.emit_call("__class_property_lookup");
                                 
                                 result_type = DataType::ANY; // Runtime lookup returns ANY
+                                std::cout << "[DEBUG] ArrayAccess: Set result_type to ANY for variable index runtime lookup" << std::endl;
                                 optimized_property_access = true;
                             }
                         }
@@ -2686,11 +2709,27 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
 }
 
 void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
+    std::cout << "[DEBUG] Assignment::generate_code called for variable: " << variable_name 
+              << ", declared_type=" << static_cast<int>(declared_type) << std::endl;
     if (value) {
+        // For reassignments (declared_type == ANY), look up the existing variable type
+        DataType actual_declared_type = declared_type;
+        if (declared_type == DataType::ANY) {
+            // This might be a reassignment to an existing typed variable
+            DataType existing_type = types.get_variable_type(variable_name);
+            std::cout << "[DEBUG] Assignment: Checking existing variable type for '" << variable_name 
+                      << "', existing_type=" << static_cast<int>(existing_type) << std::endl;
+            if (existing_type != DataType::ANY) {
+                actual_declared_type = existing_type;
+                std::cout << "[DEBUG] Assignment: Reassignment detected, using existing variable type: " 
+                          << static_cast<int>(actual_declared_type) << std::endl;
+            }
+        }
+        
         // Set the assignment context for type-aware array creation
-        if (declared_type != DataType::ANY) {
-            types.set_current_assignment_target_type(declared_type);
-            if (declared_type == DataType::ARRAY && declared_element_type != DataType::ANY) {
+        if (actual_declared_type != DataType::ANY) {
+            types.set_current_assignment_target_type(actual_declared_type);
+            if (actual_declared_type == DataType::ARRAY && declared_element_type != DataType::ANY) {
                 // This is a typed array like [int64], store the element type
                 types.set_current_assignment_array_element_type(declared_element_type);
             }
@@ -2704,9 +2743,9 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
         types.clear_assignment_context();
         
         DataType variable_type;
-        if (declared_type != DataType::ANY) {
+        if (actual_declared_type != DataType::ANY) {
             // Explicitly typed variable - use the declared type for performance
-            variable_type = declared_type;
+            variable_type = actual_declared_type;
         } else {
             // Untyped variable - infer type from value for arrays and other structured types
             // For property access results, preserve the specific type for better performance
@@ -2730,8 +2769,8 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
         
         // Handle class instance assignments specially - robust object instance detection
         // std::cout << ", value->result_type: " << static_cast<int>(value->result_type) << std::endl;
-        if (declared_type == DataType::CLASS_INSTANCE || 
-            (declared_type == DataType::ANY && value->result_type == DataType::CLASS_INSTANCE)) {
+        if (actual_declared_type == DataType::CLASS_INSTANCE || 
+            (actual_declared_type == DataType::ANY && value->result_type == DataType::CLASS_INSTANCE)) {
             auto new_expr = dynamic_cast<NewExpression*>(value.get());
             if (new_expr) {
                 // Set the class type information for this variable
@@ -2746,7 +2785,7 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
         int64_t offset = types.allocate_variable(variable_name, variable_type);
         
         // Store array element type for typed arrays
-        if (declared_type == DataType::ARRAY && declared_element_type != DataType::ANY) {
+        if (actual_declared_type == DataType::ARRAY && declared_element_type != DataType::ANY) {
             types.set_variable_array_element_type(variable_name, declared_element_type);
         }
         
@@ -2788,11 +2827,64 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             // Now RAX contains a pointer to the DynamicValue structure
             gen.emit_mov_mem_reg(offset, 0);
         } else {
+            // For non-ANY variables, we need to handle DynamicValue extraction
+            std::cout << "[DEBUG] Assignment: value->result_type=" << static_cast<int>(value->result_type) 
+                      << ", variable_type=" << static_cast<int>(variable_type) << std::endl;
+            
+            if (value->result_type == DataType::ANY && variable_type != DataType::ANY) {
+                // Assigning a DynamicValue to a typed variable - extract the typed value
+                std::cout << "[DEBUG] Assignment: Extracting " << static_cast<int>(variable_type) 
+                          << " from DynamicValue using typed conversion" << std::endl;
+                
+                // RAX contains the DynamicValue* from value->generate_code()
+                gen.emit_mov_reg_reg(7, 0); // RDI = DynamicValue*
+                
+                switch (variable_type) {
+                    case DataType::STRING:
+                        // Use the existing string extraction function with improved type checking
+                        gen.emit_call("__dynamic_value_extract_string");
+                        break;
+                    case DataType::INT64:
+                        gen.emit_call("__dynamic_value_extract_int64");
+                        break;
+                    case DataType::FLOAT64:
+                        gen.emit_call("__dynamic_value_extract_float64");
+                        break;
+                    default:
+                        // For other types, just store the DynamicValue pointer as-is
+                        break;
+                }
+                // RAX now contains the extracted typed value
+            }
+            
             // For non-ANY variables, store the raw value directly
             gen.emit_mov_mem_reg(offset, 0);
         }
         
+        // Store the variable type in the type system for future lookups
+        // Only store if we have meaningful type information or if the variable doesn't exist yet
+        DataType existing_stored_type = types.get_variable_type(variable_name);
+        if (variable_type != DataType::ANY || existing_stored_type == DataType::ANY) {
+            types.set_variable_type(variable_name, variable_type);
+            std::cout << "[DEBUG] Assignment: Stored type " << static_cast<int>(variable_type) 
+                      << " for variable '" << variable_name << "'" << std::endl;
+        } else {
+            std::cout << "[DEBUG] Assignment: Preserving existing type " << static_cast<int>(existing_stored_type) 
+                      << " for variable '" << variable_name << "' (not overwriting with ANY)" << std::endl;
+        }
+        
         result_type = variable_type;
+    } else {
+        // Variable declaration without value (e.g., "var str: string;")
+        // Store the declared type for future lookups
+        if (declared_type != DataType::ANY) {
+            types.set_variable_type(variable_name, declared_type);
+            std::cout << "[DEBUG] Assignment: Stored declared type " << static_cast<int>(declared_type) 
+                      << " for variable '" << variable_name << "' (no value)" << std::endl;
+            result_type = declared_type;
+        } else {
+            result_type = DataType::ANY;
+        }
     }
 }
 
@@ -3097,6 +3189,61 @@ void ForEachLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     // Jump back to condition check
     gen.emit_jump(loop_check);
+    
+    gen.emit_label(loop_end);
+}
+
+void ForInStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+    static int loop_counter = 0;
+    std::string loop_start = "forin_loop_" + std::to_string(loop_counter);
+    std::string loop_end = "forin_end_" + std::to_string(loop_counter);
+    loop_counter++;
+    
+    // Generate code for the object expression
+    object->generate_code(gen, types);
+    
+    // Store the object in a temporary location
+    int64_t object_offset = types.allocate_variable("__temp_object_" + std::to_string(loop_counter - 1), object->result_type);
+    gen.emit_mov_mem_reg(object_offset, 0); // Store object pointer
+    
+    // Create user-visible variable for the key
+    int64_t user_key_offset = types.allocate_variable(key_var_name, DataType::STRING);
+    
+    // Initialize property index to 0
+    int64_t index_offset = types.allocate_variable("__index_" + std::to_string(loop_counter - 1), DataType::INT64);
+    gen.emit_mov_reg_imm(0, 0); // RAX = 0
+    gen.emit_mov_mem_reg(index_offset, 0); // Store index = 0
+    
+    // Loop start
+    gen.emit_label(loop_start);
+    
+    // Get field name for current index
+    gen.emit_mov_reg_mem(7, object_offset); // RDI = object pointer
+    gen.emit_mov_reg_mem(6, index_offset); // RSI = current index
+    gen.emit_call("__get_class_property_name"); // Returns const char* or nullptr
+    
+    // Check if we got a valid field name (if null, we're done)
+    gen.emit_mov_reg_imm(1, 0); // RCX = 0 (null)
+    gen.emit_compare(0, 1); // Compare field name with null
+    gen.emit_jump_if_zero(loop_end); // Jump to end if no more fields
+    
+    // Convert C string to GoTSString and store in key variable
+    gen.emit_mov_reg_reg(7, 0); // RDI = field name (const char*)
+    gen.emit_call("__string_intern"); // Convert to GoTSString
+    gen.emit_mov_mem_reg(user_key_offset, 0); // Store in key variable
+    
+    // Generate loop body
+    for (const auto& stmt : body) {
+        stmt->generate_code(gen, types);
+    }
+    
+    // Increment index
+    gen.emit_mov_reg_mem(0, index_offset); // RAX = current index
+    gen.emit_add_reg_imm(0, 1); // RAX++
+    gen.emit_mov_mem_reg(index_offset, 0); // Store incremented index
+    
+    // Jump back to loop start
+    gen.emit_jump(loop_start);
     
     gen.emit_label(loop_end);
 }

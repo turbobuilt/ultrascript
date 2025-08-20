@@ -373,11 +373,16 @@ bool TypeInference::needs_casting(DataType from, DataType to) {
 
 void TypeInference::set_variable_type(const std::string& name, DataType type) {
     variable_types[name] = type;
+    std::cout << "[DEBUG] TypeInference::set_variable_type - stored '" << name 
+              << "' with type " << static_cast<int>(type) << std::endl;
 }
 
 DataType TypeInference::get_variable_type(const std::string& name) {
     auto it = variable_types.find(name);
-    return it != variable_types.end() ? it->second : DataType::ANY;
+    DataType result = it != variable_types.end() ? it->second : DataType::ANY;
+    std::cout << "[DEBUG] TypeInference::get_variable_type - lookup '" << name 
+              << "' returned type " << static_cast<int>(result) << std::endl;
+    return result;
 }
 
 void TypeInference::set_variable_offset(const std::string& name, int64_t offset) {

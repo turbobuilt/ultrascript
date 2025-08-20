@@ -4,10 +4,12 @@
 #include <iostream>
 #include <cstring>
 
+// Forward declaration for compiler access
+extern GoTSCompiler* get_current_compiler();
+
 // Runtime implementations for dynamic property access
 
 extern "C" {
-
 /**
  * Get the dynamic property map from an object, returning nullptr if not initialized
  */
@@ -188,6 +190,144 @@ void* __dynamic_value_create_any(void* value, int type_id) {
             return new DynamicValue(value);
         }
     }
+}
+
+} // extern "C"
+
+// Global class metadata for for-in loop support
+// This would ideally be populated by the compiler during class compilation
+static std::unordered_map<std::string, std::vector<std::string>> class_property_names;
+
+extern "C" {
+
+/**
+ * Debug function to trace loop variables
+ */
+void __debug_loop_compare(int64_t index, int64_t count) {
+    std::cout << "[LOOP-DEBUG] Comparing index=" << index << " with count=" << count 
+              << " (index >= count is " << (index >= count ? "true" : "false") << ")" << std::endl;
+    std::cout << "[LOOP-DEBUG] Should " << (index >= count ? "EXIT" : "CONTINUE") << " loop" << std::endl;
+}
+
+/**
+ * Debug function to indicate loop body is entered
+ */
+void __debug_loop_body_entered() {
+    std::cout << "[LOOP-DEBUG] Loop body entered!" << std::endl;
+}
+
+// Debug function to trace before loop body
+void __debug_before_loop_body() {
+    std::cout << "[LOOP-DEBUG] About to enter loop body - comparison passed!" << std::endl;
+}
+
+/**
+ * Get the number of static class properties for an object
+ */
+int64_t __get_class_property_count(void* object_ptr) {
+    std::cout << "[FOR-IN-DEBUG] __get_class_property_count called with object_ptr=" << object_ptr << std::endl;
+    std::cout.flush();
+    
+    if (!object_ptr) return 0;
+    
+    // Get class name from object layout  
+    int64_t* obj = static_cast<int64_t*>(object_ptr);
+    const char* class_name_ptr = reinterpret_cast<const char*>(obj[0]);
+    
+    if (!class_name_ptr) return 0;
+    
+    // Get the current compiler context to access class metadata
+    auto* compiler = get_current_compiler();
+    if (!compiler) return 0;
+    
+    std::string class_name(class_name_ptr);
+    auto* class_info = compiler->get_class(class_name);
+    if (!class_info) return 0;
+    
+    return static_cast<int64_t>(class_info->fields.size());
+}
+
+/**
+ * Get the name of a static class property by index
+ */
+const char* __get_class_property_name(void* object_ptr, int64_t index) {
+    if (!object_ptr) return nullptr;
+    
+    // Get class name from object layout  
+    int64_t* obj = static_cast<int64_t*>(object_ptr);
+    const char* class_name_ptr = reinterpret_cast<const char*>(obj[0]);
+    
+    if (!class_name_ptr) return nullptr;
+    
+    // Get the current compiler context to access class metadata
+    auto* compiler = get_current_compiler();
+    if (!compiler) return nullptr;
+    
+    std::string class_name(class_name_ptr);
+    auto* class_info = compiler->get_class(class_name);
+    if (!class_info) return nullptr;
+    
+    if (index >= 0 && index < static_cast<int64_t>(class_info->fields.size())) {
+        const char* prop_name = class_info->fields[index].name.c_str();
+        return prop_name;
+    }
+    
+    return nullptr;
+}
+
+extern "C" void __debug_reached_static_loop_body() {
+    std::cout << "[DEBUG] *** REACHED STATIC LOOP BODY ***" << std::endl;
+    std::cout.flush();
+}
+
+extern "C" void __debug_reached_static_loop_body_with_values(int64_t index, int64_t count) {
+    std::cout << "[DEBUG] *** REACHED STATIC LOOP BODY *** index=" << index << " count=" << count << std::endl;
+    std::cout.flush();
+}
+
+extern "C" void __debug_about_to_call_property_name() {
+    std::cout << "[DEBUG] *** ABOUT TO CALL __get_class_property_name ***" << std::endl;
+    std::cout.flush();
+}
+
+/**
+ * Get the number of dynamic properties for an object
+ */
+int64_t __get_dynamic_property_count(void* object_ptr) {
+    if (!object_ptr) return 0;
+    
+    DynamicPropertyMap* map = __get_dynamic_map(object_ptr);
+    if (!map) {
+        std::cout << "[FOR-IN] No dynamic properties (map not initialized)" << std::endl;
+        return 0;
+    }
+    
+    std::cout << "[FOR-IN] Object has " << map->property_count << " dynamic properties" << std::endl;
+    return static_cast<int64_t>(map->property_count);
+}
+
+/**
+ * Get the name of a dynamic property by index
+ */
+const char* __get_dynamic_property_name(void* object_ptr, int64_t index) {
+    if (!object_ptr) return nullptr;
+    
+    DynamicPropertyMap* map = __get_dynamic_map(object_ptr);
+    if (!map) return nullptr;
+    
+    // Convert the unordered_map to a vector for indexed access
+    std::vector<std::string> keys = map->get_keys();
+    
+    if (index >= 0 && index < static_cast<int64_t>(keys.size())) {
+        // Return a pointer to the string - this is a bit unsafe but works for the immediate iteration
+        // In a production system, we'd want to use a more robust string management approach
+        static std::string current_key;
+        current_key = keys[index];
+        std::cout << "[FOR-IN] Dynamic property at index " << index << " is '" << current_key << "'" << std::endl;
+        return current_key.c_str();
+    }
+    
+    return nullptr;
 }
 
 } // extern "C"
