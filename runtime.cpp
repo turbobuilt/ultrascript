@@ -4,6 +4,7 @@
 #include "regex.h"
 #include "goroutine_system.h"
 #include "ultra_performance_array.h"
+#include "dynamic_properties.h"
 #include <iostream>
 #include <algorithm>
 #include <chrono>
@@ -393,7 +394,7 @@ extern "C" int64_t __class_property_lookup(void* object, void* property_name_str
     for (size_t i = 0; i < class_info->fields.size(); ++i) {
         if (class_info->fields[i].name == property_name) {
             // Object layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
-            // Properties start at offset 24 (3 * 8 bytes for metadata)
+            // Properties start at offset 32 (4 * 8 bytes for metadata)
             int64_t property_offset = 24 + (i * 8);
             
             // Direct memory access to get the property value
@@ -1331,11 +1332,11 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
     std::cout.flush();
     
     try {
-        // Object creation with direct property access layout + dynamic property support
-        // Allocate object with inline property storage for performance
+        // Object creation with reference counting and direct property access layout
+        // New layout: [class_name_ptr][property_count][ref_count][dynamic_map_ptr][property0][property1]...
         
-        // Calculate total size: metadata + dynamic map pointer + inline properties
-        size_t metadata_size = sizeof(void*) * 3; // class_name pointer + property_count + dynamic_map_ptr
+        // Calculate total size: metadata + ref_count + dynamic map pointer + inline properties
+        size_t metadata_size = sizeof(void*) * 4; // class_name pointer + property_count + ref_count + dynamic_map_ptr
         size_t property_storage_size = property_count * sizeof(void*);
         size_t total_size = metadata_size + property_storage_size;
         
@@ -1345,7 +1346,7 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
             throw std::bad_alloc();
         }
         
-        // Layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
+        // Layout: [class_name_ptr][property_count][ref_count][dynamic_map_ptr][property0][property1]...
         void** obj_data = static_cast<void**>(raw_memory);
         
         std::cout << "[DEBUG] __object_create allocated object at " << raw_memory << " (size=" << total_size << ")" << std::endl;
@@ -1361,15 +1362,19 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
             std::cout << "[DEBUG] __object_create: null class_name" << std::endl;
         }
         
-        // Store property count at offset 1
+        // Store property count at offset 1 (8 bytes)
         obj_data[1] = reinterpret_cast<void*>(property_count);
         
-        // Initialize dynamic property map pointer to nullptr (lazy initialization)
-        obj_data[2] = nullptr;
+        // Initialize reference count to 1 at offset 2 (16 bytes)
+        // Use placement new to properly initialize atomic
+        new (reinterpret_cast<char*>(raw_memory) + OBJECT_REF_COUNT_OFFSET) std::atomic<int64_t>(1);
         
-        // Initialize property slots (starting at offset 3)
+        // Initialize dynamic property map pointer to nullptr at offset 3 (24 bytes) - lazy initialization
+        obj_data[3] = nullptr;
+        
+        // Initialize property slots (starting at offset 4, which is 32 bytes)
         for (int64_t i = 0; i < property_count; i++) {
-            obj_data[3 + i] = nullptr;
+            obj_data[4 + i] = nullptr;
         }
         
         int64_t result = reinterpret_cast<int64_t>(raw_memory);
@@ -1379,11 +1384,12 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
         void** test_ptr = static_cast<void**>(raw_memory);
         std::cout << "[DEBUG] __object_create verification: class_name_ptr=" << test_ptr[0] 
                   << ", property_count=" << reinterpret_cast<int64_t>(test_ptr[1]) 
-                  << ", dynamic_map_ptr=" << test_ptr[2] << std::endl;
+                  << ", ref_count=" << GET_OBJECT_REF_COUNT(raw_memory).load()
+                  << ", dynamic_map_ptr=" << test_ptr[3] << std::endl;
         
-        // Test write to property slot 0 (offset 24)
+        // Test write to property slot 0 (offset 32)
         if (property_count > 0) {
-            test_ptr[3] = nullptr; // This should be safe
+            test_ptr[4] = nullptr; // This should be safe
             std::cout << "[DEBUG] __object_create: Successfully wrote to property slot 0" << std::endl;
         }
         
@@ -1424,5 +1430,160 @@ extern "C" void* __jit_object_create_sized(void* class_name_ptr, size_t size) {
         std::cout << "[ERROR] __jit_object_create_sized failed: " << e.what() << std::endl;
         std::cout.flush();
         return nullptr;
+    }
+}
+
+// ==================== Reference Counting Functions ====================
+
+extern "C" void __object_add_ref(void* object_ptr) {
+    if (!object_ptr) return;
+    
+    std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
+    int64_t old_count = ref_count.fetch_add(1);
+    
+    std::cout << "[DEBUG] __object_add_ref: object=" << object_ptr 
+              << ", ref_count " << old_count << " -> " << (old_count + 1) << std::endl;
+}
+
+extern "C" void __object_release(void* object_ptr) {
+    if (!object_ptr) return;
+    
+    std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
+    int64_t old_count = ref_count.fetch_sub(1);
+    
+    std::cout << "[DEBUG] __object_release: object=" << object_ptr 
+              << ", ref_count " << old_count << " -> " << (old_count - 1) << std::endl;
+    
+    if (old_count == 1) {
+        // Reference count reached zero, free the object
+        std::cout << "[DEBUG] __object_release: freeing object " << object_ptr << std::endl;
+        
+        // First, clean up the dynamic property map if it exists
+        DynamicPropertyMap* dynamic_map = GET_OBJECT_DYNAMIC_MAP(object_ptr);
+        if (dynamic_map) {
+            dynamic_map->release();  // This will delete the map if its ref count reaches 0
+        }
+        
+        // Destroy the atomic ref_count object
+        reinterpret_cast<std::atomic<int64_t>*>(
+            reinterpret_cast<char*>(object_ptr) + OBJECT_REF_COUNT_OFFSET)->~atomic();
+        
+        // Free the object memory
+        free(object_ptr);
+        
+        std::cout << "[DEBUG] __object_release: object freed" << std::endl;
+    }
+}
+
+extern "C" int64_t __object_get_ref_count(void* object_ptr) {
+    if (!object_ptr) return 0;
+    
+    std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
+    return ref_count.load();
+}
+
+// Simple increment/decrement functions for compatibility
+extern "C" void __object_increment_ref_count(void* object_ptr) {
+    if (!object_ptr) return;
+    
+    std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
+    int64_t old_count = ref_count.fetch_add(1);
+    
+    std::cout << "[DEBUG] __object_increment_ref_count: object=" << object_ptr 
+              << ", ref_count " << old_count << " -> " << (old_count + 1) << std::endl;
+}
+
+extern "C" void __object_decrement_ref_count(void* object_ptr) {
+    if (!object_ptr) return;
+    
+    std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
+    int64_t old_count = ref_count.fetch_sub(1);
+    
+    std::cout << "[DEBUG] __object_decrement_ref_count: object=" << object_ptr 
+              << ", ref_count " << old_count << " -> " << (old_count - 1) << std::endl;
+    
+    // If reference count reached 0, delete the object
+    if (old_count == 1) {
+        std::cout << "[DEBUG] Reference count reached 0, deleting object: " << object_ptr << std::endl;
+        
+        // Call destructor if it exists (get class info and call destructor)
+        // For now, just free the memory
+        
+        // Get the dynamic map pointer
+        DynamicPropertyMap* dynamic_map = GET_OBJECT_DYNAMIC_MAP(object_ptr);
+        if (dynamic_map) {
+            delete dynamic_map;
+        }
+        
+        // Destroy the atomic ref_count object
+        reinterpret_cast<std::atomic<int64_t>*>(
+            reinterpret_cast<char*>(object_ptr) + OBJECT_REF_COUNT_OFFSET)->~atomic();
+        
+        // Free the object memory
+        free(object_ptr);
+        
+        std::cout << "[DEBUG] Object deleted: " << object_ptr << std::endl;
+    }
+}
+
+// Helper function to check if a DynamicValue contains an object that needs reference counting
+extern "C" bool __dynamic_value_contains_object(DynamicValue* dv) {
+    if (!dv) return false;
+    return dv->type == DataType::CLASS_INSTANCE || dv->type == DataType::ARRAY;
+}
+
+// Helper function to get the object pointer from a DynamicValue (if it contains one)
+extern "C" void* __dynamic_value_get_object_ptr(DynamicValue* dv) {
+    if (!dv) return nullptr;
+    if (dv->type == DataType::CLASS_INSTANCE || dv->type == DataType::ARRAY) {
+        // The object/array pointer is stored as void* in the variant
+        return std::get<void*>(dv->value);
+    }
+    return nullptr;
+}
+
+// Helper function to handle reference counting when overwriting a variable that contains an object
+extern "C" void __handle_variable_overwrite_ref_counting(void* old_value_ptr, DataType old_type, bool old_is_dynamic) {
+    if (!old_value_ptr) return;
+    
+    void* object_to_decrement = nullptr;
+    
+    if (old_is_dynamic) {
+        // Old value is a DynamicValue*
+        DynamicValue* old_dv = static_cast<DynamicValue*>(old_value_ptr);
+        if (__dynamic_value_contains_object(old_dv)) {
+            object_to_decrement = __dynamic_value_get_object_ptr(old_dv);
+        }
+    } else if (old_type == DataType::CLASS_INSTANCE) {
+        // Old value is directly an object pointer
+        object_to_decrement = old_value_ptr;
+    }
+    
+    if (object_to_decrement) {
+        std::cout << "[DEBUG] Decrementing ref count for overwritten object: " << object_to_decrement << std::endl;
+        __object_decrement_ref_count(object_to_decrement);
+    }
+}
+
+// Helper function to handle reference counting when assigning a new object to a variable
+extern "C" void __handle_new_object_assignment_ref_counting(void* new_value_ptr, DataType new_type, bool new_is_dynamic, bool is_initial_assignment) {
+    if (!new_value_ptr || is_initial_assignment) return; // Don't increment on initial assignment (object created with ref_count=1)
+    
+    void* object_to_increment = nullptr;
+    
+    if (new_is_dynamic) {
+        // New value is a DynamicValue*
+        DynamicValue* new_dv = static_cast<DynamicValue*>(new_value_ptr);
+        if (__dynamic_value_contains_object(new_dv)) {
+            object_to_increment = __dynamic_value_get_object_ptr(new_dv);
+        }
+    } else if (new_type == DataType::CLASS_INSTANCE) {
+        // New value is directly an object pointer
+        object_to_increment = new_value_ptr;
+    }
+    
+    if (object_to_increment) {
+        std::cout << "[DEBUG] Incrementing ref count for newly assigned object: " << object_to_increment << std::endl;
+        __object_increment_ref_count(object_to_increment);
     }
 }

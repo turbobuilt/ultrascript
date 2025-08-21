@@ -103,16 +103,17 @@ struct DynamicPropertyMap {
 };
 
 /**
- * Extended Object Layout for Dynamic Properties
+ * Extended Object Layout with Reference Counting
  * 
- * New layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
+ * New layout: [class_name_ptr][property_count][ref_count][dynamic_map_ptr][property0][property1]...
  * 
  * Offsets:
  * - 0:  class_name_ptr (GoTSString*)
  * - 8:  property_count (int64_t) 
- * - 16: dynamic_map_ptr (DynamicPropertyMap*)
- * - 24: property0 (first static property)
- * - 32: property1 (second static property)
+ * - 16: ref_count (std::atomic<int64_t>)
+ * - 24: dynamic_map_ptr (DynamicPropertyMap*)
+ * - 32: property0 (first static property)
+ * - 40: property1 (second static property)
  * - ...
  */
 
@@ -151,19 +152,28 @@ extern "C" {
     // Helper functions for object layout
     DynamicPropertyMap* __get_dynamic_map(void* object_ptr);
     void __ensure_dynamic_map(void* object_ptr);
+    
+    // Reference counting functions
+    void __object_add_ref(void* object_ptr);
+    void __object_release(void* object_ptr);
+    int64_t __object_get_ref_count(void* object_ptr);
 }
 
 // Object layout access macros
 #define OBJECT_CLASS_NAME_OFFSET 0
 #define OBJECT_PROPERTY_COUNT_OFFSET 8
-#define OBJECT_DYNAMIC_MAP_OFFSET 16
-#define OBJECT_PROPERTIES_START_OFFSET 24
+#define OBJECT_REF_COUNT_OFFSET 16
+#define OBJECT_DYNAMIC_MAP_OFFSET 24
+#define OBJECT_PROPERTIES_START_OFFSET 32
 
 #define GET_OBJECT_CLASS_NAME(obj) \
     (*reinterpret_cast<void**>(reinterpret_cast<char*>(obj) + OBJECT_CLASS_NAME_OFFSET))
 
 #define GET_OBJECT_PROPERTY_COUNT(obj) \
     (*reinterpret_cast<int64_t*>(reinterpret_cast<char*>(obj) + OBJECT_PROPERTY_COUNT_OFFSET))
+
+#define GET_OBJECT_REF_COUNT(obj) \
+    (*reinterpret_cast<std::atomic<int64_t>*>(reinterpret_cast<char*>(obj) + OBJECT_REF_COUNT_OFFSET))
 
 #define GET_OBJECT_DYNAMIC_MAP(obj) \
     (*reinterpret_cast<DynamicPropertyMap**>(reinterpret_cast<char*>(obj) + OBJECT_DYNAMIC_MAP_OFFSET))

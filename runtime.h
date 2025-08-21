@@ -24,6 +24,7 @@
 // Forward declare DataType from compiler.h to avoid circular dependency
 enum class DataType;
 class LexicalScope;
+struct DynamicValue;
 
 // Global executable memory info structure
 struct ExecutableMemoryInfo {
@@ -823,6 +824,17 @@ extern "C" {
     void __object_destroy(int64_t object_id);
     void* __jit_object_create(void* class_name_ptr);
     void* __jit_object_create_sized(void* class_name_ptr, size_t size);
+    
+    // Reference counting functions
+    void __object_add_ref(void* object_ptr);
+    void __object_release(void* object_ptr);
+    int64_t __object_get_ref_count(void* object_ptr);
+    void __object_increment_ref_count(void* object_ptr);
+    void __object_decrement_ref_count(void* object_ptr);
+    bool __dynamic_value_contains_object(DynamicValue* dv);
+    void* __dynamic_value_get_object_ptr(DynamicValue* dv);
+    void __handle_variable_overwrite_ref_counting(void* old_value_ptr, DataType old_type, bool old_is_dynamic);
+    void __handle_new_object_assignment_ref_counting(void* new_value_ptr, DataType new_type, bool new_is_dynamic, bool is_initial_assignment);
     
     // Dynamic property access (for runtime property access)
     void __dynamic_set_property(int64_t object_id, const char* property_name, int64_t value);

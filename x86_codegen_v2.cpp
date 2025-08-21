@@ -435,6 +435,17 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__get_dynamic_property_count", reinterpret_cast<void*>(__get_dynamic_property_count)},
         {"__get_dynamic_property_name", reinterpret_cast<void*>(__get_dynamic_property_name)},
         
+        // Reference counting functions
+        {"__object_add_ref", reinterpret_cast<void*>(__object_add_ref)},
+        {"__object_release", reinterpret_cast<void*>(__object_release)},
+        {"__object_get_ref_count", reinterpret_cast<void*>(__object_get_ref_count)},
+        {"__object_increment_ref_count", reinterpret_cast<void*>(__object_increment_ref_count)},
+        {"__object_decrement_ref_count", reinterpret_cast<void*>(__object_decrement_ref_count)},
+        {"__dynamic_value_contains_object", reinterpret_cast<void*>(__dynamic_value_contains_object)},
+        {"__dynamic_value_get_object_ptr", reinterpret_cast<void*>(__dynamic_value_get_object_ptr)},
+        {"__handle_variable_overwrite_ref_counting", reinterpret_cast<void*>(__handle_variable_overwrite_ref_counting)},
+        {"__handle_new_object_assignment_ref_counting", reinterpret_cast<void*>(__handle_new_object_assignment_ref_counting)},
+        
         // Type-aware array creation functions  
         {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},
         {"__array_create_int64", reinterpret_cast<void*>(__array_create_int64)},
