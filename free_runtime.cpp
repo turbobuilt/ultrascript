@@ -6,11 +6,9 @@
 #include "ultra_performance_array.h"
 #include "runtime_object.h"
 #include "compiler.h"  // For DataType enum
-#include "refcount.h"   // Reference counting system
 
 // ============================================================================
 // FREE RUNTIME SYSTEM - HIGH PERFORMANCE MANUAL MEMORY MANAGEMENT
-// Integrated with reference counting for objects and arrays
 // ============================================================================
 
 
@@ -89,63 +87,17 @@ void __debug_log_primitive_free_ignored() {
 }
 
 // ============================================================================
-// HIGH-PERFORMANCE TYPE-SPECIFIC FREE FUNCTIONS
-// Integrated with reference counting system
+// HIGH-PERFORMANCE TYPE-SPECIFIC FREE FUNCTIONS  
 // ============================================================================
 
-// Helper function to check if pointer is reference counted
-int __is_rc_object(void* ptr) {
-    if (!ptr) return 0;
-    
-    // Check if the pointer has a valid reference count header
-    RefCountHeader* header = get_refcount_header(ptr);
-    if (!header) return 0;
-    
-    // Additional validation could be added here
-    return 1;
-}
-
-// Reference counting integration for shallow free
-void __free_rc_object_shallow(void* ptr) {
-    if (!ptr) return;
-    
-    if (g_debug_mode) {
-        std::cout << "[FREE-RC] Reference counted shallow free: " << ptr << std::endl;
-    }
-    
-    // Use reference counting system's cycle breaking for shallow free
-    rc_integrate_with_free_shallow(ptr);
-    g_free_stats.shallow_frees++;
-}
-
-// Reference counting integration for deep free
-void __free_rc_object_deep(void* ptr) {
-    if (!ptr) return;
-    
-    if (g_debug_mode) {
-        std::cout << "[FREE-RC] Reference counted deep free: " << ptr << std::endl;
-    }
-    
-    // Use reference counting system's deep free
-    rc_integrate_with_free_deep(ptr);
-    g_free_stats.deep_frees++;
-}
-
-// Free class instance (shallow) - updated for reference counting
+// Free class instance (shallow)
 void __free_class_instance_shallow(void* ptr) {
     if (!ptr) return;
     
     std::cout << "[FREE-JIT] Shallow freeing class instance at " << ptr << std::endl;
     g_free_stats.class_frees++;
-    
-    // Check if this is a reference counted object
-    if (__is_rc_object(ptr)) {
-        __free_rc_object_shallow(ptr);
-        return;
-    }
-    
-    // Legacy non-reference counted path
     g_free_stats.shallow_frees++;
+    
     RuntimeObject* obj = static_cast<RuntimeObject*>(ptr);
     
     // In shallow mode, just free the object structure, not referenced objects
@@ -157,21 +109,14 @@ void __free_class_instance_shallow(void* ptr) {
     delete obj;
 }
 
-// Free class instance (deep) - updated for reference counting
+// Free class instance (deep)
 void __free_class_instance_deep(void* ptr) {
     if (!ptr) return;
     
     std::cout << "[FREE-JIT] Deep freeing class instance at " << ptr << std::endl;
     g_free_stats.class_frees++;
-    
-    // Check if this is a reference counted object
-    if (__is_rc_object(ptr)) {
-        __free_rc_object_deep(ptr);
-        return;
-    }
-    
-    // Legacy non-reference counted path
     g_free_stats.deep_frees++;
+    
     RuntimeObject* obj = static_cast<RuntimeObject*>(ptr);
     
     // Deep free: recursively free all referenced objects
@@ -186,20 +131,12 @@ void __free_class_instance_deep(void* ptr) {
     delete obj;
 }
 
-// Free array (shallow) - updated for reference counting
+// Free array (shallow)
 void __free_array_shallow(void* ptr) {
     if (!ptr) return;
     
     std::cout << "[FREE-JIT] Shallow freeing array at " << ptr << std::endl;
     g_free_stats.array_frees++;
-    
-    // Check if this is a reference counted array
-    if (__is_rc_object(ptr)) {
-        __free_rc_object_shallow(ptr);
-        return;
-    }
-    
-    // Legacy non-reference counted path
     g_free_stats.shallow_frees++;
     
     // For typed arrays, we know the exact structure
@@ -213,20 +150,12 @@ void __free_array_shallow(void* ptr) {
     free(ptr);
 }
 
-// Free array (deep) - updated for reference counting
+// Free array (deep)
 void __free_array_deep(void* ptr) {
     if (!ptr) return;
     
     std::cout << "[FREE-JIT] Deep freeing array at " << ptr << std::endl;
     g_free_stats.array_frees++;
-    
-    // Check if this is a reference counted array
-    if (__is_rc_object(ptr)) {
-        __free_rc_object_deep(ptr);
-        return;
-    }
-    
-    // Legacy non-reference counted path
     g_free_stats.deep_frees++;
     
     // Deep free: iterate through array elements and free them recursively
@@ -259,7 +188,7 @@ void __free_string(void* ptr) {
     free(ptr);
 }
 
-// Free dynamic value (requires runtime type checking) - updated for reference counting
+// Free dynamic value (requires runtime type checking)
 void __free_dynamic_value(void* ptr, int is_shallow) {
     if (!ptr) return;
     
@@ -267,17 +196,6 @@ void __free_dynamic_value(void* ptr, int is_shallow) {
               << " (shallow=" << is_shallow << ")" << std::endl;
     g_free_stats.dynamic_frees++;
     
-    // Check if this is a reference counted object first
-    if (__is_rc_object(ptr)) {
-        if (is_shallow) {
-            __free_rc_object_shallow(ptr);
-        } else {
-            __free_rc_object_deep(ptr);
-        }
-        return;
-    }
-    
-    // Legacy non-reference counted path
     // Cast to DynamicValue to check runtime type
     DynamicValue* dyn_val = static_cast<DynamicValue*>(ptr);
     
@@ -424,41 +342,6 @@ void __throw_deep_free_not_implemented() {
 
 
 } // extern "C"
-
-// ============================================================================
-// MIGRATION FUNCTIONS FOR REFERENCE COUNTING
-// ============================================================================
-
-// Initialize migration to reference counting allocator
-void __migrate_to_rc_alloc() {
-    std::cout << "[MIGRATION] Migrating to reference counting allocator..." << std::endl;
-    
-    // Enable reference counting debug mode by default during migration
-    rc_set_debug_mode(1);
-    __set_free_debug_mode(1);
-    
-    // Register default destructors for built-in types
-    rc_register_destructor(1, rc_destructor_string);   // String type
-    rc_register_destructor(2, rc_destructor_array);    // Array type  
-    rc_register_destructor(3, rc_destructor_object);   // Object type
-    rc_register_destructor(4, rc_destructor_dynamic);  // Dynamic type
-    
-    std::cout << "[MIGRATION] Reference counting system initialized" << std::endl;
-    
-    // Print initial statistics
-    rc_print_stats();
-}
-
-// Migrate from garbage collection to reference counting
-void __migrate_from_gc_to_rc() {
-    std::cout << "[MIGRATION] Migrating from garbage collection to reference counting..." << std::endl;
-    
-    // This would disable the garbage collector and switch to reference counting
-    // For now, just initialize the reference counting system
-    __migrate_to_rc_alloc();
-    
-    std::cout << "[MIGRATION] Migration complete - now using reference counting" << std::endl;
-}
 
 
 }

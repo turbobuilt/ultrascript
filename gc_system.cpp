@@ -838,7 +838,7 @@ void* GarbageCollector::allocate_with_header(size_t size, uint32_t type_id) {
     header->type_id = type_id;
     header->flags = 0;
     header->generation = 0;  // Start in young generation
-    header->ref_count = 0;
+    header->padding = 0;
     
     // Object data starts after header
     void* obj_ptr = reinterpret_cast<char*>(raw_memory) + sizeof(GCObjectHeader);

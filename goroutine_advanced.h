@@ -24,12 +24,11 @@ class WorkStealingScheduler;
 class SharedMemoryPool {
 private:
     struct MemoryBlock {
-        std::atomic<int> ref_count;
         size_t size;
         void* data;
         std::atomic<bool> is_free;
         
-        MemoryBlock(size_t s) : ref_count(0), size(s), is_free(true) {
+        MemoryBlock(size_t s) : size(s), is_free(true) {
             data = std::aligned_alloc(64, s); // 64-byte aligned for cache lines
         }
         
@@ -57,10 +56,7 @@ public:
     // Allocate shared memory that can be accessed by any goroutine
     void* allocate(size_t size);
     
-    // Increase reference count (called when sharing with another goroutine)
-    void add_ref(void* ptr);
-    
-    // Decrease reference count (automatic deallocation when reaches 0)
+    // Free memory (automatic deallocation)
     void release(void* ptr);
     
     // Get current stats

@@ -414,11 +414,9 @@ void GoroutineManager::cleanup_completed_goroutines() {
 
 Goroutine::Goroutine(uint64_t id, std::shared_ptr<LexicalEnvironment> env) 
     : id_(id), lexical_env_(env) {
-    // shared_ptr handles reference counting automatically
 }
 
 Goroutine::~Goroutine() {
-    // shared_ptr handles reference counting automatically
 }
 
 void Goroutine::run() {

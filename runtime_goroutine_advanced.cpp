@@ -27,7 +27,7 @@ void* __goroutine_alloc_shared(int64_t size) {
 void __goroutine_share_memory(void* ptr, int64_t target_id) {
     if (!ptr) return;
     
-    g_shared_memory_pool.add_ref(ptr);
+    // Memory sharing simplified - no reference counting
     std::cout << "DEBUG: Shared memory " << ptr << " with goroutine " << target_id << std::endl;
 }
 

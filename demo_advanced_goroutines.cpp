@@ -18,9 +18,9 @@
 class SimpleSharedMemoryPool {
 private:
     struct MemoryBlock {
-        std::atomic<int> ref_count{0};
         size_t size;
         void* data;
+        std::atomic<bool> is_free{true};
         
         MemoryBlock(size_t s) : size(s) {
             data = std::aligned_alloc(64, s); // 64-byte aligned
@@ -28,6 +28,7 @@ private:
         
         ~MemoryBlock() {
             std::free(data);
+        }
         }
     };
     
@@ -39,7 +40,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         
         auto block = std::make_unique<MemoryBlock>(size);
-        block->ref_count.store(1);
+        block->is_free.store(false);
         void* ptr = block->data;
         
         blocks_.push_back(std::move(block));
@@ -47,31 +48,13 @@ public:
         return ptr;
     }
     
-    void add_ref(void* ptr) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        
-        for (auto& block : blocks_) {
-            if (block->data == ptr) {
-                int old_count = block->ref_count.fetch_add(1);
-                std::cout << "SHARED MEMORY: Reference count increased from " << old_count 
-                          << " to " << (old_count + 1) << std::endl;
-                return;
-            }
-        }
-    }
-    
     void release(void* ptr) {
         std::lock_guard<std::mutex> lock(mutex_);
         
         for (auto& block : blocks_) {
             if (block->data == ptr) {
-                int old_count = block->ref_count.fetch_sub(1);
-                std::cout << "SHARED MEMORY: Reference count decreased from " << old_count 
-                          << " to " << (old_count - 1) << std::endl;
-                
-                if (old_count == 1) {
-                    std::cout << "SHARED MEMORY: Block freed (last reference)" << std::endl;
-                }
+                block->is_free.store(true);
+                std::cout << "SHARED MEMORY: Block freed" << std::endl;
                 return;
             }
         }

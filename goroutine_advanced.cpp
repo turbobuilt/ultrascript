@@ -45,7 +45,6 @@ void* SharedMemoryPool::allocate(size_t size) {
         bool expected = true;
         if (block->is_free.compare_exchange_strong(expected, false)) {
             // Found a free block
-            block->ref_count.store(1);
             allocation_count_.fetch_add(1);
             std::cout << "DEBUG: Allocated shared memory block of size " << block_size 
                       << " (requested: " << size << ")" << std::endl;
@@ -56,7 +55,6 @@ void* SharedMemoryPool::allocate(size_t size) {
     // No free blocks, create a new one
     auto new_block = std::make_unique<MemoryBlock>(block_size);
     new_block->is_free.store(false);
-    new_block->ref_count.store(1);
     void* data = new_block->data;
     
     class_blocks.push_back(std::move(new_block));
@@ -67,24 +65,6 @@ void* SharedMemoryPool::allocate(size_t size) {
     return data;
 }
 
-void SharedMemoryPool::add_ref(void* ptr) {
-    if (!ptr) return;
-    
-    // Find the block containing this pointer
-    for (size_t i = 0; i < NUM_SIZE_CLASSES; ++i) {
-        for (auto& block : blocks_[i]) {
-            if (block->data == ptr) {
-                int old_count = block->ref_count.fetch_add(1);
-                std::cout << "DEBUG: Shared memory ref count increased from " 
-                          << old_count << " to " << (old_count + 1) << std::endl;
-                return;
-            }
-        }
-    }
-    
-    std::cerr << "ERROR: add_ref called on unknown pointer" << std::endl;
-}
-
 void SharedMemoryPool::release(void* ptr) {
     if (!ptr) return;
     
@@ -92,16 +72,10 @@ void SharedMemoryPool::release(void* ptr) {
     for (size_t i = 0; i < NUM_SIZE_CLASSES; ++i) {
         for (auto& block : blocks_[i]) {
             if (block->data == ptr) {
-                int old_count = block->ref_count.fetch_sub(1);
-                std::cout << "DEBUG: Shared memory ref count decreased from " 
-                          << old_count << " to " << (old_count - 1) << std::endl;
-                
-                if (old_count == 1) {
-                    // Last reference, mark as free
-                    block->is_free.store(true);
-                    allocation_count_.fetch_sub(1);
-                    std::cout << "DEBUG: Shared memory block freed" << std::endl;
-                }
+                // Mark as free
+                block->is_free.store(true);
+                allocation_count_.fetch_sub(1);
+                std::cout << "DEBUG: Shared memory block freed" << std::endl;
                 return;
             }
         }

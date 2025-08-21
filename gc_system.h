@@ -115,7 +115,7 @@ struct GCObjectHeader {
     uint32_t type_id;       // Runtime type information
     uint8_t flags;          // GC flags
     uint8_t generation;     // Generation (0=young, 1=old)
-    uint16_t ref_count;     // Reference count for pinned objects
+    uint16_t padding;       // Padding for alignment
     
     void mark() { flags |= MARKED; }
     void unmark() { flags &= ~MARKED; }
@@ -124,8 +124,8 @@ struct GCObjectHeader {
     void set_escaped() { flags |= ESCAPED; }
     bool has_escaped() const { return flags & ESCAPED; }
     
-    void pin() { flags |= PINNED; ref_count++; }
-    void unpin() { if (ref_count > 0) ref_count--; if (ref_count == 0) flags &= ~PINNED; }
+    void pin() { flags |= PINNED; }
+    void unpin() { flags &= ~PINNED; }
     bool is_pinned() const { return flags & PINNED; }
 };
 

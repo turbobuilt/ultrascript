@@ -301,7 +301,7 @@ void* Goroutine::allocate_shared_memory(size_t size) {
 
 void Goroutine::share_memory(void* ptr, std::shared_ptr<Goroutine> target) {
     if (ptr && target) {
-        g_shared_memory_pool.add_ref(ptr);
+        // Memory sharing simplified - no reference counting
         // std::cout << " with goroutine " << target->get_id() << std::endl;
     }
 }
