@@ -671,6 +671,117 @@ void X86InstructionBuilder::xadd(const MemoryOperand& dst, X86Reg src, OpSize si
     emit_modrm_sib_disp(static_cast<uint8_t>(src) & 7, dst);
 }
 
+// High-performance atomic increment/decrement for reference counting
+void X86InstructionBuilder::lock_inc(const MemoryOperand& dst, OpSize size) {
+    lock_prefix();
+    emit_rex_if_needed(X86Reg::NONE, dst.base, size);
+    
+    if (size == OpSize::BYTE) {
+        code_buffer.push_back(0xFE);  // INC byte
+        emit_modrm_sib_disp(0, dst);  // reg field = 0 for INC
+    } else {
+        code_buffer.push_back(0xFF);  // INC dword/qword
+        emit_modrm_sib_disp(0, dst);  // reg field = 0 for INC
+    }
+}
+
+void X86InstructionBuilder::lock_dec(const MemoryOperand& dst, OpSize size) {
+    lock_prefix();
+    emit_rex_if_needed(X86Reg::NONE, dst.base, size);
+    
+    if (size == OpSize::BYTE) {
+        code_buffer.push_back(0xFE);  // DEC byte
+        emit_modrm_sib_disp(1, dst);  // reg field = 1 for DEC
+    } else {
+        code_buffer.push_back(0xFF);  // DEC dword/qword
+        emit_modrm_sib_disp(1, dst);  // reg field = 1 for DEC
+    }
+}
+
+void X86InstructionBuilder::lock_add(const MemoryOperand& dst, const ImmediateOperand& imm, OpSize size) {
+    lock_prefix();
+    emit_rex_if_needed(X86Reg::NONE, dst.base, size);
+    
+    // Choose encoding based on immediate size
+    if (imm.value >= -128 && imm.value <= 127) {
+        // Sign-extended 8-bit immediate
+        code_buffer.push_back(0x83);  // ADD with 8-bit immediate
+        emit_modrm_sib_disp(0, dst);  // reg field = 0 for ADD
+        code_buffer.push_back(static_cast<uint8_t>(imm.value));
+    } else if (size == OpSize::DWORD) {
+        // 32-bit immediate
+        code_buffer.push_back(0x81);  // ADD with immediate
+        emit_modrm_sib_disp(0, dst);  // reg field = 0 for ADD
+        uint32_t val = static_cast<uint32_t>(imm.value);
+        code_buffer.push_back(val & 0xFF);
+        code_buffer.push_back((val >> 8) & 0xFF);
+        code_buffer.push_back((val >> 16) & 0xFF);
+        code_buffer.push_back((val >> 24) & 0xFF);
+    } else {
+        // 32-bit immediate (sign-extended to 64-bit)
+        code_buffer.push_back(0x81);  // ADD with immediate
+        emit_modrm_sib_disp(0, dst);  // reg field = 0 for ADD
+        uint32_t val = static_cast<uint32_t>(imm.value);
+        code_buffer.push_back(val & 0xFF);
+        code_buffer.push_back((val >> 8) & 0xFF);
+        code_buffer.push_back((val >> 16) & 0xFF);
+        code_buffer.push_back((val >> 24) & 0xFF);
+    }
+}
+
+void X86InstructionBuilder::lock_xadd(const MemoryOperand& dst, X86Reg src, OpSize size) {
+    // This is just a locked version of xadd - combines lock prefix with xadd
+    lock_prefix();
+    emit_rex_if_needed(src, dst.base, size);
+    code_buffer.push_back(0x0F);  // Two-byte opcode
+    code_buffer.push_back(0xC1);  // XADD
+    emit_modrm_sib_disp(static_cast<uint8_t>(src) & 7, dst);
+}
+
+// =============================================================================
+// Atomic Increment/Decrement Operations
+// =============================================================================
+
+void X86InstructionBuilder::inc(X86Reg dst, OpSize size) {
+    if (size == OpSize::QWORD) {
+        emit_rex_if_needed(dst, X86Reg::NONE, size);
+        code_buffer.push_back(0xFF);  // INC r/m64
+        code_buffer.push_back(0xC0 | (static_cast<uint8_t>(dst) & 7));  // ModR/M for register
+    } else if (size == OpSize::DWORD) {
+        if (static_cast<uint8_t>(dst) >= 8) {
+            code_buffer.push_back(0x41);  // REX.B for R8-R15
+        }
+        code_buffer.push_back(0xFF);  // INC r/m32
+        code_buffer.push_back(0xC0 | (static_cast<uint8_t>(dst) & 7));
+    }
+}
+
+void X86InstructionBuilder::inc(const MemoryOperand& dst, OpSize size) {
+    emit_rex_if_needed(X86Reg::NONE, dst.base, size);
+    code_buffer.push_back(0xFF);  // INC r/m
+    emit_modrm_sib_disp(0, dst);  // reg field = 0 for INC
+}
+
+void X86InstructionBuilder::dec(X86Reg dst, OpSize size) {
+    if (size == OpSize::QWORD) {
+        emit_rex_if_needed(dst, X86Reg::NONE, size);
+        code_buffer.push_back(0xFF);  // DEC r/m64
+        code_buffer.push_back(0xC8 | (static_cast<uint8_t>(dst) & 7));  // ModR/M for register (reg field = 1)
+    } else if (size == OpSize::DWORD) {
+        if (static_cast<uint8_t>(dst) >= 8) {
+            code_buffer.push_back(0x41);  // REX.B for R8-R15
+        }
+        code_buffer.push_back(0xFF);  // DEC r/m32
+        code_buffer.push_back(0xC8 | (static_cast<uint8_t>(dst) & 7));
+    }
+}
+
+void X86InstructionBuilder::dec(const MemoryOperand& dst, OpSize size) {
+    emit_rex_if_needed(X86Reg::NONE, dst.base, size);
+    code_buffer.push_back(0xFF);  // DEC r/m
+    emit_modrm_sib_disp(1, dst);  // reg field = 1 for DEC
+}
+
 // =============================================================================
 // Memory Barriers
 // =============================================================================

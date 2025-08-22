@@ -1,3 +1,10 @@
+#include <string>
+
+// Utility: generate a unique label for codegen
+static std::string generate_unique_label(const std::string& base) {
+    static int label_counter = 0;
+    return base + "_" + std::to_string(label_counter++);
+}
 #include "x86_codegen_v2.h"
 #include "runtime.h"  // For runtime function declarations
 #include "console_log_overhaul.h"  // For console.log runtime functions
@@ -439,12 +446,6 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__object_add_ref", reinterpret_cast<void*>(__object_add_ref)},
         {"__object_release", reinterpret_cast<void*>(__object_release)},
         {"__object_get_ref_count", reinterpret_cast<void*>(__object_get_ref_count)},
-        {"__object_increment_ref_count", reinterpret_cast<void*>(__object_increment_ref_count)},
-        {"__object_decrement_ref_count", reinterpret_cast<void*>(__object_decrement_ref_count)},
-        {"__dynamic_value_contains_object", reinterpret_cast<void*>(__dynamic_value_contains_object)},
-        {"__dynamic_value_get_object_ptr", reinterpret_cast<void*>(__dynamic_value_get_object_ptr)},
-        {"__handle_variable_overwrite_ref_counting", reinterpret_cast<void*>(__handle_variable_overwrite_ref_counting)},
-        {"__handle_new_object_assignment_ref_counting", reinterpret_cast<void*>(__handle_new_object_assignment_ref_counting)},
         
         // Type-aware array creation functions  
         {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},
@@ -809,6 +810,64 @@ void X86CodeGenV2::emit_memory_fence(int fence_type) {
         case 4: instruction_builder->mfence(); break;  // SeqCst
         default: instruction_builder->mfence(); break; // Default to full fence
     }
+}
+
+void X86CodeGenV2::emit_ref_count_increment(int object_reg) {
+    X86Reg obj = get_register_for_int(object_reg);
+    
+    // Ultra-high performance atomic increment of ref_count at offset 16
+    // Uses the x86 LOCK INC instruction for maximum performance
+    // LOCK INC [obj + OBJECT_REF_COUNT_OFFSET] - atomic increment, fastest possible
+    MemoryOperand ref_count_addr(obj, OBJECT_REF_COUNT_OFFSET);
+    
+    // Emit: lock inc qword ptr [obj + 16] - This is the fastest atomic increment possible
+    instruction_builder->lock_inc(ref_count_addr, OpSize::QWORD);
+}
+
+void X86CodeGenV2::emit_ref_count_decrement(int object_reg, int result_reg) {
+    X86Reg obj = get_register_for_int(object_reg);
+    // Inline: lock dec [obj + OBJECT_REF_COUNT_OFFSET]
+    MemoryOperand ref_count_addr(obj, OBJECT_REF_COUNT_OFFSET);
+    instruction_builder->lock_dec(ref_count_addr, OpSize::QWORD);
+
+    // Inline: jnz skip_destruct
+    std::string skip_label = generate_unique_label("skip_destruct");
+    instruction_builder->jnz(skip_label);
+
+    // Inline: call destructor function (shared routine)
+    // rdi should hold the object pointer for the destructor ABI
+    instruction_builder->mov(X86Reg::RDI, obj); // Move object pointer to rdi
+    instruction_builder->call("__object_destruct");
+
+    // skip_destruct:
+    instruction_builder->emit_label_placeholder(skip_label);
+}
+
+// Additional ultra-fast reference counting operations for specific use cases
+void X86CodeGenV2::emit_ref_count_increment_simple(int object_reg) {
+    // Fastest possible increment - no return value needed
+    X86Reg obj = get_register_for_int(object_reg);
+    MemoryOperand ref_count_addr(obj, OBJECT_REF_COUNT_OFFSET);
+    instruction_builder->lock_inc(ref_count_addr, OpSize::QWORD);
+}
+
+void X86CodeGenV2::emit_ref_count_decrement_simple(int object_reg) {
+    // Fastest possible decrement - no return value needed
+    X86Reg obj = get_register_for_int(object_reg);
+    MemoryOperand ref_count_addr(obj, OBJECT_REF_COUNT_OFFSET);
+    instruction_builder->lock_dec(ref_count_addr, OpSize::QWORD);
+}
+
+void X86CodeGenV2::emit_ref_count_check_zero_and_free(int object_reg, const std::string& free_label) {
+    // Ultra-optimized: decrement and jump to free if zero
+    X86Reg obj = get_register_for_int(object_reg);
+    MemoryOperand ref_count_addr(obj, OBJECT_REF_COUNT_OFFSET);
+    
+    // Atomic decrement
+    instruction_builder->lock_dec(ref_count_addr, OpSize::QWORD);
+    
+    // Jump to free_label if zero flag is set (ref_count became 0)
+    instruction_builder->jz(free_label);
 }
 
 // =============================================================================

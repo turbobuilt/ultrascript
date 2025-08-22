@@ -1341,7 +1341,7 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
         size_t total_size = metadata_size + property_storage_size;
         
         // Allocate contiguous memory block
-        void* raw_memory = malloc(total_size);
+        void* raw_memory = calloc(1, total_size);
         if (!raw_memory) {
             throw std::bad_alloc();
         }
@@ -1480,110 +1480,4 @@ extern "C" int64_t __object_get_ref_count(void* object_ptr) {
     
     std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
     return ref_count.load();
-}
-
-// Simple increment/decrement functions for compatibility
-extern "C" void __object_increment_ref_count(void* object_ptr) {
-    if (!object_ptr) return;
-    
-    std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
-    int64_t old_count = ref_count.fetch_add(1);
-    
-    std::cout << "[DEBUG] __object_increment_ref_count: object=" << object_ptr 
-              << ", ref_count " << old_count << " -> " << (old_count + 1) << std::endl;
-}
-
-extern "C" void __object_decrement_ref_count(void* object_ptr) {
-    if (!object_ptr) return;
-    
-    std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
-    int64_t old_count = ref_count.fetch_sub(1);
-    
-    std::cout << "[DEBUG] __object_decrement_ref_count: object=" << object_ptr 
-              << ", ref_count " << old_count << " -> " << (old_count - 1) << std::endl;
-    
-    // If reference count reached 0, delete the object
-    if (old_count == 1) {
-        std::cout << "[DEBUG] Reference count reached 0, deleting object: " << object_ptr << std::endl;
-        
-        // Call destructor if it exists (get class info and call destructor)
-        // For now, just free the memory
-        
-        // Get the dynamic map pointer
-        DynamicPropertyMap* dynamic_map = GET_OBJECT_DYNAMIC_MAP(object_ptr);
-        if (dynamic_map) {
-            delete dynamic_map;
-        }
-        
-        // Destroy the atomic ref_count object
-        reinterpret_cast<std::atomic<int64_t>*>(
-            reinterpret_cast<char*>(object_ptr) + OBJECT_REF_COUNT_OFFSET)->~atomic();
-        
-        // Free the object memory
-        free(object_ptr);
-        
-        std::cout << "[DEBUG] Object deleted: " << object_ptr << std::endl;
-    }
-}
-
-// Helper function to check if a DynamicValue contains an object that needs reference counting
-extern "C" bool __dynamic_value_contains_object(DynamicValue* dv) {
-    if (!dv) return false;
-    return dv->type == DataType::CLASS_INSTANCE || dv->type == DataType::ARRAY;
-}
-
-// Helper function to get the object pointer from a DynamicValue (if it contains one)
-extern "C" void* __dynamic_value_get_object_ptr(DynamicValue* dv) {
-    if (!dv) return nullptr;
-    if (dv->type == DataType::CLASS_INSTANCE || dv->type == DataType::ARRAY) {
-        // The object/array pointer is stored as void* in the variant
-        return std::get<void*>(dv->value);
-    }
-    return nullptr;
-}
-
-// Helper function to handle reference counting when overwriting a variable that contains an object
-extern "C" void __handle_variable_overwrite_ref_counting(void* old_value_ptr, DataType old_type, bool old_is_dynamic) {
-    if (!old_value_ptr) return;
-    
-    void* object_to_decrement = nullptr;
-    
-    if (old_is_dynamic) {
-        // Old value is a DynamicValue*
-        DynamicValue* old_dv = static_cast<DynamicValue*>(old_value_ptr);
-        if (__dynamic_value_contains_object(old_dv)) {
-            object_to_decrement = __dynamic_value_get_object_ptr(old_dv);
-        }
-    } else if (old_type == DataType::CLASS_INSTANCE) {
-        // Old value is directly an object pointer
-        object_to_decrement = old_value_ptr;
-    }
-    
-    if (object_to_decrement) {
-        std::cout << "[DEBUG] Decrementing ref count for overwritten object: " << object_to_decrement << std::endl;
-        __object_decrement_ref_count(object_to_decrement);
-    }
-}
-
-// Helper function to handle reference counting when assigning a new object to a variable
-extern "C" void __handle_new_object_assignment_ref_counting(void* new_value_ptr, DataType new_type, bool new_is_dynamic, bool is_initial_assignment) {
-    if (!new_value_ptr || is_initial_assignment) return; // Don't increment on initial assignment (object created with ref_count=1)
-    
-    void* object_to_increment = nullptr;
-    
-    if (new_is_dynamic) {
-        // New value is a DynamicValue*
-        DynamicValue* new_dv = static_cast<DynamicValue*>(new_value_ptr);
-        if (__dynamic_value_contains_object(new_dv)) {
-            object_to_increment = __dynamic_value_get_object_ptr(new_dv);
-        }
-    } else if (new_type == DataType::CLASS_INSTANCE) {
-        // New value is directly an object pointer
-        object_to_increment = new_value_ptr;
-    }
-    
-    if (object_to_increment) {
-        std::cout << "[DEBUG] Incrementing ref count for newly assigned object: " << object_to_increment << std::endl;
-        __object_increment_ref_count(object_to_increment);
-    }
 }

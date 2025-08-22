@@ -124,6 +124,15 @@ public:
     void emit_atomic_load(int ptr_reg, int result_reg, int memory_order) override;
     void emit_memory_fence(int fence_type) override;
     
+    // High-performance reference counting operations
+    void emit_ref_count_increment(int object_reg) override;
+    void emit_ref_count_decrement(int object_reg, int result_reg) override;
+    
+    // Additional ultra-fast reference counting operations for specific use cases
+    void emit_ref_count_increment_simple(int object_reg);
+    void emit_ref_count_decrement_simple(int object_reg);
+    void emit_ref_count_check_zero_and_free(int object_reg, const std::string& free_label);
+    
     // CodeGenerator interface getters
     std::vector<uint8_t> get_code() const override { return code_buffer; }
     void clear() override;

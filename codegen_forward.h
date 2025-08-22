@@ -76,6 +76,10 @@ public:
     virtual void emit_atomic_load(int ptr_reg, int result_reg, int memory_order) = 0;
     virtual void emit_memory_fence(int fence_type) = 0;
     
+    // High-performance reference counting operations
+    virtual void emit_ref_count_increment(int object_reg) = 0;
+    virtual void emit_ref_count_decrement(int object_reg, int result_reg) = 0;
+    
     virtual std::vector<uint8_t> get_code() const = 0;
     virtual void clear() = 0;
     virtual size_t get_current_offset() const = 0;

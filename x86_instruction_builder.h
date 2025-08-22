@@ -187,6 +187,16 @@ public:
     void cmpxchg(const MemoryOperand& dst, X86Reg src, OpSize size = OpSize::QWORD);
     void xadd(const MemoryOperand& dst, X86Reg src, OpSize size = OpSize::QWORD);
     
+    // Atomic increment/decrement operations for reference counting
+    void inc(X86Reg dst, OpSize size = OpSize::QWORD);
+    void inc(const MemoryOperand& dst, OpSize size = OpSize::QWORD);
+    void dec(X86Reg dst, OpSize size = OpSize::QWORD);
+    void dec(const MemoryOperand& dst, OpSize size = OpSize::QWORD);
+    void lock_inc(const MemoryOperand& dst, OpSize size = OpSize::QWORD);
+    void lock_dec(const MemoryOperand& dst, OpSize size = OpSize::QWORD);
+    void lock_add(const MemoryOperand& dst, const ImmediateOperand& imm, OpSize size = OpSize::QWORD);
+    void lock_xadd(const MemoryOperand& dst, X86Reg src, OpSize size = OpSize::QWORD);
+    
     // Memory barriers
     void mfence();  // Full memory barrier
     void lfence();  // Load fence

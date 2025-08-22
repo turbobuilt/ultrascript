@@ -2775,17 +2775,6 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             if (new_expr) {
                 // Set the class type information for this variable
                 types.set_variable_class_type(variable_name, new_expr->class_name);
-            } else {
-                // Check if we're assigning from another variable with known class type
-                auto identifier = dynamic_cast<Identifier*>(value.get());
-                if (identifier) {
-                    std::string source_class = types.get_variable_class_name(identifier->name);
-                    if (!source_class.empty()) {
-                        types.set_variable_class_type(variable_name, source_class);
-                        std::cout << "[DEBUG] Assignment: Propagated class type '" << source_class 
-                                  << "' from " << identifier->name << " to " << variable_name << std::endl;
-                    }
-                }
             }
             // ALWAYS set the variable type to CLASS_INSTANCE for object instances
             // This includes both NewExpression and ObjectLiteral
@@ -2794,17 +2783,6 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
         
         // Allocate or get the proper stack offset for this variable
         int64_t offset = types.allocate_variable(variable_name, variable_type);
-        
-        // Check if this is an initial assignment or reassignment for reference counting
-        bool is_initial_assignment = !types.variable_exists(variable_name) || types.get_variable_offset(variable_name) == offset;
-        DataType old_variable_type = DataType::ANY;
-        if (!is_initial_assignment) {
-            old_variable_type = types.get_variable_type(variable_name);
-        }
-        
-        std::cout << "[DEBUG] Assignment: is_initial_assignment=" << is_initial_assignment 
-                  << ", old_type=" << static_cast<int>(old_variable_type) 
-                  << ", new_type=" << static_cast<int>(variable_type) << std::endl;
         
         // Store array element type for typed arrays
         if (actual_declared_type == DataType::ARRAY && declared_element_type != DataType::ANY) {
@@ -2847,28 +2825,7 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
                     break;
             }
             // Now RAX contains a pointer to the DynamicValue structure
-            
-            // Handle reference counting for ANY type variables
-            if (!is_initial_assignment) {
-                // This is a reassignment - decrement ref count of old value
-                gen.emit_mov_reg_mem(1, offset); // RBX = old DynamicValue*
-                gen.emit_mov_reg_reg(7, 1); // RDI = old DynamicValue*
-                gen.emit_mov_reg_imm(6, static_cast<int64_t>(old_variable_type)); // RSI = old_type
-                gen.emit_mov_reg_imm(2, 1); // RDX = old_is_dynamic (true for ANY type)
-                gen.emit_call("__handle_variable_overwrite_ref_counting");
-            }
-            
-            // Store the new DynamicValue
             gen.emit_mov_mem_reg(offset, 0);
-            
-            // Handle reference counting for the new value (increment if needed)
-            if (!is_initial_assignment) {
-                gen.emit_mov_reg_mem(7, offset); // RDI = new DynamicValue*
-                gen.emit_mov_reg_imm(6, static_cast<int64_t>(variable_type)); // RSI = new_type  
-                gen.emit_mov_reg_imm(2, 1); // RDX = new_is_dynamic (true for ANY type)
-                gen.emit_mov_reg_imm(1, 0); // RCX = is_initial_assignment (false)
-                gen.emit_call("__handle_new_object_assignment_ref_counting");
-            }
         } else {
             // For non-ANY variables, we need to handle DynamicValue extraction
             std::cout << "[DEBUG] Assignment: value->result_type=" << static_cast<int>(value->result_type) 
@@ -2900,27 +2857,8 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
                 // RAX now contains the extracted typed value
             }
             
-            // Handle reference counting for typed variables
-            if (!is_initial_assignment) {
-                // This is a reassignment - decrement ref count of old value
-                gen.emit_mov_reg_mem(1, offset); // RBX = old value
-                gen.emit_mov_reg_reg(7, 1); // RDI = old value
-                gen.emit_mov_reg_imm(6, static_cast<int64_t>(old_variable_type)); // RSI = old_type
-                gen.emit_mov_reg_imm(2, 0); // RDX = old_is_dynamic (false for typed)
-                gen.emit_call("__handle_variable_overwrite_ref_counting");
-            }
-            
-            // Store the new value
+            // For non-ANY variables, store the raw value directly
             gen.emit_mov_mem_reg(offset, 0);
-            
-            // Handle reference counting for the new value (increment if needed)  
-            if (!is_initial_assignment && variable_type == DataType::CLASS_INSTANCE) {
-                gen.emit_mov_reg_mem(7, offset); // RDI = new object pointer
-                gen.emit_mov_reg_imm(6, static_cast<int64_t>(variable_type)); // RSI = new_type
-                gen.emit_mov_reg_imm(2, 0); // RDX = new_is_dynamic (false for typed)
-                gen.emit_mov_reg_imm(1, 0); // RCX = is_initial_assignment (false)
-                gen.emit_call("__handle_new_object_assignment_ref_counting");
-            }
         }
         
         // Store the variable type in the type system for future lookups
