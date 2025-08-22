@@ -615,7 +615,7 @@ public:
 
 // Global object registry
 // Object registry removed - property access system redesigned according to CLAUDE.md
-extern std::atomic<int64_t> next_object_id;
+extern std::atomic<int64_t> next_object_address;
 
 // High-Performance Function Registry System
 // Replaces slow string-based lookups with direct ID-based access
@@ -712,6 +712,7 @@ extern "C" {
     // DynamicValue allocation functions for ANY type variables
     void* __dynamic_value_create_from_double(int64_t double_bits);
     void* __dynamic_value_create_from_int64(int64_t value);
+    void* __dynamic_value_create_from_uint64(uint64_t value);
     void* __dynamic_value_create_from_bool(bool value);
     void* __dynamic_value_create_from_string(void* string_ptr);
     void* __dynamic_value_create_from_object(void* object_ptr);
@@ -818,27 +819,40 @@ extern "C" {
     
     // Object management functions
     int64_t __object_create(void* class_name_ptr, int64_t property_count);
-    void __object_set_property(int64_t object_id, int64_t property_index, int64_t value);
-    int64_t __object_get_property(int64_t object_id, int64_t property_index);
-    void __object_destroy(int64_t object_id);
+    void __object_set_property(int64_t object_address, int64_t property_index, int64_t value);
+    int64_t __object_get_property(int64_t object_address, int64_t property_index);
+    void __object_destroy(int64_t object_address);
     void* __jit_object_create(void* class_name_ptr);
     void* __jit_object_create_sized(void* class_name_ptr, size_t size);
+    
+    // Debug and introspection functions
+    int64_t __debug_get_ref_count(int64_t object_address);
+    int64_t __object_get_memory_address(int64_t object_address);
     
     // Reference counting functions
     void __object_add_ref(void* object_ptr);
     void __object_release(void* object_ptr);
+    void __object_destruct(void* object_ptr);
     int64_t __object_get_ref_count(void* object_ptr);
     
+    // Debug reference counting inspection
+    int64_t __debug_get_ref_count(int64_t object_address);
+    
+    // Advanced dynamic value reference counting functions
+    void __dynamic_value_release_if_object(void* dynamic_value_ptr);
+    void* __dynamic_value_copy_with_refcount(void* dynamic_value_ptr);
+    void* __dynamic_value_extract_object_with_refcount(void* dynamic_value_ptr);
+    
     // Dynamic property access (for runtime property access)
-    void __dynamic_set_property(int64_t object_id, const char* property_name, int64_t value);
+    void __dynamic_set_property(int64_t object_address, const char* property_name, int64_t value);
     void* __dynamic_get_property(void* dynamic_value_ptr, const char* property_name);
     
     // Property name management for iteration
-    void __object_set_property_name(int64_t object_id, int64_t property_index, const char* property_name);
-    const char* __object_get_property_name(int64_t object_id, int64_t property_index);
+    void __object_set_property_name(int64_t object_address, int64_t property_index, const char* property_name);
+    const char* __object_get_property_name(int64_t object_address, int64_t property_index);
     
     // Method calling
-    int64_t __object_call_method(int64_t object_id, const char* method_name, int64_t* args, int64_t arg_count);
+    int64_t __object_call_method(int64_t object_address, const char* method_name, int64_t* args, int64_t arg_count);
     
     // Dynamic property support for JavaScript-style dynamic properties
     void* __dynamic_property_get(void* object_ptr, const char* property_name);
@@ -854,7 +868,7 @@ extern "C" {
     
     // Inheritance support
     void __register_class_inheritance(const char* child_class, const char* parent_class);
-    void __super_constructor_call(int64_t object_id, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5);
+    void __super_constructor_call(int64_t object_address, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5);
     
     // Mathematical functions
     int64_t __runtime_pow(int64_t base, int64_t exponent);
@@ -893,7 +907,10 @@ extern "C" {
     
     // Console logging optimized for strings
     void __console_log_string(void* string_ptr);
-    void __console_log_object(int64_t object_id);
+    void __console_log_object(int64_t object_address);
+    
+    // Runtime global object functions
+    void* __runtime_get_ref_count(int64_t object_address);
     
     // Date/Time functions
     int64_t __date_now();

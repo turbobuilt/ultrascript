@@ -583,9 +583,56 @@ void __console_log_string(void* string_ptr) {
     }
 }
 
-void __console_log_object(int64_t object_id) {
+void __console_log_object(int64_t object_address) {
     // Object registry system removed - will be reimplemented according to new architecture
-    std::cout << "Object#" << object_id;
+    std::cout << "Object#" << object_address;
+}
+
+// Debug and introspection functions
+int64_t __debug_get_ref_count(int64_t object_address) {
+    std::cout << "[DEBUG] __debug_get_ref_count called with address: " << object_address << std::endl;
+    std::cout.flush();
+    
+    if (object_address == 0) {
+        std::cout << "[DEBUG] __debug_get_ref_count: null address, returning 0" << std::endl;
+        std::cout.flush();
+        return 0;
+    }
+    
+    // Cast object_address back to actual object pointer
+    void* object_ptr = reinterpret_cast<void*>(object_address);
+    std::cout << "[DEBUG] __debug_get_ref_count: object_ptr=" << object_ptr << std::endl;
+    std::cout.flush();
+    
+    // Object layout: [class_name_ptr][property_count][ref_count][properties...]
+    // ref_count is at offset 16 (8 bytes for class_name_ptr + 8 bytes for property_count)
+    std::atomic<int64_t>* ref_count_ptr = reinterpret_cast<std::atomic<int64_t>*>(
+        static_cast<char*>(object_ptr) + 16
+    );
+    
+    std::cout << "[DEBUG] __debug_get_ref_count: ref_count_ptr=" << ref_count_ptr << std::endl;
+    std::cout.flush();
+    
+    int64_t ref_count = ref_count_ptr->load();
+    std::cout << "[DEBUG] __debug_get_ref_count: loaded ref_count=" << ref_count << std::endl;
+    std::cout.flush();
+    
+    return ref_count;
+}
+
+int64_t __object_get_memory_address(int64_t object_address) {
+    // This function simply returns the object address itself
+    // since object_address IS the memory address in our system
+    return object_address;
+}
+
+// Runtime global object functions
+void* __runtime_get_ref_count(int64_t object_address) {
+    int64_t ref_count = __debug_get_ref_count(object_address);
+    printf("[DEBUG] __runtime_get_ref_count: About to create DynamicValue from ref_count=%ld\n", ref_count);
+    void* result = __dynamic_value_create_from_uint64(static_cast<uint64_t>(ref_count));
+    printf("[DEBUG] __runtime_get_ref_count: Created DynamicValue at %p\n", result);
+    return result;
 }
 
 // Helper function to extract C string from GoTSString pointer
@@ -1165,6 +1212,11 @@ extern "C" void* __dynamic_value_create_from_int64(int64_t value) {
     return static_cast<void*>(dyn_val);
 }
 
+extern "C" void* __dynamic_value_create_from_uint64(uint64_t value) {
+    DynamicValue* dyn_val = new DynamicValue(static_cast<int64_t>(value));
+    return static_cast<void*>(dyn_val);
+}
+
 extern "C" void* __dynamic_value_create_from_bool(bool value) {
     DynamicValue* dyn_val = new DynamicValue(value);
     return static_cast<void*>(dyn_val);
@@ -1475,9 +1527,79 @@ extern "C" void __object_release(void* object_ptr) {
     }
 }
 
+extern "C" void __object_destruct(void* object_ptr) {
+    // Simple wrapper that calls __object_release for reference counting
+    std::cout << "[DEBUG] __object_destruct called for object: " << object_ptr << std::endl;
+    __object_release(object_ptr);
+}
+
 extern "C" int64_t __object_get_ref_count(void* object_ptr) {
     if (!object_ptr) return 0;
     
     std::atomic<int64_t>& ref_count = GET_OBJECT_REF_COUNT(object_ptr);
     return ref_count.load();
+}
+
+// ==================== Advanced Reference Counting for Dynamic Values ====================
+
+extern "C" void __dynamic_value_release_if_object(void* dynamic_value_ptr) {
+    if (!dynamic_value_ptr) return;
+    
+    DynamicValue* dv = static_cast<DynamicValue*>(dynamic_value_ptr);
+    
+    // Check if the DynamicValue contains a class instance
+    if (dv->type == DataType::CLASS_INSTANCE) {
+        // Get the object pointer from the variant
+        if (std::holds_alternative<void*>(dv->value)) {
+            void* object_ptr = std::get<void*>(dv->value);
+            if (object_ptr) {
+                __object_release(object_ptr);
+            }
+        }
+    }
+    
+    // Free the DynamicValue itself
+    delete dv;
+}
+
+extern "C" void* __dynamic_value_copy_with_refcount(void* dynamic_value_ptr) {
+    if (!dynamic_value_ptr) return nullptr;
+    
+    DynamicValue* source_dv = static_cast<DynamicValue*>(dynamic_value_ptr);
+    
+    // Create a new DynamicValue as a copy
+    DynamicValue* new_dv = new DynamicValue(*source_dv);
+    
+    // If it contains a class instance, increment the reference count
+    if (new_dv->type == DataType::CLASS_INSTANCE) {
+        if (std::holds_alternative<void*>(new_dv->value)) {
+            void* object_ptr = std::get<void*>(new_dv->value);
+            if (object_ptr) {
+                __object_add_ref(object_ptr);
+            }
+        }
+    }
+    
+    return new_dv;
+}
+
+extern "C" void* __dynamic_value_extract_object_with_refcount(void* dynamic_value_ptr) {
+    if (!dynamic_value_ptr) return nullptr;
+    
+    DynamicValue* dv = static_cast<DynamicValue*>(dynamic_value_ptr);
+    
+    // Extract object pointer if it's a class instance
+    if (dv->type == DataType::CLASS_INSTANCE) {
+        if (std::holds_alternative<void*>(dv->value)) {
+            void* object_ptr = std::get<void*>(dv->value);
+            if (object_ptr) {
+                // Increment reference count for the extracted object
+                __object_add_ref(object_ptr);
+                return object_ptr;
+            }
+        }
+    }
+    
+    // Return null if not a class instance
+    return nullptr;
 }

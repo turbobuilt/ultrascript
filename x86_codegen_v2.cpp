@@ -364,6 +364,7 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         // Core runtime functions
         {"__dynamic_value_create_from_double", reinterpret_cast<void*>(__dynamic_value_create_from_double)},
         {"__dynamic_value_create_from_int64", reinterpret_cast<void*>(__dynamic_value_create_from_int64)},
+        {"__dynamic_value_create_from_uint64", reinterpret_cast<void*>(__dynamic_value_create_from_uint64)},
         {"__dynamic_value_create_from_bool", reinterpret_cast<void*>(__dynamic_value_create_from_bool)},
         {"__dynamic_value_create_from_string", reinterpret_cast<void*>(__dynamic_value_create_from_string)},
         {"__dynamic_value_create_from_object", reinterpret_cast<void*>(__dynamic_value_create_from_object)},
@@ -445,7 +446,13 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         // Reference counting functions
         {"__object_add_ref", reinterpret_cast<void*>(__object_add_ref)},
         {"__object_release", reinterpret_cast<void*>(__object_release)},
+        {"__object_destruct", reinterpret_cast<void*>(__object_destruct)},
         {"__object_get_ref_count", reinterpret_cast<void*>(__object_get_ref_count)},
+        
+        // Advanced dynamic value reference counting functions
+        {"__dynamic_value_release_if_object", reinterpret_cast<void*>(__dynamic_value_release_if_object)},
+        {"__dynamic_value_copy_with_refcount", reinterpret_cast<void*>(__dynamic_value_copy_with_refcount)},
+        {"__dynamic_value_extract_object_with_refcount", reinterpret_cast<void*>(__dynamic_value_extract_object_with_refcount)},
         
         // Type-aware array creation functions  
         {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},
@@ -500,6 +507,11 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__free_dynamic_value", reinterpret_cast<void*>(__free_dynamic_value)},
         {"__debug_log_primitive_free_ignored", reinterpret_cast<void*>(__debug_log_primitive_free_ignored)},
         {"__throw_deep_free_not_implemented", reinterpret_cast<void*>(__throw_deep_free_not_implemented)},
+        
+        // Debug and introspection functions
+        {"__debug_get_ref_count", reinterpret_cast<void*>(__debug_get_ref_count)},
+        {"__object_get_memory_address", reinterpret_cast<void*>(__object_get_memory_address)},
+        {"__runtime_get_ref_count", reinterpret_cast<void*>(__runtime_get_ref_count)},
     };
     
     auto it = runtime_functions.find(function_name);
@@ -837,10 +849,10 @@ void X86CodeGenV2::emit_ref_count_decrement(int object_reg, int result_reg) {
     // Inline: call destructor function (shared routine)
     // rdi should hold the object pointer for the destructor ABI
     instruction_builder->mov(X86Reg::RDI, obj); // Move object pointer to rdi
-    instruction_builder->call("__object_destruct");
+    emit_call("__object_destruct");
 
     // skip_destruct:
-    instruction_builder->emit_label_placeholder(skip_label);
+    emit_label(skip_label);
 }
 
 // Additional ultra-fast reference counting operations for specific use cases

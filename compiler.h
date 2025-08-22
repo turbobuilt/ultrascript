@@ -192,7 +192,7 @@ enum class Backend {
 class TypeInference {
 private:
     std::unordered_map<std::string, DataType> variable_types;
-    std::unordered_map<std::string, std::string> variable_class_names;  // For CLASS_INSTANCE variables
+    std::unordered_map<std::string, uint32_t> variable_class_type_ids;  // For CLASS_INSTANCE variables - use type IDs instead of names
     std::unordered_map<std::string, DataType> variable_array_element_types;  // For ARRAY variables
     std::unordered_map<std::string, int64_t> variable_offsets;
     int64_t current_offset = -8; // Start at -8 (RBP-8)
@@ -214,9 +214,9 @@ public:
     DataType get_cast_type(DataType t1, DataType t2);
     bool needs_casting(DataType from, DataType to);
     void set_variable_type(const std::string& name, DataType type);
-    void set_variable_class_type(const std::string& name, const std::string& class_name);
+    void set_variable_class_type(const std::string& name, uint32_t class_type_id);
     DataType get_variable_type(const std::string& name);
-    std::string get_variable_class_name(const std::string& name);
+    uint32_t get_variable_class_type_id(const std::string& name);
     
     // Array element type tracking for typed arrays
     void set_variable_array_element_type(const std::string& name, DataType element_type);
@@ -266,11 +266,13 @@ public:
     
     // Enhanced operator overloading type inference for [] operator
     DataType infer_operator_index_type(const std::string& class_name, const std::string& index_expression);
+    DataType infer_operator_index_type(uint32_t class_type_id, const std::string& index_expression);  // Type ID version
     bool is_deterministic_expression(const std::string& expression);
     bool is_array_comparison_expression(const std::string& expression);
     DataType infer_expression_type(const std::string& expression);
     DataType infer_complex_expression_type(const std::string& expression);
     DataType get_best_numeric_operator_type(const std::string& class_name, const std::string& numeric_literal);
+    DataType get_best_numeric_operator_type(uint32_t class_type_id, const std::string& numeric_literal);  // Type ID version
     TokenType string_to_operator_token(const std::string& op_str);
     
     // Expression string extraction helpers
@@ -878,6 +880,10 @@ public:
     ClassInfo* get_class(const std::string& class_name);
     bool is_class_defined(const std::string& class_name);
     
+    // Class type ID management
+    uint32_t get_class_type_id(const std::string& class_name);
+    std::string get_class_name_from_type_id(uint32_t type_id);
+    
     // Specialized method generation for inheritance
     void generate_specialized_inherited_methods(const ClassDecl& class_decl, CodeGenerator& gen, TypeInference& types);
     bool needs_specialized_methods(const ClassDecl& class_decl) const;
@@ -886,6 +892,7 @@ public:
     void register_operator_overload(const std::string& class_name, const OperatorOverload& overload);
     const std::vector<OperatorOverload>* get_operator_overloads(const std::string& class_name, TokenType operator_type);
     bool has_operator_overload(const std::string& class_name, TokenType operator_type);
+    bool has_operator_overload(uint32_t class_type_id, TokenType operator_type);  // Type ID version for efficiency
     const OperatorOverload* find_best_operator_overload(const std::string& class_name, TokenType operator_type, 
                                                       const std::vector<DataType>& arg_types);
     

@@ -120,7 +120,7 @@ void ThreadPool::enqueue_simple(std::function<void()> task) {
 
 // Global object registry
 std::unordered_map<int64_t, std::unique_ptr<ObjectInstance>> object_registry;
-std::atomic<int64_t> next_object_id{1};
+std::atomic<int64_t> next_object_address{1};
 
 // Global function registry for goroutines
 std::unordered_map<std::string, void*> gots_function_registry;

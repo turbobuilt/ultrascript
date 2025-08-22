@@ -472,7 +472,7 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
                             DataType property_type = class_info->fields[i].type;
                             
                             // Load 'this' from stack offset -8 (where method prologue stored it)
-                            gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+                            gen.emit_mov_reg_mem(0, -8); // RAX = object_address (this)
                             
                             // LIGHTNING FAST: Direct offset access - zero performance penalty like C++
                             gen.emit_mov_reg_reg_offset(0, 0, property_offset); // RAX = [RAX + property_offset]
@@ -985,6 +985,19 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
         for (size_t i = 0; i < arguments.size() && i < 6; i++) {
             arguments[i]->generate_code(gen, types);
             
+            // Handle reference counting for CLASS_INSTANCE arguments
+            if (arguments[i]->result_type == DataType::CLASS_INSTANCE) {
+                gen.emit_mov_reg_imm(1, 0); // RCX = 0
+                gen.emit_compare(0, 1); // Compare RAX with 0
+                std::string skip_arg_ref_inc = "skip_arg_ref_inc_" + std::to_string(i) + "_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_arg_ref_inc); // Skip if null
+                
+                // Increment reference count for the argument object (RAX = object)
+                gen.emit_ref_count_increment(0); // RAX = object pointer
+                
+                gen.emit_label(skip_arg_ref_inc);
+            }
+            
             // Move result to appropriate argument register
             switch (i) {
                 case 0: gen.emit_mov_reg_reg(7, 0); break;  // RDI = RAX
@@ -999,6 +1012,18 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
         // For more than 6 arguments, push them onto stack (in reverse order)
         for (int i = arguments.size() - 1; i >= 6; i--) {
             arguments[i]->generate_code(gen, types);
+            
+            // Handle reference counting for CLASS_INSTANCE stack arguments  
+            if (arguments[i]->result_type == DataType::CLASS_INSTANCE) {
+                gen.emit_mov_reg_imm(1, 0); // RCX = 0
+                gen.emit_compare(0, 1); // Compare RAX with 0
+                std::string skip_stack_arg_ref_inc = "skip_stack_arg_ref_inc_" + std::to_string(i) + "_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_stack_arg_ref_inc); // Skip if null                // Increment reference count for the stack argument object (RAX = object)
+                gen.emit_ref_count_increment(0); // RAX = object pointer
+                
+                gen.emit_label(skip_stack_arg_ref_inc);
+            }
+            
             // Push RAX onto stack
             gen.emit_sub_reg_imm(4, 8);  // sub rsp, 8
             gen.emit_mov_mem_reg(0, 0);  // mov [rsp], rax
@@ -1033,6 +1058,19 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
             if (func) {
                 result_type = func->return_type;
                 //           << static_cast<int>(result_type) << std::endl;
+                
+                // Handle reference counting for CLASS_INSTANCE return values
+                if (result_type == DataType::CLASS_INSTANCE) {
+                    gen.emit_mov_reg_imm(1, 0); // RCX = 0
+                    gen.emit_compare(0, 1); // Compare RAX with 0
+                    std::string skip_return_ref_inc = "skip_return_ref_inc_" + std::to_string(rand());
+                    gen.emit_jump_if_zero(skip_return_ref_inc); // Skip if null
+                    
+                    // Increment reference count for the returned object (RAX = object)
+                    gen.emit_ref_count_increment(0); // RAX = object pointer
+                    
+                    gen.emit_label(skip_return_ref_inc);
+                }
             } else {
                 // Function not found in registry, assume FLOAT64 for built-in functions
                 result_type = DataType::FLOAT64;
@@ -1531,16 +1569,24 @@ void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
         } else {
             // Check if this is a class instance method call
             DataType object_type = types.get_variable_type(object_name);
-            std::string class_name = types.get_variable_class_name(object_name);
+            uint32_t class_type_id = types.get_variable_class_type_id(object_name);
+            
+            std::string class_name;
+            if (class_type_id != 0) {
+                auto* compiler = get_current_compiler();
+                if (compiler) {
+                    class_name = compiler->get_class_name_from_type_id(class_type_id);
+                }
+            }
             
             if (object_type == DataType::CLASS_INSTANCE && !class_name.empty()) {
                 // Get object ID from variable
                 int64_t object_offset = types.get_variable_offset(object_name);
-                gen.emit_mov_reg_mem(0, object_offset); // RAX = object_id
+                gen.emit_mov_reg_mem(0, object_offset); // RAX = object_address
                 
                 // Call method via object system
                 // For now, just call __object_call_method with basic setup
-                gen.emit_mov_reg_reg(7, 0); // RDI = object_id
+                gen.emit_mov_reg_reg(7, 0); // RDI = object_address
                 
                 // Call the generated method function directly
                 // PERFORMANCE OPTIMIZATION: Use parent method for single inheritance
@@ -1832,6 +1878,8 @@ void ExpressionMethodCall::generate_code(CodeGenerator& gen, TypeInference& type
                 function_name = "__gots_set_interval";
             } else if (sub_object == "timer" && method_name == "clearInterval") {
                 function_name = "__gots_clear_interval";
+            } else if (sub_object == "referenceCounter" && method_name == "getRefCount") {
+                function_name = "__runtime_get_ref_count";
             }
             // Add more mappings as needed
             
@@ -2248,10 +2296,10 @@ void ObjectLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
     gen.emit_mov_reg_imm(6, properties.size()); // RSI = property count
     gen.emit_call("__object_create");
     
-    // RAX now contains the object_id
+    // RAX now contains the object_address
     // Store it temporarily while we add properties
     int64_t object_offset = types.allocate_variable("__temp_object_" + std::to_string(rand()), DataType::CLASS_INSTANCE);
-    gen.emit_mov_mem_reg(object_offset, 0); // Save object_id
+    gen.emit_mov_mem_reg(object_offset, 0); // Save object_address
     
     // Add each property to the object using property indices
     for (size_t i = 0; i < properties.size(); i++) {
@@ -2272,8 +2320,8 @@ void ObjectLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
             name_ptr = permanent_name;
         }
         
-        // Call __object_set_property_name(object_id, property_index, property_name)
-        gen.emit_mov_reg_mem(7, object_offset); // RDI = object_id
+        // Call __object_set_property_name(object_address, property_index, property_name)
+        gen.emit_mov_reg_mem(7, object_offset); // RDI = object_address
         gen.emit_mov_reg_imm(6, i); // RSI = property_index
         gen.emit_mov_reg_imm(2, reinterpret_cast<int64_t>(name_ptr)); // RDX = property_name
         gen.emit_call("__object_set_property_name");
@@ -2281,14 +2329,14 @@ void ObjectLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
         // Generate code for the property value
         prop.second->generate_code(gen, types);
         
-        // Set up call to __object_set_property(object_id, property_index, value)
+        // Set up call to __object_set_property(object_address, property_index, value)
         gen.emit_mov_reg_reg(2, 0); // RDX = value (save from RAX)
-        gen.emit_mov_reg_mem(7, object_offset); // RDI = object_id
+        gen.emit_mov_reg_mem(7, object_offset); // RDI = object_address
         gen.emit_mov_reg_imm(6, i); // RSI = property_index
         gen.emit_call("__object_set_property");
     }
     
-    // Return the object_id in RAX
+    // Return the object_address in RAX
     gen.emit_mov_reg_mem(0, object_offset);
     result_type = DataType::CLASS_INSTANCE; // Objects are class instances
 }
@@ -2378,29 +2426,35 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
     // First check if the object is a class instance with operator[] overload
     bool use_operator_overload = false;
     std::string class_name;
+    uint32_t class_type_id = 0;  // Store type ID for efficiency
     
     // Try to determine if object is a class instance
     if (auto* var_expr = dynamic_cast<Identifier*>(object.get())) {
         DataType var_type = types.get_variable_type(var_expr->name);
         if (var_type == DataType::CLASS_INSTANCE) {
-            class_name = types.get_variable_class_name(var_expr->name);
-            
-            // Check if this class has operator[] or operator[:] overload
-            auto* compiler = get_current_compiler();
-            if (compiler) {
-                bool has_bracket_overload = compiler->has_operator_overload(class_name, TokenType::LBRACKET);
-                bool has_slice_overload = compiler->has_operator_overload(class_name, TokenType::SLICE_BRACKET);
-                
-                // Prefer slice operator for slice expressions, bracket operator otherwise
-                if (is_slice_expression && has_slice_overload) {
-                    use_operator_overload = true;
-                } else if (!is_slice_expression && has_bracket_overload) {
-                    use_operator_overload = true;
-                } else if (has_bracket_overload) {
-                    // Fallback to bracket operator if available
-                    use_operator_overload = true;
+            class_type_id = types.get_variable_class_type_id(var_expr->name);
+            if (class_type_id != 0) {
+                auto* compiler = get_current_compiler();
+                if (compiler) {
+                    // Use type ID directly for operator overload checks (more efficient)
+                    bool has_bracket_overload = compiler->has_operator_overload(class_type_id, TokenType::LBRACKET);
+                    bool has_slice_overload = compiler->has_operator_overload(class_type_id, TokenType::SLICE_BRACKET);
+                    
+                    // Only convert to class name if we actually need operator overloading
+                    if (has_bracket_overload || has_slice_overload) {
+                        class_name = compiler->get_class_name_from_type_id(class_type_id);
+                    }
+                    
+                    // Prefer slice operator for slice expressions, bracket operator otherwise
+                    if (is_slice_expression && has_slice_overload) {
+                        use_operator_overload = true;
+                    } else if (!is_slice_expression && has_bracket_overload) {
+                        use_operator_overload = true;
+                    } else if (has_bracket_overload) {
+                        // Fallback to bracket operator if available
+                        use_operator_overload = true;
+                    }
                 }
-            } else {
             }
         } else if (var_type == DataType::ARRAY) {
             // Handle simplified Array access directly
@@ -2476,7 +2530,10 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         }
         
         // Use enhanced type inference to determine the best operator overload
-        DataType index_type = types.infer_operator_index_type(class_name, index_expr_str);
+        // Use type ID version for efficiency if available
+        DataType index_type = (class_type_id != 0) 
+            ? types.infer_operator_index_type(class_type_id, index_expr_str)
+            : types.infer_operator_index_type(class_name, index_expr_str);
         
         // Generate argument 0 (object)
         object->generate_code(gen, types);
@@ -2504,7 +2561,12 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         if (compiler) {
             std::vector<DataType> operand_types = {index_type};
             // Choose the appropriate operator token based on whether it's a slice expression
-            TokenType operator_token = (is_slice_expression && compiler->has_operator_overload(class_name, TokenType::SLICE_BRACKET)) 
+            // Use type ID directly for efficiency (avoid string conversion)
+            uint32_t current_class_type_id = 0;
+            if (auto* var_expr = dynamic_cast<Identifier*>(object.get())) {
+                current_class_type_id = types.get_variable_class_type_id(var_expr->name);
+            }
+            TokenType operator_token = (is_slice_expression && current_class_type_id != 0 && compiler->has_operator_overload(current_class_type_id, TokenType::SLICE_BRACKET)) 
                                      ? TokenType::SLICE_BRACKET 
                                      : TokenType::LBRACKET;
             const auto* best_overload = compiler->find_best_operator_overload(class_name, operator_token, operand_types);
@@ -2547,10 +2609,18 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
         if (auto* var_expr = dynamic_cast<Identifier*>(object.get())) {
             DataType var_type = types.get_variable_type(var_expr->name);
             if (var_type == DataType::CLASS_INSTANCE) {
-                std::string class_name = types.get_variable_class_name(var_expr->name);
+                uint32_t class_type_id = types.get_variable_class_type_id(var_expr->name);
+                std::string class_name;
+                if (class_type_id != 0) {
+                    auto* compiler = get_current_compiler();
+                    if (compiler) {
+                        class_name = compiler->get_class_name_from_type_id(class_type_id);
+                    }
+                }
                 
                 // Check if index is a string literal - can optimize to direct property access
-                if (auto* string_literal = dynamic_cast<StringLiteral*>(index.get())) {
+                auto* string_literal = dynamic_cast<StringLiteral*>(index.get());
+                if (!class_name.empty() && string_literal) {
                     std::string property_name = string_literal->value;
                     
                     // Remove quotes if present
@@ -2773,13 +2843,32 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             (actual_declared_type == DataType::ANY && value->result_type == DataType::CLASS_INSTANCE)) {
             auto new_expr = dynamic_cast<NewExpression*>(value.get());
             if (new_expr) {
-                // Set the class type information for this variable
-                types.set_variable_class_type(variable_name, new_expr->class_name);
+                // Set the class type information for this variable using type ID
+                auto* compiler = get_current_compiler();
+                if (compiler) {
+                    uint32_t class_type_id = compiler->get_class_type_id(new_expr->class_name);
+                    types.set_variable_class_type(variable_name, class_type_id);
+                }
+            } else {
+                // For copy assignments (obj3 = obj1), copy the class type ID from source variable
+                auto* var_expr = dynamic_cast<Identifier*>(value.get());
+                if (var_expr) {
+                    uint32_t source_class_type_id = types.get_variable_class_type_id(var_expr->name);
+                    if (source_class_type_id != 0) {
+                        types.set_variable_class_type(variable_name, source_class_type_id);
+                        std::cout << "[DEBUG] Assignment: Copied class type ID " << source_class_type_id 
+                                  << " from '" << var_expr->name << "' to '" << variable_name << "'" << std::endl;
+                    }
+                }
             }
             // ALWAYS set the variable type to CLASS_INSTANCE for object instances
             // This includes both NewExpression and ObjectLiteral
             variable_type = DataType::CLASS_INSTANCE;
         }
+        
+        // ========== COMPREHENSIVE REFERENCE COUNTING: Handle ALL assignment transitions ==========
+        // Check for reassignment BEFORE allocating variable to avoid false positives
+        bool is_reassignment = types.variable_exists(variable_name);
         
         // Allocate or get the proper stack offset for this variable
         int64_t offset = types.allocate_variable(variable_name, variable_type);
@@ -2789,59 +2878,125 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             types.set_variable_array_element_type(variable_name, declared_element_type);
         }
         
-        // For ANY variables, create a DynamicValue structure instead of storing raw value
-        if (variable_type == DataType::ANY) {
-            // Value is already in RAX from value->generate_code()
-            // Determine what type of DynamicValue to create based on the source type
-            switch (value->result_type) {
-                case DataType::FLOAT64:  // JavaScript number type (double)
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
-                    gen.emit_call("__dynamic_value_create_from_double");
-                    break;
-                case DataType::INT64:
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
-                    gen.emit_call("__dynamic_value_create_from_int64");
-                    break;
-                case DataType::BOOLEAN:
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
-                    gen.emit_call("__dynamic_value_create_from_bool");
-                    break;
-                case DataType::STRING:
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
-                    gen.emit_call("__dynamic_value_create_from_string");
-                    break;
-                case DataType::CLASS_INSTANCE:
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
-                    gen.emit_call("__dynamic_value_create_from_object");
-                    break;
-                case DataType::ARRAY:
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
-                    gen.emit_call("__dynamic_value_create_from_array");
-                    break;
-                default:
-                    // For other types, treat as double for now
-                    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (first argument)
-                    gen.emit_call("__dynamic_value_create_from_double");
-                    break;
+        // Step 1: ONLY decrement reference count of OLD value if this is a reassignment
+        if (is_reassignment) {
+            DataType existing_var_type = types.get_variable_type(variable_name);
+            if (existing_var_type == DataType::CLASS_INSTANCE) {
+                // OLD value is a raw class instance - decrement directly
+                gen.emit_mov_reg_mem(1, offset); // RCX = old class instance pointer
+                gen.emit_mov_reg_imm(2, 0); // RDX = 0
+                gen.emit_compare(1, 2); // Compare RCX with 0
+                std::string skip_old_dec = "skip_old_dec_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_old_dec); // Skip if null
+                gen.emit_ref_count_decrement(1, 2); // Decrement ref count, may call destructor
+                gen.emit_label(skip_old_dec);
+            } else if (existing_var_type == DataType::ANY) {
+                // OLD value is DynamicValue - might contain class instance
+                gen.emit_mov_reg_mem(1, offset); // RCX = old DynamicValue*
+                gen.emit_mov_reg_imm(2, 0); // RDX = 0
+                gen.emit_compare(1, 2); // Compare RCX with 0
+                std::string skip_old_release = "skip_old_release_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_old_release); // Skip if null
+                gen.emit_mov_reg_reg(7, 1); // RDI = DynamicValue*
+                gen.emit_call("__dynamic_value_release_if_object"); // Runtime function to handle release
+                gen.emit_label(skip_old_release);
             }
-            // Now RAX contains a pointer to the DynamicValue structure
+        }
+        
+        // Step 2: Handle NEW value assignment - ALL possible transitions
+        if (variable_type == DataType::ANY) {
+            // Target is ANY variable (DynamicValue container)
+            // Source can be: raw class, raw primitive, DynamicValue with class, DynamicValue with primitive
+            
+            if (value->result_type == DataType::CLASS_INSTANCE) {
+                // NEW: raw class -> ANY (wrap in DynamicValue and increment)
+                gen.emit_mov_reg_imm(1, 0); // RCX = 0
+                gen.emit_compare(0, 1); // Compare RAX with 0
+                std::string skip_inc_class_to_any = "skip_inc_class_to_any_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_inc_class_to_any); // Skip if null
+                gen.emit_ref_count_increment(0); // Increment ref count for RAX (class instance)
+                gen.emit_label(skip_inc_class_to_any);
+                
+                gen.emit_mov_reg_reg(7, 0); // RDI = RAX (class instance pointer)
+                gen.emit_call("__dynamic_value_create_from_object");
+            } else if (value->result_type == DataType::ANY) {
+                // NEW: DynamicValue -> ANY (copy DynamicValue, handling ref counting internally)
+                gen.emit_mov_reg_reg(7, 0); // RDI = RAX (DynamicValue*)
+                gen.emit_call("__dynamic_value_copy_with_refcount"); // Runtime handles ref counting
+            } else {
+                // NEW: primitive -> ANY (wrap in DynamicValue, no ref counting)
+                switch (value->result_type) {
+                    case DataType::FLOAT64:
+                        gen.emit_mov_reg_reg(7, 0); // RDI = RAX
+                        gen.emit_call("__dynamic_value_create_from_double");
+                        break;
+                    case DataType::INT64:
+                        gen.emit_mov_reg_reg(7, 0); // RDI = RAX
+                        gen.emit_call("__dynamic_value_create_from_int64");
+                        break;
+                    case DataType::BOOLEAN:
+                        gen.emit_mov_reg_reg(7, 0); // RDI = RAX
+                        gen.emit_call("__dynamic_value_create_from_bool");
+                        break;
+                    case DataType::STRING:
+                        gen.emit_mov_reg_reg(7, 0); // RDI = RAX
+                        gen.emit_call("__dynamic_value_create_from_string");
+                        break;
+                    case DataType::ARRAY:
+                        gen.emit_mov_reg_reg(7, 0); // RDI = RAX
+                        gen.emit_call("__dynamic_value_create_from_array");
+                        break;
+                    default:
+                        gen.emit_mov_reg_reg(7, 0); // RDI = RAX
+                        gen.emit_call("__dynamic_value_create_from_double");
+                        break;
+                }
+            }
+            // RAX now contains the DynamicValue*
             gen.emit_mov_mem_reg(offset, 0);
+            
+        } else if (variable_type == DataType::CLASS_INSTANCE) {
+            // Target is statically typed class variable
+            // Source can be: raw class, DynamicValue with class, null
+            
+            if (value->result_type == DataType::CLASS_INSTANCE) {
+                // Check if this is a NewExpression - if so, don't increment (transfer ownership)
+                auto* new_expr = dynamic_cast<NewExpression*>(value.get());
+                if (new_expr) {
+                    // TRANSFER SEMANTICS: new object already has ref_count = 1, just transfer ownership
+                    // No reference count increment needed - this is a move operation
+                    std::cout << "[DEBUG] Assignment: Transfer semantics for NewExpression - no ref increment" << std::endl;
+                } else {
+                    // COPY SEMANTICS: existing object assignment - increment ref count
+                    gen.emit_mov_reg_imm(1, 0); // RCX = 0
+                    gen.emit_compare(0, 1); // Compare RAX with 0
+                    std::string skip_inc_class_to_class = "skip_inc_class_to_class_" + std::to_string(rand());
+                    gen.emit_jump_if_zero(skip_inc_class_to_class); // Skip if null
+                    gen.emit_ref_count_increment(0); // Increment ref count for RAX
+                    gen.emit_label(skip_inc_class_to_class);
+                    std::cout << "[DEBUG] Assignment: Copy semantics for existing object - ref increment applied" << std::endl;
+                }
+                
+            } else if (value->result_type == DataType::ANY) {
+                // NEW: DynamicValue -> class (extract class and increment)
+                gen.emit_mov_reg_reg(7, 0); // RDI = DynamicValue*
+                gen.emit_call("__dynamic_value_extract_object_with_refcount"); // Extract and increment
+                // RAX now contains the extracted class instance (ref count already incremented)
+            }
+            // else: null assignment - no ref counting needed
+            
+            gen.emit_mov_mem_reg(offset, 0); // Store the class instance pointer
+            
         } else {
-            // For non-ANY variables, we need to handle DynamicValue extraction
-            std::cout << "[DEBUG] Assignment: value->result_type=" << static_cast<int>(value->result_type) 
-                      << ", variable_type=" << static_cast<int>(variable_type) << std::endl;
+            // Target is primitive type (string, int64, float64, etc.)
+            // Handle DynamicValue extraction if needed
             
             if (value->result_type == DataType::ANY && variable_type != DataType::ANY) {
-                // Assigning a DynamicValue to a typed variable - extract the typed value
-                std::cout << "[DEBUG] Assignment: Extracting " << static_cast<int>(variable_type) 
-                          << " from DynamicValue using typed conversion" << std::endl;
-                
-                // RAX contains the DynamicValue* from value->generate_code()
+                // NEW: DynamicValue -> primitive (extract primitive value)
                 gen.emit_mov_reg_reg(7, 0); // RDI = DynamicValue*
                 
                 switch (variable_type) {
                     case DataType::STRING:
-                        // Use the existing string extraction function with improved type checking
                         gen.emit_call("__dynamic_value_extract_string");
                         break;
                     case DataType::INT64:
@@ -2851,14 +3006,13 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
                         gen.emit_call("__dynamic_value_extract_float64");
                         break;
                     default:
-                        // For other types, just store the DynamicValue pointer as-is
+                        // For other types, keep as DynamicValue
                         break;
                 }
-                // RAX now contains the extracted typed value
             }
+            // else: primitive -> primitive (no conversion needed)
             
-            // For non-ANY variables, store the raw value directly
-            gen.emit_mov_mem_reg(offset, 0);
+            gen.emit_mov_mem_reg(offset, 0); // Store the primitive value
         }
         
         // Store the variable type in the type system for future lookups
@@ -3159,7 +3313,7 @@ void ForEachLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
         gen.emit_jump_if_not_zero(loop_end); // Jump if AL != 0 (i.e., if index >= max_properties)
         
         // Get the property name for the current index
-        gen.emit_mov_reg_mem(7, iterable_offset); // RDI = object_id
+        gen.emit_mov_reg_mem(7, iterable_offset); // RDI = object_address
         gen.emit_mov_reg_mem(6, index_offset); // RSI = property_index
         gen.emit_call("__object_get_property_name"); // RAX = property name (const char*)
         
@@ -3169,7 +3323,7 @@ void ForEachLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
         gen.emit_mov_mem_reg(user_index_offset, 0); // Store property name string in key variable
         
         // Get the value at current property index
-        gen.emit_mov_reg_mem(7, iterable_offset); // RDI = object_id
+        gen.emit_mov_reg_mem(7, iterable_offset); // RDI = object_address
         gen.emit_mov_reg_mem(6, index_offset); // RSI = property_index
         gen.emit_call("__object_get_property"); // RAX = property value (which should be a string pointer)
         gen.emit_mov_mem_reg(user_value_offset, 0); // Store value in user variable
@@ -3507,7 +3661,14 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
     } else {
         // Get the object's variable type and class name for regular variables
         object_type = types.get_variable_type(object_name);
-        class_name = types.get_variable_class_name(object_name);
+        uint32_t class_type_id = types.get_variable_class_type_id(object_name);
+        
+        if (class_type_id != 0) {
+            auto* compiler = get_current_compiler();
+            if (compiler) {
+                class_name = compiler->get_class_name_from_type_id(class_type_id);
+            }
+        }
         
         if (object_type != DataType::CLASS_INSTANCE || class_name.empty()) {
             throw std::runtime_error("Property access on non-object or unknown class: " + object_name);
@@ -3539,13 +3700,32 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
     }
     
     if (property_offset == -1) {
+        // Check for special built-in properties first
+        if (property_name == "memoryAddress") {
+            std::cout << "[DEBUG] PropertyAccess: Accessing special .memoryAddress property" << std::endl;
+            
+            // Load the object pointer and return it as the memory address
+            if (object_name == "this") {
+                // For 'this', the object_address is stored at stack offset -8 by the method prologue
+                gen.emit_mov_reg_mem(0, -8); // RAX = object_address (this)
+            } else {
+                // For regular variables, load from their stack offset
+                int64_t object_stack_offset = types.get_variable_offset(object_name);
+                gen.emit_mov_reg_mem(0, object_stack_offset); // RAX = object pointer
+            }
+            
+            // RAX now contains the object address, which IS the memory address
+            // No additional processing needed since object_address == memory address
+            return;
+        }
+        
         // Property not found in static class fields - check dynamic properties
         std::cout << "[DEBUG] PropertyAccess: Property '" << property_name << "' not found in static fields, using dynamic property lookup" << std::endl;
         
         // Load the object pointer - different handling for 'this' vs regular variables
         if (object_name == "this") {
-            // For 'this', the object_id is stored at stack offset -8 by the method prologue
-            gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+            // For 'this', the object_address is stored at stack offset -8 by the method prologue
+            gen.emit_mov_reg_mem(0, -8); // RAX = object_address (this)
             std::cout << "[DEBUG] PropertyAccess: Loading 'this' from stack offset -8" << std::endl;
         } else {
             // For regular variables, load from their stack offset
@@ -3584,8 +3764,8 @@ void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     // Load the object pointer - different handling for 'this' vs regular variables
     if (object_name == "this") {
-        // For 'this', the object_id is stored at stack offset -8 by the method prologue
-        gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+        // For 'this', the object_address is stored at stack offset -8 by the method prologue
+        gen.emit_mov_reg_mem(0, -8); // RAX = object_address (this)
         std::cout << "[DEBUG] PropertyAccess: Loading 'this' from stack offset -8" << std::endl;
     } else {
         // For regular variables, load from their stack offset
@@ -3633,11 +3813,18 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
             }
             
             std::string object_name = var_expr->name;
-            class_name = types.get_variable_class_name(object_name);
+            uint32_t class_type_id = types.get_variable_class_type_id(object_name);
             
-            if (class_name.empty()) {
+            if (class_type_id == 0) {
                 throw std::runtime_error("Property access on object with unknown class: " + object_name);
             }
+            
+            // Get class name from type ID for backward compatibility with existing logic
+            auto* compiler = get_current_compiler();
+            if (!compiler) {
+                throw std::runtime_error("No compiler context available for property access");
+            }
+            class_name = compiler->get_class_name_from_type_id(class_type_id);
         }
         
         // Get the class info to find property offset
@@ -3665,6 +3852,17 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
         }
         
         if (property_offset == -1) {
+            // Check for special built-in properties first
+            if (property_name == "memoryAddress") {
+                std::cout << "[DEBUG] ExpressionPropertyAccess: Accessing special .memoryAddress property" << std::endl;
+                
+                // Object pointer is already in RAX from object->generate_code()
+                // Just return the object pointer as the memory address
+                result_type = DataType::INT64; // Return as integer for proper address handling
+                std::cout << "[DEBUG] ExpressionPropertyAccess: Generated memoryAddress access" << std::endl;
+                return;
+            }
+            
             // Property not found in static class fields - check dynamic properties
             std::cout << "[DEBUG] ExpressionPropertyAccess: Property '" << property_name << "' not found in static fields, using dynamic property lookup" << std::endl;
             
@@ -3747,9 +3945,9 @@ void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& 
 }
 
 void ThisExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
-    // Load the object_id from the stack where it was saved in the method prologue
-    // Instance methods save the object_id (this) at stack offset -8
-    gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+    // Load the object_address from the stack where it was saved in the method prologue
+    // Instance methods save the object_address (this) at stack offset -8
+    gen.emit_mov_reg_mem(0, -8); // RAX = object_address (this)
 }
 
 
@@ -3844,10 +4042,10 @@ void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::string constructor_label = "__constructor_" + class_name;
     
     // Set up constructor arguments in registers
-    gen.emit_mov_reg_mem(7, -8); // RDI = object_id (this)
+    gen.emit_mov_reg_mem(7, -8); // RDI = object_address (this)
     
     // Pass constructor arguments in registers
-    for (size_t i = 0; i < arguments.size() && i < 5; i++) { // Max 5 constructor params (RDI is object_id)
+    for (size_t i = 0; i < arguments.size() && i < 5; i++) { // Max 5 constructor params (RDI is object_address)
         arguments[i]->generate_code(gen, types);
         
         // Store argument value in temporary stack location
@@ -3868,7 +4066,7 @@ void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Call the constructor function
     gen.emit_call(constructor_label);
     
-    // Restore object_id to RAX for return value
+    // Restore object_address to RAX for return value
     gen.emit_mov_reg_mem(0, -8);
     
     result_type = DataType::CLASS_INSTANCE;
@@ -3881,7 +4079,7 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Set the current class context for 'this' handling in constructors
     types.set_current_class_context(class_name);
     
-    // Generate constructor as a function with 'this' (object_id) as first parameter, then constructor parameters
+    // Generate constructor as a function with 'this' (object_address) as first parameter, then constructor parameters
     std::string constructor_label = "__constructor_" + class_name;
     
     gen.emit_label(constructor_label);
@@ -3897,10 +4095,10 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     gen.emit_prologue();
     
-    // Set up 'this' parameter (object_id) in first stack slot
+    // Set up 'this' parameter (object_address) in first stack slot
     types.set_variable_type("this", DataType::CLASS_INSTANCE);
     types.set_variable_offset("this", -8);
-    gen.emit_mov_mem_reg(-8, 7); // save RDI (object_id) to 'this'
+    gen.emit_mov_mem_reg(-8, 7); // save RDI (object_address) to 'this'
     
     // Set up constructor parameters from registers to stack (starting from second parameter)
     for (size_t i = 0; i < parameters.size() && i < 5; i++) { // Max 5 params (RDI is used for 'this')
@@ -3942,7 +4140,7 @@ void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
                     int64_t property_offset = OBJECT_PROPERTIES_START_OFFSET + (i * 8); // Each property is 8 bytes
                     
                     // Direct offset assignment - same as ExpressionPropertyAssignment
-                    gen.emit_mov_reg_mem(2, -8); // RDX = object_id (from 'this' at [rbp-8])
+                    gen.emit_mov_reg_mem(2, -8); // RDX = object_address (from 'this' at [rbp-8])
                     gen.emit_mov_reg_offset_reg(2, property_offset, 0); // [RDX + property_offset] = RAX
                 }
             }
@@ -3992,9 +4190,9 @@ void MethodDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     gen.emit_prologue();
     
     if (!is_static) {
-        // Instance method: first parameter (RDI) is the object_id (this)
-        types.set_variable_offset("__this_object_id", -8);
-        gen.emit_mov_mem_reg(-8, 7); // Save object_id from RDI
+        // Instance method: first parameter (RDI) is the object_address (this)
+        types.set_variable_offset("__this_object_address", -8);
+        gen.emit_mov_mem_reg(-8, 7); // Save object_address from RDI
         
         // Set up other parameters starting from -16
         for (size_t i = 0; i < parameters.size() && i < 5; i++) { // 5 because RDI is used for this
@@ -4067,7 +4265,14 @@ void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types)
     } else {
         // Get the object's variable type and class name for regular variables
         object_type = types.get_variable_type(object_name);
-        class_name = types.get_variable_class_name(object_name);
+        uint32_t class_type_id = types.get_variable_class_type_id(object_name);
+        
+        if (class_type_id != 0) {
+            auto* compiler = get_current_compiler();
+            if (compiler) {
+                class_name = compiler->get_class_name_from_type_id(class_type_id);
+            }
+        }
         
         if (object_type != DataType::CLASS_INSTANCE || class_name.empty()) {
             throw std::runtime_error("Property assignment on non-object or unknown class: " + object_name);
@@ -4104,8 +4309,8 @@ void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types)
         
         // Load the object pointer
         if (object_name == "this") {
-            // For 'this', the object_id is stored at stack offset -8 by the method prologue
-            gen.emit_mov_reg_mem(0, -8); // RAX = object_id (this)
+            // For 'this', the object_address is stored at stack offset -8 by the method prologue
+            gen.emit_mov_reg_mem(0, -8); // RAX = object_address (this)
         } else {
             // For regular variables, load from their stack offset
             int64_t object_stack_offset = types.get_variable_offset(object_name);
@@ -4166,10 +4371,44 @@ void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types)
     // Clear the property assignment context
     types.clear_property_assignment_context();
     
+    // Handle reference counting for CLASS_INSTANCE property assignments
+    if (property_type == DataType::CLASS_INSTANCE && value->result_type == DataType::CLASS_INSTANCE) {
+        // Load the object pointer to check for existing property value
+        if (object_name == "this") {
+            gen.emit_mov_reg_mem(2, -8); // RDX = object_address (this)
+        } else {
+            int64_t object_stack_offset = types.get_variable_offset(object_name);
+            gen.emit_mov_reg_mem(2, object_stack_offset); // RDX = object pointer
+        }
+        
+        // Load old property value and decrement its reference count if not null
+        gen.emit_mov_reg_reg_offset(1, 2, property_offset); // RBX = old property value at [RDX + property_offset]
+        gen.emit_mov_reg_imm(3, 0); // R8 = 0
+        gen.emit_compare(1, 3); // Compare RBX with 0
+        std::string skip_old_prop_release = "skip_old_prop_release_" + std::to_string(rand());
+        gen.emit_jump_if_zero(skip_old_prop_release); // Skip if null
+        
+        // Decrement reference count of old property value (RBX = old object)
+        gen.emit_ref_count_decrement(1, 3); // RBX = old object, RDX = result (unused)
+        
+        gen.emit_label(skip_old_prop_release);
+        
+        // Increment reference count for new property value if not null
+        gen.emit_mov_reg_imm(1, 0); // RCX = 0
+        gen.emit_compare(0, 1); // Compare RAX with 0
+        std::string skip_new_prop_inc = "skip_new_prop_inc_" + std::to_string(rand());
+        gen.emit_jump_if_zero(skip_new_prop_inc); // Skip if null
+        
+        // Increment reference count for the new object (RAX = object)
+        gen.emit_ref_count_increment(0); // RAX = new object pointer
+        
+        gen.emit_label(skip_new_prop_inc);
+    }
+    
     // Load the object pointer and store the value
     if (object_name == "this") {
-        // For 'this', the object_id is stored at stack offset -8 by the method prologue
-        gen.emit_mov_reg_mem(2, -8); // RDX = object_id (this)
+        // For 'this', the object_address is stored at stack offset -8 by the method prologue
+        gen.emit_mov_reg_mem(2, -8); // RDX = object_address (this)
     } else {
         // For regular variables, load from their stack offset
         int64_t object_stack_offset = types.get_variable_offset(object_name);
@@ -4198,7 +4437,15 @@ void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInferen
     }
     
     std::string object_name = var_expr->name;
-    std::string class_name = types.get_variable_class_name(object_name);
+    uint32_t class_type_id = types.get_variable_class_type_id(object_name);
+    
+    std::string class_name;
+    if (class_type_id != 0) {
+        auto* compiler = get_current_compiler();
+        if (compiler) {
+            class_name = compiler->get_class_name_from_type_id(class_type_id);
+        }
+    }
     
     if (object_type != DataType::CLASS_INSTANCE || class_name.empty()) {
         throw std::runtime_error("Property assignment on non-object or unknown class: " + object_name);
@@ -4292,6 +4539,35 @@ void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInferen
     // Clear the property assignment context
     types.clear_property_assignment_context();
     
+    // Handle reference counting for CLASS_INSTANCE property assignments
+    if (property_type == DataType::CLASS_INSTANCE && value->result_type == DataType::CLASS_INSTANCE) {
+        // Load object pointer from stack
+        gen.emit_mov_reg_mem(2, -56); // RDX = object pointer from [rbp-56]
+        
+        // Load old property value and decrement its reference count if not null
+        gen.emit_mov_reg_reg_offset(1, 2, property_offset); // RBX = old property value at [RDX + property_offset]
+        gen.emit_mov_reg_imm(3, 0); // R8 = 0
+        gen.emit_compare(1, 3); // Compare RBX with 0
+        std::string skip_old_expr_prop_release = "skip_old_expr_prop_release_" + std::to_string(rand());
+        gen.emit_jump_if_zero(skip_old_expr_prop_release); // Skip if null
+        
+        // Decrement reference count of old property value (RBX = old object)
+        gen.emit_ref_count_decrement(1, 3); // RBX = old object, RDX = result (unused)
+        
+        gen.emit_label(skip_old_expr_prop_release);
+        
+        // Increment reference count for new property value if not null
+        gen.emit_mov_reg_imm(1, 0); // RCX = 0
+        gen.emit_compare(0, 1); // Compare RAX with 0
+        std::string skip_new_expr_prop_inc = "skip_new_expr_prop_inc_" + std::to_string(rand());
+        gen.emit_jump_if_zero(skip_new_expr_prop_inc); // Skip if null
+        
+        // Increment reference count for the new object (RAX = object)
+        gen.emit_ref_count_increment(0); // RAX = new object pointer
+        
+        gen.emit_label(skip_new_expr_prop_inc);
+    }
+    
     // LIGHTNING FAST: Direct offset assignment - zero performance penalty like C++
     std::cout << "[DEBUG] ExpressionPropertyAssignment: Loading object pointer from stack and storing value" << std::endl;
     std::cout.flush();
@@ -4319,8 +4595,8 @@ void SuperCall::generate_code(CodeGenerator& gen, TypeInference& types) {
     // TODO: Need to determine the parent class name from context
     // For now, generate a call that will need to be resolved at runtime
     
-    // Get the object_id from 'this' parameter (should be available in constructor context)
-    gen.emit_mov_reg_mem(7, -8); // RDI = object_id (this)
+    // Get the object_address from 'this' parameter (should be available in constructor context)
+    gen.emit_mov_reg_mem(7, -8); // RDI = object_address (this)
     
     // Set up constructor arguments
     for (size_t i = 0; i < arguments.size() && i < 5; i++) {
@@ -4354,8 +4630,8 @@ void SuperMethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
     // TODO: This needs to be enhanced to dynamically resolve the parent class method
     // For now, generate a call that assumes parent method naming convention
     
-    // Get the object_id from 'this' parameter (should be available in method context)
-    gen.emit_mov_reg_mem(7, -8); // RDI = object_id (this)
+    // Get the object_address from 'this' parameter (should be available in method context)
+    gen.emit_mov_reg_mem(7, -8); // RDI = object_address (this)
     
     // Set up method arguments
     for (size_t i = 0; i < arguments.size() && i < 5; i++) {
@@ -4529,9 +4805,13 @@ void OperatorOverloadDecl::generate_code(CodeGenerator& gen, TypeInference& type
             case 5: gen.emit_mov_mem_reg(stack_offset, 9); break;  // save R9
         }
         
-        // Special handling for class instances - set class name
+        // Special handling for class instances - set class type ID
         if (param.type == DataType::CLASS_INSTANCE && !param.class_name.empty()) {
-            types.set_variable_class_type(param.name, param.class_name);
+            auto* compiler = get_current_compiler();
+            if (compiler) {
+                uint32_t class_type_id = compiler->get_class_type_id(param.class_name);
+                types.set_variable_class_type(param.name, class_type_id);
+            }
         }
     }
     

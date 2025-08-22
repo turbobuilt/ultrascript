@@ -553,6 +553,31 @@ bool GoTSCompiler::is_class_defined(const std::string& class_name) {
     return classes.find(class_name) != classes.end();
 }
 
+uint32_t GoTSCompiler::get_class_type_id(const std::string& class_name) {
+    // For now, use a simple hash of the class name as type ID
+    // TODO: Replace with proper type ID registry from working_class_debug_test.cpp
+    std::hash<std::string> hasher;
+    uint32_t type_id = static_cast<uint32_t>(hasher(class_name));
+    
+    // Ensure type ID is non-zero (0 is reserved for unknown/invalid)
+    if (type_id == 0) {
+        type_id = 1;
+    }
+    
+    return type_id;
+}
+
+std::string GoTSCompiler::get_class_name_from_type_id(uint32_t type_id) {
+    // For now, we need to iterate through classes to find matching type ID
+    // TODO: Replace with proper type ID registry
+    for (const auto& pair : classes) {
+        if (get_class_type_id(pair.first) == type_id) {
+            return pair.first;
+        }
+    }
+    return "";  // Not found
+}
+
 // Function management methods
 
 // Module system methods
@@ -915,6 +940,15 @@ bool GoTSCompiler::has_operator_overload(const std::string& class_name, TokenTyp
            class_it->second.operator_overloads.end();
 }
 
+bool GoTSCompiler::has_operator_overload(uint32_t class_type_id, TokenType operator_type) {
+    // Convert type ID to class name and use the existing implementation
+    std::string class_name = get_class_name_from_type_id(class_type_id);
+    if (class_name.empty()) {
+        return false;
+    }
+    return has_operator_overload(class_name, operator_type);
+}
+
 const OperatorOverload* GoTSCompiler::find_best_operator_overload(const std::string& class_name, TokenType operator_type, 
                                                                   const std::vector<DataType>& arg_types) {
     const auto* overloads = get_operator_overloads(class_name, operator_type);
@@ -1003,9 +1037,9 @@ void GoTSCompiler::generate_specialized_inherited_methods(const ClassDecl& class
             gen.set_function_stack_size(estimated_stack_size);
             gen.emit_prologue();
             
-            // Save object_id (this) from RDI
-            types.set_variable_offset("__this_object_id", -8);
-            gen.emit_mov_mem_reg(-8, 7); // Save object_id from RDI
+            // Save object_address (this) from RDI
+            types.set_variable_offset("__this_object_address", -8);
+            gen.emit_mov_mem_reg(-8, 7); // Save object_address from RDI
             
             // Set the class context to the CHILD class (not parent) for correct property offsets
             types.set_current_class_context(class_decl.name);

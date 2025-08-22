@@ -132,7 +132,9 @@ bool TypeInference::is_array_comparison_expression(const std::string& expression
         
         // If the variable is a class instance, check for operator overloading
         if (var_type == DataType::CLASS_INSTANCE) {
-            std::string class_name = get_variable_class_name(var_name);
+            uint32_t class_type_id = get_variable_class_type_id(var_name);
+            auto* compiler = get_current_compiler();
+            std::string class_name = compiler ? compiler->get_class_name_from_type_id(class_type_id) : "";
             TokenType op_token = string_to_operator_token(operator_str);
             
             if (op_token != TokenType::EOF_TOKEN) {
@@ -217,7 +219,9 @@ DataType TypeInference::infer_complex_expression_type(const std::string& express
         
         // If left operand is a class instance, check for operator overloading
         if (left_type == DataType::CLASS_INSTANCE) {
-            std::string class_name = get_variable_class_name(left_var);
+            uint32_t class_type_id = get_variable_class_type_id(left_var);
+            auto* compiler = get_current_compiler();
+            std::string class_name = compiler ? compiler->get_class_name_from_type_id(class_type_id) : "";
             TokenType op_token = string_to_operator_token(operator_str);
             
             if (op_token != TokenType::EOF_TOKEN) {
@@ -437,14 +441,14 @@ void TypeInference::reset_for_function_with_params(int param_count) {
     current_offset = -(param_count + 1) * 8 - 8;  // Leave extra space for safety
 }
 
-void TypeInference::set_variable_class_type(const std::string& name, const std::string& class_name) {
+void TypeInference::set_variable_class_type(const std::string& name, uint32_t class_type_id) {
     variable_types[name] = DataType::CLASS_INSTANCE;
-    variable_class_names[name] = class_name;
+    variable_class_type_ids[name] = class_type_id;
 }
 
-std::string TypeInference::get_variable_class_name(const std::string& name) {
-    auto it = variable_class_names.find(name);
-    return (it != variable_class_names.end()) ? it->second : "";
+uint32_t TypeInference::get_variable_class_type_id(const std::string& name) {
+    auto it = variable_class_type_ids.find(name);
+    return (it != variable_class_type_ids.end()) ? it->second : 0;
 }
 
 void TypeInference::set_variable_array_element_type(const std::string& name, DataType element_type) {
@@ -598,4 +602,37 @@ std::string TypeInference::get_current_class_context() const {
 
 void TypeInference::clear_current_class_context() {
     current_class_name.clear();
+}
+
+// Type ID versions for better performance (avoid string conversions)
+DataType TypeInference::infer_operator_index_type(uint32_t class_type_id, const std::string& index_expression) {
+    auto* compiler = get_current_compiler();
+    if (!compiler) {
+        return DataType::ANY;
+    }
+    
+    // Convert to class name for backward compatibility with existing logic
+    std::string class_name = compiler->get_class_name_from_type_id(class_type_id);
+    if (class_name.empty()) {
+        return DataType::ANY;
+    }
+    
+    // Delegate to string version
+    return infer_operator_index_type(class_name, index_expression);
+}
+
+DataType TypeInference::get_best_numeric_operator_type(uint32_t class_type_id, const std::string& numeric_literal) {
+    auto* compiler = get_current_compiler();
+    if (!compiler) {
+        return DataType::ANY;
+    }
+    
+    // Convert to class name for backward compatibility with existing logic
+    std::string class_name = compiler->get_class_name_from_type_id(class_type_id);
+    if (class_name.empty()) {
+        return DataType::ANY;
+    }
+    
+    // Delegate to string version  
+    return get_best_numeric_operator_type(class_name, numeric_literal);
 }
