@@ -393,9 +393,9 @@ extern "C" int64_t __class_property_lookup(void* object, void* property_name_str
     // Find the property in the class fields
     for (size_t i = 0; i < class_info->fields.size(); ++i) {
         if (class_info->fields[i].name == property_name) {
-            // Object layout: [class_name_ptr][property_count][dynamic_map_ptr][property0][property1]...
+            // Object layout: [class_name_ptr][property_count][ref_count][dynamic_map_ptr][property0][property1]...
             // Properties start at offset 32 (4 * 8 bytes for metadata)
-            int64_t property_offset = 24 + (i * 8);
+            int64_t property_offset = OBJECT_PROPERTIES_START_OFFSET + (i * 8);
             
             // Direct memory access to get the property value
             int64_t* object_ptr = static_cast<int64_t*>(object);
