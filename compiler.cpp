@@ -250,6 +250,10 @@ void GoTSCompiler::compile(const std::string& source) {
         // Mark epilogue location  
         codegen->emit_label("__main_epilogue");
         
+        // CRITICAL: Add automatic reference count cleanup for local variables before epilogue
+        // TEMPORARILY DISABLED: Let functions handle their own cleanup
+        // generate_scope_cleanup_code(*codegen, type_system);
+        
         // Ensure return value is set to 0 for main function
         codegen->emit_mov_reg_imm(0, 0);  // mov rax, 0
         
@@ -268,6 +272,122 @@ void GoTSCompiler::compile(const std::string& source) {
     } catch (const std::exception& e) {
         std::cerr << "Compilation error: " << e.what() << std::endl;
         throw;
+    }
+}
+
+void GoTSCompiler::generate_scope_cleanup_code(CodeGenerator& gen, TypeInference& types) {
+    // Generate MAXIMUM PERFORMANCE cleanup for all local CLASS_INSTANCE variables
+    // For compile-time known types: Generate direct destructor calls (zero overhead)
+    // For runtime types: Use reference counting (minimal overhead)
+    
+    // Get all variables allocated in the current scope
+    const auto& variable_types = types.get_all_variable_types();
+    const auto& variable_offsets = types.get_all_variable_offsets();
+    const auto& variable_class_names = types.get_all_variable_class_names();
+    
+    std::cout << "[DEBUG] generate_scope_cleanup_code: Processing " << variable_types.size() << " variables" << std::endl;
+    
+    for (const auto& [name, type] : variable_types) {
+        // Skip 'this' variable - it's not a local variable that needs cleanup
+        if (name == "this") {
+            std::cout << "[DEBUG] Skipping 'this' variable - not a local variable" << std::endl;
+            continue;
+        }
+        
+        if (type == DataType::CLASS_INSTANCE) {
+            // This is a class instance variable - needs reference count cleanup
+            auto offset_it = variable_offsets.find(name);
+            if (offset_it != variable_offsets.end()) {
+                int64_t offset = offset_it->second;
+                
+                std::cout << "[DEBUG] Generating cleanup code for variable '" << name 
+                          << "' at offset " << offset << std::endl;
+                
+                std::cout << "[DEBUG] CLEANUP: About to read from stack offset " << offset 
+                          << " (should match assignment offset)" << std::endl;
+                
+                // MAXIMUM PERFORMANCE: Check if we know the class type at compile time
+                auto class_name_it = variable_class_names.find(name);
+                if (class_name_it != variable_class_names.end() && !class_name_it->second.empty()) {
+                    // ZERO OVERHEAD PATH: Direct destructor call for known types
+                    std::string class_name = class_name_it->second;
+                    std::cout << "[DEBUG] DIRECT DESTRUCTOR: Generating direct call for class " << class_name << std::endl;
+                    
+                    // 1. Load the object pointer from the stack variable
+                    gen.emit_mov_reg_mem(1, offset); // RCX = [RBP + offset] (object pointer)
+                    
+                    // DEBUG: Call runtime debug function to track what's being loaded
+                    gen.emit_mov_reg_reg(7, 5);  // RDI = RBP (frame pointer)
+                    gen.emit_mov_reg_imm(6, offset);  // RSI = offset  
+                    gen.emit_mov_reg_reg(2, 1);  // RDX = value loaded (RCX)
+                    gen.emit_call("__debug_stack_load");
+                    
+                    // 2. Check if pointer is null (don't call destructor on null pointers)
+                    gen.emit_mov_reg_imm(2, 0); // RDX = 0
+                    gen.emit_compare(1, 2); // Compare RCX with 0
+                    std::string skip_cleanup_label = "skip_cleanup_" + name + "_" + std::to_string(rand());
+                    gen.emit_jump_if_zero(skip_cleanup_label); // Skip if null
+                    
+                    // 3. DIRECT DESTRUCTOR CALL (zero overhead)
+                    std::string destructor_label = "__method_destructor_" + class_name;
+                    gen.emit_mov_reg_reg(7, 1); // RDI = RCX (move object pointer to first parameter register)
+                    gen.emit_call(destructor_label); // Direct call to destructor - no lookup!
+                    
+                    // 4. Free the object directly (no reference counting needed for stack objects)
+                    // RELOAD object pointer from stack (destructors can modify registers)
+                    gen.emit_mov_reg_mem(7, offset); // RDI = [RBP + offset] (reload object pointer)
+                    gen.emit_call("__object_free_direct"); // Free memory directly
+                    
+                    // 5. Skip cleanup label
+                    gen.emit_label(skip_cleanup_label);
+                    
+                } else {
+                    // FALLBACK PATH: Reference counting for unknown types at compile time
+                    std::cout << "[DEBUG] REFERENCE COUNTING: Using ref count for unknown type" << std::endl;
+                    
+                    // 1. Load the object pointer from the stack variable
+                    gen.emit_mov_reg_mem(1, offset); // RCX = [RBP + offset] (object pointer)
+                    
+                    // 2. Check if pointer is null (don't decrement null pointers)
+                    gen.emit_mov_reg_imm(2, 0); // RDX = 0
+                    gen.emit_compare(1, 2); // Compare RCX with 0
+                    std::string skip_cleanup_label = "skip_cleanup_" + name + "_" + std::to_string(rand());
+                    gen.emit_jump_if_zero(skip_cleanup_label); // Skip if null
+                    
+                    // 3. Decrement reference count (this may call destructor if ref_count reaches 0)
+                    gen.emit_ref_count_decrement(1, 2); // Decrement ref count of object in RCX
+                    
+                    // 4. Skip cleanup label
+                    gen.emit_label(skip_cleanup_label);
+                }
+            }
+        } else if (type == DataType::ANY) {
+            // ANY variable might contain a class instance - check at runtime
+            auto offset_it = variable_offsets.find(name);
+            if (offset_it != variable_offsets.end()) {
+                int64_t offset = offset_it->second;
+                
+                std::cout << "[DEBUG] Generating runtime cleanup check for ANY variable '" << name 
+                          << "' at offset " << offset << std::endl;
+                
+                // Generate code to check and clean up DynamicValue if it contains an object:
+                // 1. Load the DynamicValue pointer from the stack variable
+                gen.emit_mov_reg_mem(1, offset); // RCX = [RBP + offset] (DynamicValue*)
+                
+                // 2. Check if pointer is null
+                gen.emit_mov_reg_imm(2, 0); // RDX = 0
+                gen.emit_compare(1, 2); // Compare RCX with 0
+                std::string skip_any_cleanup_label = "skip_any_cleanup_" + name + "_" + std::to_string(rand());
+                gen.emit_jump_if_zero(skip_any_cleanup_label); // Skip if null
+                
+                // 3. Call runtime function to handle DynamicValue cleanup
+                gen.emit_mov_reg_reg(7, 1); // RDI = RCX (DynamicValue*)
+                gen.emit_call("__dynamic_value_release_if_object"); // Runtime handles cleanup
+                
+                // 4. Skip cleanup label
+                gen.emit_label(skip_any_cleanup_label);
+            }
+        }
     }
 }
 

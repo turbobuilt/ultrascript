@@ -408,6 +408,7 @@ int64_t TypeInference::allocate_variable(const std::string& name, DataType type)
     if (it != variable_offsets.end()) {
         // Variable already allocated, just update type
         variable_types[name] = type;
+        std::cout << "[DEBUG] TypeInference::allocate_variable - variable '" << name << "' already exists at offset " << it->second << std::endl;
         return it->second;
     }
     
@@ -417,6 +418,9 @@ int64_t TypeInference::allocate_variable(const std::string& name, DataType type)
     
     variable_offsets[name] = offset;
     variable_types[name] = type;
+    
+    std::cout << "[DEBUG] TypeInference::allocate_variable - allocated variable '" << name << "' at offset " << offset << " (type=" << static_cast<int>(type) << ")" << std::endl;
+    
     return offset;
 }
 
@@ -449,6 +453,15 @@ void TypeInference::set_variable_class_type(const std::string& name, uint32_t cl
 uint32_t TypeInference::get_variable_class_type_id(const std::string& name) {
     auto it = variable_class_type_ids.find(name);
     return (it != variable_class_type_ids.end()) ? it->second : 0;
+}
+
+void TypeInference::set_variable_class_name(const std::string& name, const std::string& class_name) {
+    variable_class_names[name] = class_name;
+}
+
+std::string TypeInference::get_variable_class_name(const std::string& name) {
+    auto it = variable_class_names.find(name);
+    return (it != variable_class_names.end()) ? it->second : "";
 }
 
 void TypeInference::set_variable_array_element_type(const std::string& name, DataType element_type) {

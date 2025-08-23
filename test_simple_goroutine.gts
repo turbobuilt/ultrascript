@@ -1,11 +1,4 @@
-function test() {
-    console.log('TEST FUNCTION CALLED');
+go function() {
+    console.log("Hello from goroutine!")
 }
-
-function main() {
-    console.log('Before goroutine');
-    go test();
-    console.log('After goroutine');
-}
-
-main()
+console.log("main done")

@@ -193,6 +193,7 @@ class TypeInference {
 private:
     std::unordered_map<std::string, DataType> variable_types;
     std::unordered_map<std::string, uint32_t> variable_class_type_ids;  // For CLASS_INSTANCE variables - use type IDs instead of names
+    std::unordered_map<std::string, std::string> variable_class_names;  // For CLASS_INSTANCE variables - class names for direct destructor calls
     std::unordered_map<std::string, DataType> variable_array_element_types;  // For ARRAY variables
     std::unordered_map<std::string, int64_t> variable_offsets;
     int64_t current_offset = -8; // Start at -8 (RBP-8)
@@ -215,8 +216,10 @@ public:
     bool needs_casting(DataType from, DataType to);
     void set_variable_type(const std::string& name, DataType type);
     void set_variable_class_type(const std::string& name, uint32_t class_type_id);
+    void set_variable_class_name(const std::string& name, const std::string& class_name);
     DataType get_variable_type(const std::string& name);
     uint32_t get_variable_class_type_id(const std::string& name);
+    std::string get_variable_class_name(const std::string& name);
     
     // Array element type tracking for typed arrays
     void set_variable_array_element_type(const std::string& name, DataType element_type);
@@ -231,6 +234,11 @@ public:
     void exit_scope();
     void reset_for_function();
     void reset_for_function_with_params(int param_count);
+    
+    // Access to all variables for scope cleanup
+    const std::unordered_map<std::string, DataType>& get_all_variable_types() const { return variable_types; }
+    const std::unordered_map<std::string, int64_t>& get_all_variable_offsets() const { return variable_offsets; }
+    const std::unordered_map<std::string, std::string>& get_all_variable_class_names() const { return variable_class_names; }
     
     // Assignment context tracking for type-aware array creation
     void set_current_assignment_target_type(DataType type);
@@ -864,6 +872,9 @@ public:
     std::string get_import_stack_trace() const;
     void execute_module_code(Module& module);
     void prepare_partial_exports(Module& module);
+    
+    // Automatic scope cleanup for reference counting
+    void generate_scope_cleanup_code(CodeGenerator& gen, TypeInference& types);
     
 private:
     std::vector<std::string> current_loading_stack;  // Track circular imports

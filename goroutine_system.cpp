@@ -1,7 +1,9 @@
 #include "goroutine_system.h"
-#include "goroutine_advanced.h"
 #include <iostream>
 #include <algorithm>
+#include <cstdlib>
+#include <chrono>
+#include <thread>
 
 
 // Thread-local current goroutine
@@ -37,7 +39,7 @@ Goroutine::~Goroutine() {
         thread_.join();
     }
     
-    // Now safely unregister from scheduler after thread has completely finished
+    // Safely unregister after thread has completely finished
     GoroutineScheduler::instance().unregister_goroutine(id_);
 }
 
@@ -93,8 +95,8 @@ void Goroutine::run() {
         GoroutineScheduler::instance().signal_main_goroutine_completion();
     }
     
-    // NOTE: unregister_goroutine() is now called in destructor after thread_.join()
-    // to prevent deadlock
+    // Mark as completed - scheduler will clean up later
+    // This avoids potential deadlocks from self-unregistration
 }
 
 // Node.js-style event loop - handles ALL async operations
@@ -294,7 +296,7 @@ void Goroutine::reset_task(std::function<void()> new_task) {
 }
 
 void* Goroutine::allocate_shared_memory(size_t size) {
-    void* ptr = g_shared_memory_pool.allocate(size);
+    void* ptr = malloc(size);
     // std::cout << " bytes of shared memory at " << ptr << std::endl;
     return ptr;
 }
@@ -308,7 +310,7 @@ void Goroutine::share_memory(void* ptr, std::shared_ptr<Goroutine> target) {
 
 void Goroutine::release_shared_memory(void* ptr) {
     if (ptr) {
-        g_shared_memory_pool.release(ptr);
+        free(ptr);
     }
 }
 
@@ -487,8 +489,15 @@ void __new_goroutine_system_init() {
 }
 
 void __new_goroutine_system_cleanup() {
-    // Cleanup the goroutine system
-    // Most cleanup happens automatically in destructors
+    // Wait for all goroutines to complete
+    auto& scheduler = GoroutineScheduler::instance();
+    
+    // Wait for all active goroutines to complete
+    while (scheduler.get_active_count() > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    
+    std::cout << "DEBUG: All goroutines completed, cleanup finished" << std::endl;
 }
 
 } // extern "C"

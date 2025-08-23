@@ -15,6 +15,7 @@
 #include <cmath>
 #include <regex>
 #include <cstring>
+#include <dlfcn.h>
 
 // Forward declarations for new goroutine system
 extern "C" {
@@ -36,6 +37,37 @@ static std::mutex g_function_id_mutex;
 
 // Global console output mutex for thread safety
 std::mutex g_console_mutex;
+
+// Debug functions for memory inspection
+extern "C" void __debug_stack_store(void* rbp_addr, int64_t offset, void* value) {
+    void** stack_location = (void**)((char*)rbp_addr + offset);
+    std::cout << "[STACK_DEBUG] STORING: value=" << value 
+              << " at [rbp" << (offset >= 0 ? "+" : "") << offset << "] = " << stack_location 
+              << " (rbp=" << rbp_addr << ")" << std::endl;
+    
+    // Add extra validation for goroutine safety
+    void* current_sp;
+    asm volatile ("mov %%rsp, %0" : "=r"(current_sp));
+    std::cout << "[STACK_DEBUG] Current RSP: " << current_sp << ", writing to: " << stack_location << std::endl;
+    
+    // Check if we're writing to a valid stack location
+    if ((char*)stack_location > (char*)current_sp - 0x100000 && // Within 1MB below SP
+        (char*)stack_location < (char*)current_sp + 0x1000) {   // Within 4KB above SP
+        std::cout << "[STACK_DEBUG] Stack location appears valid" << std::endl;
+    } else {
+        std::cout << "[STACK_DEBUG] WARNING: Stack location may be invalid!" << std::endl;
+    }
+}
+
+extern "C" void __debug_stack_load(void* rbp_addr, int64_t offset, void* loaded_value) {
+    void** stack_location = (void**)((char*)rbp_addr + offset);
+    void* actual_value = *stack_location;
+    std::cout << "[STACK_DEBUG] LOADING: from [rbp" << (offset >= 0 ? "+" : "") << offset << "] = " << stack_location 
+              << " | Expected=" << loaded_value << " | Actual=" << actual_value << std::endl;
+    if (loaded_value != actual_value) {
+        std::cout << "[STACK_DEBUG] *** MISMATCH! Expected " << loaded_value << " but loaded " << actual_value << " ***" << std::endl;
+    }
+}
 
 // Global instances
 // Using pointers to control initialization/destruction order
@@ -139,7 +171,29 @@ static void* create_tracked_promise(std::shared_ptr<Promise> promise) {
 // Global executable memory info for thread-safe access
 ExecutableMemoryInfo g_executable_memory = {nullptr, 0, {}};
 
+// Global method registry for dynamic method lookup
+static std::unordered_map<std::string, size_t> g_method_offsets;
+static std::mutex g_method_registry_mutex;
+
 extern "C" {
+
+// Method registration for dynamic lookup
+void __register_method_offset(const char* method_name, size_t offset) {
+    std::lock_guard<std::mutex> lock(g_method_registry_mutex);
+    g_method_offsets[std::string(method_name)] = offset;
+}
+
+void* __get_method_address(const char* method_name) {
+    std::lock_guard<std::mutex> lock(g_method_registry_mutex);
+    auto it = g_method_offsets.find(std::string(method_name));
+    if (it != g_method_offsets.end()) {
+        void* base = __get_executable_memory_base();
+        if (base) {
+            return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(base) + it->second);
+        }
+    }
+    return nullptr;
+}
 
 // Function ID registration and lookup
 void __register_function_id(int64_t function_id, void* function_ptr) {
@@ -1029,13 +1083,14 @@ void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg) {
         printf("[DEBUG] Spawning goroutine with function at address %p\n", func_ptr);
         
         // Use the goroutine scheduler to spawn with the function pointer
-        typedef void (*func_t)();
+        // CRITICAL: Must match the calling convention of the main function!
+        typedef int (*func_t)();  // Same signature as main function
         func_t function = reinterpret_cast<func_t>(func_ptr);
         
         std::function<void()> task = [function]() {
             printf("[DEBUG] Goroutine task executing, calling function at %p\n", function);
-            function();
-            printf("[DEBUG] Goroutine task completed\n");
+            int result = function();  // Properly handle return value
+            printf("[DEBUG] Goroutine task completed with result: %d\n", result);
         };
         
         GoroutineScheduler::instance().spawn(task, nullptr);
@@ -1458,7 +1513,13 @@ int64_t __object_create(void* class_name_ptr, int64_t property_count) {
 extern "C" void* __jit_object_create(void* class_name_ptr) {
     // JIT-optimized object creation - for now, same as regular object creation
     int64_t obj_id = __object_create(class_name_ptr, 0);
-    return reinterpret_cast<void*>(obj_id);
+    void* result = reinterpret_cast<void*>(obj_id);
+    
+    std::cout << "[DEBUG] __jit_object_create returning pointer: " << result 
+              << " (from obj_id: " << obj_id << ")" << std::endl;
+    std::cout.flush();
+    
+    return result;
 }
 
 extern "C" void* __jit_object_create_sized(void* class_name_ptr, size_t size) {
@@ -1528,9 +1589,77 @@ extern "C" void __object_release(void* object_ptr) {
 }
 
 extern "C" void __object_destruct(void* object_ptr) {
-    // Simple wrapper that calls __object_release for reference counting
+    if (!object_ptr) return;
+    
     std::cout << "[DEBUG] __object_destruct called for object: " << object_ptr << std::endl;
-    __object_release(object_ptr);
+    
+    // The ref_count has already been decremented to 0 by the calling code
+    // So we just need to clean up and free the object
+    
+    // First, call the destructor method if it exists
+    void* class_name_ptr = GET_OBJECT_CLASS_NAME(object_ptr);
+    if (class_name_ptr) {
+        GoTSString* name_str = static_cast<GoTSString*>(class_name_ptr);
+        if (name_str && name_str->data()) {
+            std::string class_name = name_str->c_str();
+            std::cout << "[DEBUG] __object_destruct: calling destructor for class " << class_name << std::endl;
+            
+            // Try to find the destructor method using the method registry with class name
+            std::string method_name = "__method_destructor_" + class_name;
+            void* method_func = __get_method_address(method_name.c_str());
+            if (method_func) {
+                std::cout << "[DEBUG] __object_destruct: found destructor at " << method_func << std::endl;
+                // Call the destructor method with the object as parameter
+                // The method signature should be: void destructor(void* this_ptr)
+                typedef void (*DestructorFunc)(void*);
+                DestructorFunc destructor = reinterpret_cast<DestructorFunc>(method_func);
+                destructor(object_ptr);
+            } else {
+                std::cout << "[DEBUG] __object_destruct: no destructor method found" << std::endl;
+            }
+        }
+    }
+    
+    std::cout << "[DEBUG] __object_destruct: freeing object " << object_ptr << std::endl;
+    
+    // Clean up the dynamic property map if it exists
+    DynamicPropertyMap* dynamic_map = GET_OBJECT_DYNAMIC_MAP(object_ptr);
+    if (dynamic_map) {
+        dynamic_map->release();  // This will delete the map if its ref count reaches 0
+    }
+    
+    // Destroy the atomic ref_count object
+    reinterpret_cast<std::atomic<int64_t>*>(
+        reinterpret_cast<char*>(object_ptr) + OBJECT_REF_COUNT_OFFSET)->~atomic();
+    
+    // Free the object memory
+    free(object_ptr);
+    
+    std::cout << "[DEBUG] __object_destruct: object freed" << std::endl;
+}
+
+extern "C" void __object_free_direct(void* object_ptr) {
+    if (!object_ptr) return;
+    
+    std::cout << "[DEBUG] __object_free_direct called for object: " << object_ptr << std::endl;
+    
+    // Direct free without reference counting - used for stack-allocated objects
+    // where we know the destructor has already been called directly
+    
+    // Clean up the dynamic property map if it exists
+    DynamicPropertyMap* dynamic_map = GET_OBJECT_DYNAMIC_MAP(object_ptr);
+    if (dynamic_map) {
+        dynamic_map->release();  // This will delete the map if its ref count reaches 0
+    }
+    
+    // Destroy the atomic ref_count object
+    reinterpret_cast<std::atomic<int64_t>*>(
+        reinterpret_cast<char*>(object_ptr) + OBJECT_REF_COUNT_OFFSET)->~atomic();
+    
+    // Free the object memory
+    free(object_ptr);
+    
+    std::cout << "[DEBUG] __object_free_direct: object freed" << std::endl;
 }
 
 extern "C" int64_t __object_get_ref_count(void* object_ptr) {

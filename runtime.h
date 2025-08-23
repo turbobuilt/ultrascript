@@ -668,6 +668,10 @@ extern "C" {
     void __console_log_gots(void* gots_string_ptr);
     void __console_log_newline();
     void __console_log_space();
+    
+    // Stack debugging functions
+    void __debug_stack_store(void* rbp_addr, int64_t offset, void* value);
+    void __debug_stack_load(void* rbp_addr, int64_t offset, void* loaded_value);
     void __console_log_array(int64_t* array, int64_t size);
     void __console_log_number(int64_t value);
     void __console_log_double_bits(int64_t double_bits);
@@ -833,7 +837,12 @@ extern "C" {
     void __object_add_ref(void* object_ptr);
     void __object_release(void* object_ptr);
     void __object_destruct(void* object_ptr);
+    void __object_free_direct(void* object_ptr);  // Free object directly without reference counting
     int64_t __object_get_ref_count(void* object_ptr);
+    
+    // Method registry for dynamic calls
+    void __register_method_offset(const char* method_name, uint64_t method_offset);
+    uint64_t __lookup_method(const char* method_name);
     
     // Debug reference counting inspection
     int64_t __debug_get_ref_count(int64_t object_address);

@@ -16,7 +16,30 @@ static std::string generate_unique_label(const std::string& base) {
 #include <iomanip>
 #include <cstdio>
 #include <cstring>  // For strlen
-#include <execinfo.h>  // For backtrace
+#include <execinfo.h>
+
+// Debug helper to convert X86Reg to string
+static const char* register_name(X86Reg reg) {
+    switch (reg) {
+        case X86Reg::RAX: return "rax";
+        case X86Reg::RCX: return "rcx";
+        case X86Reg::RDX: return "rdx";
+        case X86Reg::RBX: return "rbx";
+        case X86Reg::RSP: return "rsp";
+        case X86Reg::RBP: return "rbp";
+        case X86Reg::RSI: return "rsi";
+        case X86Reg::RDI: return "rdi";
+        case X86Reg::R8: return "r8";
+        case X86Reg::R9: return "r9";
+        case X86Reg::R10: return "r10";
+        case X86Reg::R11: return "r11";
+        case X86Reg::R12: return "r12";
+        case X86Reg::R13: return "r13";
+        case X86Reg::R14: return "r14";
+        case X86Reg::R15: return "r15";
+        default: return "unknown";
+    }
+}  // For backtrace
 #include <unistd.h>    // For STDOUT_FILENO
 
 // Forward declarations for JIT object system functions
@@ -206,12 +229,26 @@ void X86CodeGenV2::emit_mov_reg_reg(int dst, int src) {
 void X86CodeGenV2::emit_mov_mem_reg(int64_t offset, int reg) {
     X86Reg src_reg = get_register_for_int(reg);
     MemoryOperand dst(X86Reg::RBP, static_cast<int32_t>(offset));
+    
+    // DEBUG: Print the exact assembly operation being generated with sequence number
+    static int seq = 0;
+    std::cout << "[ASM_DEBUG " << ++seq << "] emit_mov_mem_reg: mov [rbp" 
+              << (offset >= 0 ? "+" : "") << offset << "], " 
+              << register_name(src_reg) << " (STORING TO STACK)" << std::endl;
+    
     instruction_builder->mov(dst, src_reg);
 }
 
 void X86CodeGenV2::emit_mov_reg_mem(int reg, int64_t offset) {
     X86Reg dst_reg = get_register_for_int(reg);
     MemoryOperand src(X86Reg::RBP, static_cast<int32_t>(offset));
+    
+    // DEBUG: Print the exact assembly operation being generated with sequence number
+    static int seq = 0;
+    std::cout << "[ASM_DEBUG " << ++seq << "] emit_mov_reg_mem: mov " 
+              << register_name(dst_reg) << ", [rbp" 
+              << (offset >= 0 ? "+" : "") << offset << "] (LOADING FROM STACK)" << std::endl;
+    
     instruction_builder->mov(dst_reg, src);
 }
 
@@ -447,7 +484,12 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__object_add_ref", reinterpret_cast<void*>(__object_add_ref)},
         {"__object_release", reinterpret_cast<void*>(__object_release)},
         {"__object_destruct", reinterpret_cast<void*>(__object_destruct)},
+        {"__object_free_direct", reinterpret_cast<void*>(__object_free_direct)},
         {"__object_get_ref_count", reinterpret_cast<void*>(__object_get_ref_count)},
+        
+        // Stack debugging functions
+        {"__debug_stack_store", reinterpret_cast<void*>(__debug_stack_store)},
+        {"__debug_stack_load", reinterpret_cast<void*>(__debug_stack_load)},
         
         // Advanced dynamic value reference counting functions
         {"__dynamic_value_release_if_object", reinterpret_cast<void*>(__dynamic_value_release_if_object)},
@@ -613,6 +655,15 @@ void X86CodeGenV2::emit_label(const std::string& label) {
     size_t current_pos = instruction_builder->get_current_position();
     instruction_builder->resolve_label(label, current_pos);
     label_offsets[label] = static_cast<int64_t>(current_pos);
+    
+    // Register method offsets for runtime lookup
+    if (label.find("__method_") == 0) {
+        // Extract the method name (everything after "__method_")
+        std::string method_name = label.substr(9); // Skip "__method_"
+        
+        // Call the runtime function to register this method
+        __register_method_offset(label.c_str(), current_pos);
+    }
 }
 
 // =============================================================================

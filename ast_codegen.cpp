@@ -2843,21 +2843,27 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             (actual_declared_type == DataType::ANY && value->result_type == DataType::CLASS_INSTANCE)) {
             auto new_expr = dynamic_cast<NewExpression*>(value.get());
             if (new_expr) {
-                // Set the class type information for this variable using type ID
+                // Set the class type information for this variable using type ID AND class name
                 auto* compiler = get_current_compiler();
                 if (compiler) {
                     uint32_t class_type_id = compiler->get_class_type_id(new_expr->class_name);
                     types.set_variable_class_type(variable_name, class_type_id);
+                    types.set_variable_class_name(variable_name, new_expr->class_name); // Store class name for direct destructor calls
+                    std::cout << "[DEBUG] Assignment: Set class type '" << new_expr->class_name 
+                              << "' (id=" << class_type_id << ") for variable '" << variable_name << "'" << std::endl;
                 }
             } else {
                 // For copy assignments (obj3 = obj1), copy the class type ID from source variable
                 auto* var_expr = dynamic_cast<Identifier*>(value.get());
                 if (var_expr) {
                     uint32_t source_class_type_id = types.get_variable_class_type_id(var_expr->name);
+                    std::string source_class_name = types.get_variable_class_name(var_expr->name);
                     if (source_class_type_id != 0) {
                         types.set_variable_class_type(variable_name, source_class_type_id);
-                        std::cout << "[DEBUG] Assignment: Copied class type ID " << source_class_type_id 
-                                  << " from '" << var_expr->name << "' to '" << variable_name << "'" << std::endl;
+                        types.set_variable_class_name(variable_name, source_class_name); // Copy class name too
+                        std::cout << "[DEBUG] Assignment: Copied class type '" << source_class_name 
+                                  << "' (id=" << source_class_type_id << ") from '" << var_expr->name 
+                                  << "' to '" << variable_name << "'" << std::endl;
                     }
                 }
             }
@@ -2955,6 +2961,14 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             // RAX now contains the DynamicValue*
             gen.emit_mov_mem_reg(offset, 0);
             
+            // DEBUG: Call runtime debug function to track what's being stored
+            gen.emit_mov_reg_reg(7, 5);  // RDI = RBP (frame pointer)
+            gen.emit_mov_reg_imm(6, offset);  // RSI = offset
+            gen.emit_mov_reg_reg(2, 0);  // RDX = value being stored (RAX)
+            gen.emit_call("__debug_stack_store");
+            
+            std::cout << "[DEBUG] Assignment: Stored DynamicValue pointer at offset " << offset << std::endl;
+            
         } else if (variable_type == DataType::CLASS_INSTANCE) {
             // Target is statically typed class variable
             // Source can be: raw class, DynamicValue with class, null
@@ -2986,6 +3000,14 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             // else: null assignment - no ref counting needed
             
             gen.emit_mov_mem_reg(offset, 0); // Store the class instance pointer
+            
+            // DEBUG: Call runtime debug function to track what's being stored
+            gen.emit_mov_reg_reg(7, 5);  // RDI = RBP (frame pointer)  
+            gen.emit_mov_reg_imm(6, offset);  // RSI = offset
+            gen.emit_mov_reg_reg(2, 0);  // RDX = value being stored (RAX)
+            gen.emit_call("__debug_stack_store");
+            
+            std::cout << "[DEBUG] Assignment: Stored object pointer at offset " << offset << std::endl;
             
         } else {
             // Target is primitive type (string, int64, float64, etc.)
@@ -3131,6 +3153,12 @@ void FunctionDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     // If no explicit return, add implicit return 0
     if (!has_explicit_return) {
+        // CRITICAL: Add automatic cleanup for local variables before function return
+        auto* compiler = get_current_compiler();
+        if (compiler) {
+            compiler->generate_scope_cleanup_code(gen, types);
+        }
+        
         gen.emit_mov_reg_imm(0, 0);  // mov rax, 0 (default return value)
         gen.emit_function_return();
     }
@@ -3405,6 +3433,12 @@ void ForInStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
 void ReturnStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
     if (value) {
         value->generate_code(gen, types);
+    }
+    
+    // CRITICAL: Add automatic cleanup for local variables before function return
+    auto* compiler = get_current_compiler();
+    if (compiler) {
+        compiler->generate_scope_cleanup_code(gen, types);
     }
     
     // Use function return to properly restore stack frame and return
@@ -4034,40 +4068,8 @@ void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
         gen.emit_call("__jit_object_create");
     }
     
-    // Object pointer is now in RAX
-    // Store object pointer temporarily for constructor call
-    gen.emit_mov_mem_reg(-8, 0); // Save object pointer on stack
-    
-    // Call constructor function if it exists
-    std::string constructor_label = "__constructor_" + class_name;
-    
-    // Set up constructor arguments in registers
-    gen.emit_mov_reg_mem(7, -8); // RDI = object_address (this)
-    
-    // Pass constructor arguments in registers
-    for (size_t i = 0; i < arguments.size() && i < 5; i++) { // Max 5 constructor params (RDI is object_address)
-        arguments[i]->generate_code(gen, types);
-        
-        // Store argument value in temporary stack location
-        gen.emit_mov_mem_reg(-(int64_t)(i + 2) * 8, 0); // Store at -16, -24, etc.
-    }
-    
-    // Load arguments into appropriate registers
-    for (size_t i = 0; i < arguments.size() && i < 5; i++) {
-        switch (i) {
-            case 0: gen.emit_mov_reg_mem(6, -16); break; // RSI
-            case 1: gen.emit_mov_reg_mem(2, -24); break; // RDX  
-            case 2: gen.emit_mov_reg_mem(1, -32); break; // RCX
-            case 3: gen.emit_mov_reg_mem(8, -40); break; // R8
-            case 4: gen.emit_mov_reg_mem(9, -48); break; // R9
-        }
-    }
-    
-    // Call the constructor function
-    gen.emit_call(constructor_label);
-    
-    // Restore object_address to RAX for return value
-    gen.emit_mov_reg_mem(0, -8);
+    // Object pointer is now in RAX - for now, skip all constructor logic to test basic functionality
+    // TODO: Re-enable constructor calls once basic object creation/storage is working
     
     result_type = DataType::CLASS_INSTANCE;
 }
@@ -4174,7 +4176,7 @@ void MethodDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
     types.set_current_class_context(class_name);
     
     // Generate different labels and parameter handling for static vs instance methods
-    std::string method_label = is_static ? "__static_" + name : "__method_" + name;
+    std::string method_label = is_static ? "__static_" + name : "__method_" + name + "_" + class_name;
     
     gen.emit_label(method_label);
     
