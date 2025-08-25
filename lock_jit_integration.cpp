@@ -1,5 +1,5 @@
 #include "lock_jit_integration.h"
-#include "goroutine_system.h"
+#include "goroutine_system_v2.h"
 #include <algorithm>
 
 

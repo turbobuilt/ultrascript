@@ -15,7 +15,7 @@
 
 
 // Forward declarations
-class LexicalScope;
+// Removed LexicalScope forward declaration - using pure static analysis now
 struct VariableBinding;
 
 // Type system integration - define here to avoid circular dependencies
@@ -233,8 +233,7 @@ public:
     // Root set management
     void add_root(void** root_ptr);
     void remove_root(void** root_ptr);
-    void add_scope_roots(std::shared_ptr<LexicalScope> scope);
-    void remove_scope_roots(std::shared_ptr<LexicalScope> scope);
+    // Removed lexical scope root methods - using pure static analysis now
     
     // GC operations
     void collect();  // Full collection
@@ -269,7 +268,7 @@ private:
     
     // Root set
     std::unordered_set<void**> roots_;
-    std::vector<std::shared_ptr<LexicalScope>> root_scopes_;
+    // Removed root_scopes_ member - using pure static analysis now
     
     // Object tracking
     std::unordered_map<void*, GCObjectHeader*> object_headers_;
@@ -296,7 +295,7 @@ private:
     void defrag_phase();
     void mark_object(void* obj);
     void mark_roots();
-    void mark_scope_variables(std::shared_ptr<LexicalScope> scope);
+    // Removed mark_scope_variables method - using pure static analysis now
     void collector_thread_func();
     
     // Memory management

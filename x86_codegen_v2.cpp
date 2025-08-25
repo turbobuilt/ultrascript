@@ -18,6 +18,23 @@ static std::string generate_unique_label(const std::string& base) {
 #include <cstring>  // For strlen
 #include <execinfo.h>
 
+// Forward declarations for goroutine V2 functions
+extern "C" {
+    int64_t __gots_set_timeout_v2(void* function_address, int64_t delay_ms);
+    int64_t __gots_set_interval_v2(void* function_address, int64_t delay_ms);
+    bool __gots_clear_timeout_v2(int64_t timer_id);
+    bool __gots_clear_interval_v2(int64_t timer_id);
+    int64_t __gots_add_async_handle_v2(int64_t type, void* handle_data);
+    void __gots_complete_async_handle_v2(int64_t async_id);
+    void __gots_cancel_async_handle_v2(int64_t async_id);
+    void __runtime_spawn_main_goroutine_v2(void* function_address);
+    void __runtime_wait_for_main_goroutine_v2();
+    void* __runtime_spawn_goroutine_v2(void* function_address);
+    void* execute_ffi_call(void* current_goroutine, void* ffi_function, void* args);
+    void* migrate_to_ffi_thread(void* goroutine, void* ffi_func, void* args);
+    bool is_goroutine_ffi_bound(void* goroutine);
+}
+
 // Debug helper to convert X86Reg to string
 static const char* register_name(X86Reg reg) {
     switch (reg) {
@@ -57,8 +74,11 @@ double __dynamic_value_extract_float64(void* dynamic_value_ptr);
 
 
 
-// Forward declaration for goroutine function that's not in runtime.h
+// Forward declarations for goroutine functions that are not in runtime.h
 void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg);
+void* __goroutine_spawn_and_wait_direct(void* function_address);
+void* __goroutine_spawn_and_wait_fast(void* func_address);
+void* __goroutine_spawn_direct(void* function_address);
 
 // =============================================================================
 // Utility Functions  
@@ -408,6 +428,9 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__dynamic_value_create_from_array", reinterpret_cast<void*>(__dynamic_value_create_from_array)},
         {"__get_executable_memory_base", reinterpret_cast<void*>(__get_executable_memory_base)},
         {"__goroutine_spawn_func_ptr", reinterpret_cast<void*>(__goroutine_spawn_func_ptr)},
+        {"__goroutine_spawn_and_wait_direct", reinterpret_cast<void*>(__goroutine_spawn_and_wait_direct)},
+        {"__goroutine_spawn_and_wait_fast", reinterpret_cast<void*>(__goroutine_spawn_and_wait_fast)},
+        {"__goroutine_spawn_direct", reinterpret_cast<void*>(__goroutine_spawn_direct)},
         {"__string_intern", reinterpret_cast<void*>(__string_intern)},
         
         // Console.log runtime functions for maximum performance
@@ -455,6 +478,7 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         // Typed array access functions for maximum performance
         {"__array_access_int64", reinterpret_cast<void*>(__array_access_int64)},
         {"__array_access_float64", reinterpret_cast<void*>(__array_access_float64)},
+        
         {"__array_access_int32", reinterpret_cast<void*>(__array_access_int32)},
         {"__array_access_float32", reinterpret_cast<void*>(__array_access_float32)},
         
@@ -554,6 +578,23 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__debug_get_ref_count", reinterpret_cast<void*>(__debug_get_ref_count)},
         {"__object_get_memory_address", reinterpret_cast<void*>(__object_get_memory_address)},
         {"__runtime_get_ref_count", reinterpret_cast<void*>(__runtime_get_ref_count)},
+        
+        // Goroutine System V2 functions
+        {"__gots_set_timeout", reinterpret_cast<void*>(__gots_set_timeout_v2)},
+        {"__gots_set_interval", reinterpret_cast<void*>(__gots_set_interval_v2)},
+        {"__gots_clear_timeout", reinterpret_cast<void*>(__gots_clear_timeout_v2)},
+        {"__gots_clear_interval", reinterpret_cast<void*>(__gots_clear_interval_v2)},
+        {"__gots_add_async_handle", reinterpret_cast<void*>(__gots_add_async_handle_v2)},
+        {"__gots_complete_async_handle", reinterpret_cast<void*>(__gots_complete_async_handle_v2)},
+        {"__gots_cancel_async_handle", reinterpret_cast<void*>(__gots_cancel_async_handle_v2)},
+        {"__runtime_spawn_main_goroutine", reinterpret_cast<void*>(__runtime_spawn_main_goroutine_v2)},
+        {"__runtime_wait_for_main_goroutine", reinterpret_cast<void*>(__runtime_wait_for_main_goroutine_v2)},
+        {"__runtime_spawn_goroutine", reinterpret_cast<void*>(__runtime_spawn_goroutine_v2)},
+        
+        // FFI integration functions
+        {"execute_ffi_call", reinterpret_cast<void*>(execute_ffi_call)},
+        {"migrate_to_ffi_thread", reinterpret_cast<void*>(migrate_to_ffi_thread)},
+        {"is_goroutine_ffi_bound", reinterpret_cast<void*>(is_goroutine_ffi_bound)},
     };
     
     auto it = runtime_functions.find(function_name);
@@ -767,6 +808,18 @@ void X86CodeGenV2::emit_goroutine_spawn_direct(void* function_address) {
     // Ultra-fast direct address spawning
     instruction_builder->mov(X86Reg::RDI, ImmediateOperand(reinterpret_cast<int64_t>(function_address)));
     instruction_builder->call("__goroutine_spawn_direct");
+}
+
+void X86CodeGenV2::emit_goroutine_spawn_and_wait_direct(void* function_address) {
+    // Spawn goroutine with direct address and wait for result
+    instruction_builder->mov(X86Reg::RDI, ImmediateOperand(reinterpret_cast<int64_t>(function_address)));
+    instruction_builder->call("__goroutine_spawn_and_wait_direct");
+}
+
+void X86CodeGenV2::emit_goroutine_spawn_and_wait_fast(uint16_t func_id) {
+    // Spawn goroutine with function ID and wait for result
+    instruction_builder->mov(X86Reg::RDI, ImmediateOperand(func_id));
+    instruction_builder->call("__goroutine_spawn_and_wait_fast");
 }
 
 // =============================================================================

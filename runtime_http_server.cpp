@@ -1,6 +1,6 @@
 #include "runtime_http_server.h"
 #include "runtime.h"
-#include "goroutine_system.h"
+#include "goroutine_system_v2.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -588,12 +588,12 @@ void HTTPServer::process_request(int socket, const std::string& request_data) {
             request_handler_(request, response);
         #else
             // Execute request handler in goroutine for maximum performance
-            if (current_goroutine) {
+            if (get_current_goroutine()) {
                 // Already in a goroutine context, execute directly
                 request_handler_(request, response);
             } else {
-                // Spawn a new goroutine for this request
-                spawn_goroutine([this, request = std::move(request), response = std::move(response)]() mutable {
+                // Spawn a new goroutine for this request using V2 system
+                spawn_goroutine_v2([this, request = std::move(request), response = std::move(response)]() mutable {
                     request_handler_(request, response);
                 });
             }

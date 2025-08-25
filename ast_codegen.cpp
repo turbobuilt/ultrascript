@@ -451,6 +451,9 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Fall back to local variable lookup
     DataType var_type = types.get_variable_type(name);
     
+    // LEXICAL SCOPE SYSTEM: Mark variable usage for escape analysis
+    types.mark_variable_used(name);
+    
     // If variable not found locally, try implicit 'this.property' access
     if (var_type == DataType::ANY && !types.variable_exists(name)) {
         std::string current_class = types.get_current_class_context();
@@ -492,14 +495,34 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     result_type = var_type;
     
-    // Get the actual stack offset for this variable
-    int64_t offset = types.get_variable_offset(name);
-    if (offset == 0) {
-        // Default to -8 for backward compatibility
-        offset = -8;
-    }
+    // NEW LEXICAL SCOPE SYSTEM: Load variable based on static analysis
+    // TODO: Get current function name from context
+    std::string current_function = "main";  // Placeholder - need to get from context
     
-    gen.emit_mov_reg_mem(0, offset);
+    if (types.function_uses_heap_scope(current_function)) {
+        // Function uses heap scopes - determine if this variable escapes
+        if (types.variable_escapes_in_function(current_function, name)) {
+            // Variable in heap scope - use R15 + offset
+            int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
+            gen.emit_mov_reg_reg_offset(0, 15, heap_offset);  // RAX = [R15 + offset]
+            std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from heap scope at R15+" << heap_offset << std::endl;
+        } else {
+            // Variable on stack in escaping function
+            int64_t stack_offset = types.get_variable_offset_in_function(current_function, name);
+            gen.emit_mov_reg_mem(0, stack_offset);  // RAX = [RBP + offset]
+            std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack at RBP" << stack_offset << std::endl;
+        }
+    } else {
+        // Non-escaping function - direct stack access (no R15 needed)
+        int64_t stack_offset = types.get_variable_offset_in_function(current_function, name);
+        if (stack_offset == 0) {
+            // Default to -8 for backward compatibility
+            stack_offset = -8;
+        }
+        
+        gen.emit_mov_reg_mem(0, stack_offset);  // RAX = [RBP + offset]
+        std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack (non-escaping function) at RBP" << stack_offset << std::endl;
+    }
 }
 
 void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
@@ -877,10 +900,17 @@ void TernaryOperator::generate_code(CodeGenerator& gen, TypeInference& types) {
 
 void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
     if (is_goroutine) {
+        // LEXICAL SCOPE SYSTEM: Mark as goroutine context for escape analysis
+        types.set_analyzing_goroutine(true);
+        
         // For goroutines, we need to build an argument array on the stack
         if (arguments.size() > 0) {
             // Push arguments onto stack in reverse order to create array
             for (int i = arguments.size() - 1; i >= 0; i--) {
+                // Mark any variables in arguments as escaped (passed to goroutine)
+                if (auto* identifier = dynamic_cast<Identifier*>(arguments[i].get())) {
+                    types.mark_variable_in_goroutine(identifier->name);
+                }
                 arguments[i]->generate_code(gen, types);
                 gen.emit_sub_reg_imm(4, 8);  // sub rsp, 8
                 gen.emit_mov_mem_rsp_reg(0, 0);  // mov [rsp], rax
@@ -895,8 +925,14 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
         } else {
             gen.emit_goroutine_spawn(name);
         }
+        
+        // Reset goroutine analysis context
+        types.set_analyzing_goroutine(false);
         result_type = DataType::PROMISE;
     } else {
+        // LEXICAL SCOPE SYSTEM: Mark as function call context for escape analysis
+        types.set_analyzing_function_call(true);
+        
         // Check for global timer functions and map them to runtime equivalents
         if (name == "setTimeout") {
             // Map setTimeout to runtime.timer.setTimeout
@@ -983,6 +1019,11 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
         
         // Generate code for arguments and place them in appropriate registers
         for (size_t i = 0; i < arguments.size() && i < 6; i++) {
+            // LEXICAL SCOPE SYSTEM: Mark variables passed to functions as escaped
+            if (auto* identifier = dynamic_cast<Identifier*>(arguments[i].get())) {
+                types.mark_variable_passed_to_function(identifier->name);
+            }
+            
             arguments[i]->generate_code(gen, types);
             
             // Handle reference counting for CLASS_INSTANCE arguments
@@ -1011,6 +1052,11 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
         
         // For more than 6 arguments, push them onto stack (in reverse order)
         for (int i = arguments.size() - 1; i >= 6; i--) {
+            // LEXICAL SCOPE SYSTEM: Mark variables passed to functions as escaped  
+            if (auto* identifier = dynamic_cast<Identifier*>(arguments[i].get())) {
+                types.mark_variable_passed_to_function(identifier->name);
+            }
+            
             arguments[i]->generate_code(gen, types);
             
             // Handle reference counting for CLASS_INSTANCE stack arguments  
@@ -1085,6 +1131,9 @@ void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
             int stack_cleanup = (arguments.size() - 6) * 8;
             gen.emit_add_reg_imm(4, stack_cleanup);  // add rsp, cleanup_amount
         }
+        
+        // LEXICAL SCOPE SYSTEM: Reset function call analysis context
+        types.set_analyzing_function_call(false);
     }
     
     if (is_awaited) {
@@ -1672,8 +1721,15 @@ void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types)
         
         if (is_goroutine) {
             // ULTRA-OPTIMIZED: Direct goroutine spawn with address
-            gen.emit_goroutine_spawn_direct(func_address);
-            result_type = DataType::PROMISE;
+            if (is_awaited) {
+                // await go function() - spawn and wait for result
+                gen.emit_goroutine_spawn_and_wait_direct(func_address);
+                result_type = DataType::ANY; // Return value from goroutine
+            } else {
+                // go function() - just spawn and return promise
+                gen.emit_goroutine_spawn_direct(func_address);
+                result_type = DataType::PROMISE;
+            }
         } else {
             // ULTRA-OPTIMIZED: Direct function address return (no lookup needed)
             gen.emit_mov_reg_imm(0, reinterpret_cast<int64_t>(func_address)); // RAX = function address
@@ -1692,8 +1748,15 @@ void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types)
                 gen.emit_call("__get_executable_memory_base");  // Result in RAX
                 gen.emit_add_reg_imm(0, func_offset);  // Add offset to RAX
                 gen.emit_mov_reg_reg(7, 0);  // Move address to RDI
-                gen.emit_call("__goroutine_spawn_func_ptr");  // Spawn with function pointer
-                result_type = DataType::PROMISE;
+                if (is_awaited) {
+                    // await go function() - spawn and wait for result
+                    gen.emit_call("__goroutine_spawn_and_wait_func_ptr");  // Spawn and wait
+                    result_type = DataType::ANY; // Return value from goroutine
+                } else {
+                    // go function() - just spawn and return promise  
+                    gen.emit_call("__goroutine_spawn_func_ptr");  // Spawn with function pointer
+                    result_type = DataType::PROMISE;
+                }
             } else {
                 // Calculate function address as exec_memory_base + offset  
                 gen.emit_call("__get_executable_memory_base");  // Result in RAX
@@ -1711,8 +1774,15 @@ void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types)
         
         if (is_goroutine) {
             // Fallback: Use fast spawn with function ID
-            gen.emit_goroutine_spawn_fast(func_id);
-            result_type = DataType::PROMISE;
+            if (is_awaited) {
+                // await go function() - spawn and wait for result  
+                gen.emit_goroutine_spawn_and_wait_fast(func_id);
+                result_type = DataType::ANY; // Return value from goroutine
+            } else {
+                // go function() - just spawn and return promise
+                gen.emit_goroutine_spawn_fast(func_id);
+                result_type = DataType::PROMISE;
+            }
         } else {
             // Fallback: Use fast lookup with function ID
             
@@ -2781,6 +2851,10 @@ void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
 void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout << "[DEBUG] Assignment::generate_code called for variable: " << variable_name 
               << ", declared_type=" << static_cast<int>(declared_type) << std::endl;
+    
+    // LEXICAL SCOPE SYSTEM: Escape analysis integration
+    types.mark_variable_used(variable_name);  // Mark variable as used for escape analysis
+    
     if (value) {
         // For reassignments (declared_type == ANY), look up the existing variable type
         DataType actual_declared_type = declared_type;
@@ -3034,7 +3108,21 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             }
             // else: primitive -> primitive (no conversion needed)
             
-            gen.emit_mov_mem_reg(offset, 0); // Store the primitive value
+            // LEXICAL SCOPE SYSTEM: Store variable based on escape analysis result
+            if (types.variable_escapes(variable_name)) {
+                // Variable escapes - store in lexical scope (direct inline assembly)
+                std::cout << "[DEBUG] Assignment: Variable '" << variable_name << "' escapes - storing in lexical scope" << std::endl;
+                
+                // For escaping variables, we store them in heap scope directly
+                // R15 register contains current lexical scope pointer (set by goroutine system)
+                // Generate inline assembly to store in scope structure
+                int64_t var_offset = types.get_variable_offset_in_function("current_function", variable_name);
+                gen.emit_mov_reg_offset_reg(15, var_offset, 0); // mov [r15 + var_offset], rax
+            } else {
+                // Variable stays on stack - use direct stack access (zero overhead)
+                gen.emit_mov_mem_reg(offset, 0); // Store the primitive value on stack
+                std::cout << "[DEBUG] Assignment: Variable '" << variable_name << "' stays on stack at offset " << offset << std::endl;
+            }
         }
         
         // Store the variable type in the type system for future lookups

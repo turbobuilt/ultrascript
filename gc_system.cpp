@@ -1,5 +1,5 @@
 #include "gc_system.h"
-#include "lexical_scope.h"
+// Removed lexical_scope.h include - using pure static analysis now
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -393,18 +393,7 @@ void GarbageCollector::remove_root(void** root_ptr) {
     roots_.erase(root_ptr);
 }
 
-void GarbageCollector::add_scope_roots(std::shared_ptr<LexicalScope> scope) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    root_scopes_.push_back(scope);
-}
-
-void GarbageCollector::remove_scope_roots(std::shared_ptr<LexicalScope> scope) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    root_scopes_.erase(
-        std::remove(root_scopes_.begin(), root_scopes_.end(), scope),
-        root_scopes_.end()
-    );
-}
+// Removed lexical scope functions - using pure static analysis now
 
 void GarbageCollector::collect() {
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -743,41 +732,10 @@ void GarbageCollector::mark_roots() {
         }
     }
     
-    // Mark from scope variables
-    for (auto scope : root_scopes_) {
-        mark_scope_variables(scope);
-    }
+    // Note: Scope variable marking removed - using pure static analysis now
 }
 
-void GarbageCollector::mark_scope_variables(std::shared_ptr<LexicalScope> scope) {
-    if (!scope) return;
-    
-    // For now, we need to work with the VariableTracker to find escaped variables
-    // This is a temporary solution until we can directly iterate scope variables
-    auto& tracker = VariableTracker::instance();
-    auto escaping_vars = tracker.get_all_escaping_variables();
-    
-    for (size_t var_id : escaping_vars) {
-        VariableInfo* var = tracker.get_variable(var_id);
-        if (var && var->memory_location) {
-            // Check if this variable contains GC references
-            if (contains_gc_references(var->type)) {
-                if (is_direct_gc_object(var->type)) {
-                    // The memory_location points to a GC object
-                    if (is_gc_managed(var->memory_location)) {
-                        mark_object(var->memory_location);
-                    }
-                } else if (is_reference_containing_type(var->type)) {
-                    // The memory_location points to a structure containing GC references
-                    scan_for_gc_references(var->memory_location, var->type);
-                }
-            }
-        }
-    }
-    
-    // TODO: Add direct scope variable iteration when LexicalScope API supports it
-    // This would be more efficient than relying on the VariableTracker
-}
+// Removed mark_scope_variables function - using pure static analysis now
 
 bool GarbageCollector::contains_gc_references(DataType type) {
     switch (type) {
@@ -895,7 +853,7 @@ void GarbageCollector::shutdown() {
     heap_blocks_.clear();
     object_headers_.clear();
     roots_.clear();
-    root_scopes_.clear();
+    // Removed root_scopes_.clear() - using pure static analysis now
     
     std::cout << "[GC] Shutdown complete" << std::endl;
 }

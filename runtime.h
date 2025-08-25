@@ -23,7 +23,7 @@
 
 // Forward declare DataType from compiler.h to avoid circular dependency
 enum class DataType;
-class LexicalScope;
+// Removed LexicalScope forward declaration - using pure static analysis now
 
 // Global executable memory info structure
 struct ExecutableMemoryInfo {
@@ -748,6 +748,16 @@ extern "C" {
     void* __array_create_float32(int64_t size);
     
     // Type-aware array push functions - no type guessing needed
+    void __array_push_int64(void* array, int64_t value);
+    void __array_push_float64(void* array, double value);
+    void __array_push_int32(void* array, int32_t value);
+    void __array_push_float32(void* array, float value);
+    
+    // LEXICAL SCOPE RUNTIME FUNCTIONS: High-performance variable storage for goroutines
+    void __lexical_scope_set_variable(const char* name, void* value);
+    void* __lexical_scope_get_variable(const char* name);
+    void __lexical_scope_enter(const char* scope_name);
+    void __lexical_scope_exit();
     void __array_push_dynamic(void* array, int64_t value_bits);
     void __array_push_int64_typed(void* array, int64_t value);
     void __array_push_float64_typed(void* array, double value);

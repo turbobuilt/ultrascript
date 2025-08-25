@@ -717,6 +717,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             func_call->is_awaited = true;
         } else if (auto method_call = dynamic_cast<MethodCall*>(expr.get())) {
             method_call->is_awaited = true;
+        } else if (auto func_expr = dynamic_cast<FunctionExpression*>(expr.get())) {
+            // Handle await go function() {...}
+            func_expr->is_awaited = true;
         }
         return expr;
     }

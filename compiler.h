@@ -19,6 +19,11 @@
 // Forward declarations
 struct Token;
 enum class TokenType;
+struct ASTNode;
+
+// Forward declaration for new lexical scope system
+class LexicalScopeIntegration;
+enum class TokenType;
 
 // ANSI color codes for syntax highlighting
 namespace Colors {
@@ -190,6 +195,13 @@ enum class Backend {
 // See x86_codegen_compat.h for the abstraction-based implementation
 
 class TypeInference {
+public:
+    // LEXICAL SCOPE SYSTEM: Storage types for escape analysis
+    enum class VariableStorage {
+        STACK,           // Variable stays on stack - no escape
+        HEAP_LEXICAL     // Variable escapes - stored in heap lexical scope
+    };
+
 private:
     std::unordered_map<std::string, DataType> variable_types;
     std::unordered_map<std::string, uint32_t> variable_class_type_ids;  // For CLASS_INSTANCE variables - use type IDs instead of names
@@ -210,6 +222,25 @@ private:
     // Current class context for 'this' handling
     std::string current_class_name;
     
+    // LEXICAL SCOPE SYSTEM: Escape analysis for stack vs heap allocation
+    std::unordered_map<std::string, VariableStorage> variable_storage;  // Track storage location
+    std::unordered_set<std::string> escaped_variables;                  // Variables that escape current scope
+    std::vector<std::unordered_set<std::string>> scope_stack;           // Track variables per scope level
+    std::unordered_map<std::string, int> variable_scope_depth;          // Track which scope level each variable was declared in
+    int current_scope_depth = 0;                                        // Current nesting level
+    bool inside_function_call = false;                                  // Track if we're analyzing function call arguments
+    bool inside_callback = false;                                       // Track if we're analyzing callback functions
+    bool inside_goroutine = false;                                      // Track if we're analyzing goroutine functions
+    
+    // NEW LEXICAL SCOPE SYSTEM: Static analysis-based approach
+    std::unique_ptr<LexicalScopeIntegration> lexical_scope_integration_;
+    std::string current_function_being_analyzed_;  // Track current function for analysis
+
+public:
+    // Constructor and destructor need to be explicitly declared due to unique_ptr with forward declaration
+    TypeInference();
+    ~TypeInference();
+    
 public:
     DataType infer_type(const std::string& expression);
     DataType get_cast_type(DataType t1, DataType t2);
@@ -227,7 +258,7 @@ public:
     
     // Variable storage management
     void set_variable_offset(const std::string& name, int64_t offset);
-    int64_t get_variable_offset(const std::string& name);
+    int64_t get_variable_offset(const std::string& name) const;
     int64_t allocate_variable(const std::string& name, DataType type);
     bool variable_exists(const std::string& name);
     void enter_scope();
@@ -283,6 +314,39 @@ public:
     DataType get_best_numeric_operator_type(uint32_t class_type_id, const std::string& numeric_literal);  // Type ID version
     TokenType string_to_operator_token(const std::string& op_str);
     
+    // LEXICAL SCOPE SYSTEM: Escape analysis interface
+    void enter_lexical_scope();                                            // Push new scope level
+    void exit_lexical_scope();                                             // Pop scope, mark escaped variables
+    void mark_variable_used(const std::string& name);                      // Variable referenced - check if escapes
+    void mark_variable_passed_to_function(const std::string& name);        // Variable passed as argument - escapes
+    void mark_variable_passed_to_callback(const std::string& name);        // Variable in callback - escapes  
+    void mark_variable_in_goroutine(const std::string& name);              // Variable in goroutine - escapes
+    void set_analyzing_function_call(bool analyzing);                      // Set function call analysis mode
+    void set_analyzing_callback(bool analyzing);                           // Set callback analysis mode
+    void set_analyzing_goroutine(bool analyzing);                          // Set goroutine analysis mode
+    
+    // Query escape analysis results
+    bool variable_escapes(const std::string& name) const;                  // True if variable needs heap allocation
+    VariableStorage get_variable_storage(const std::string& name) const;   // Get storage location
+    std::vector<std::string> get_escaped_variables_in_scope() const;       // Get all escaped vars in current scope
+    std::vector<std::string> get_stack_variables_in_scope() const;         // Get all stack vars in current scope
+    int get_variable_scope_depth(const std::string& name) const;           // Get declaration scope depth
+    
+    // NEW LEXICAL SCOPE SYSTEM: Static analysis-based methods
+    void set_current_function_analysis(const std::string& function_name);  // Set function being analyzed
+    void analyze_function_lexical_scopes(const std::string& function_name, ASTNode* function_node);  // Analyze function
+    bool function_needs_r15_register(const std::string& function_name) const;       // Does function need R15?
+    bool function_uses_heap_scope(const std::string& function_name) const;          // Does function use heap scopes?
+    std::vector<int> get_required_parent_scope_levels(const std::string& function_name) const;  // Which parent levels needed?
+    size_t get_heap_scope_size(const std::string& function_name) const;             // Size of heap scope
+    
+    // Updated variable access methods with function context
+    bool variable_escapes_in_function(const std::string& function_name, const std::string& var_name) const;
+    int64_t get_variable_offset_in_function(const std::string& function_name, const std::string& var_name) const;
+    
+    // For debugging escape analysis
+    void debug_print_escape_info() const;
+    
     // Expression string extraction helpers
     std::string extract_expression_string(ExpressionNode* node);
     std::string token_type_to_string(TokenType token);
@@ -327,7 +391,7 @@ struct BinaryOp : ExpressionNode {
     std::unique_ptr<ExpressionNode> left, right;
     TokenType op;
     BinaryOp(std::unique_ptr<ExpressionNode> l, TokenType o, std::unique_ptr<ExpressionNode> r)
-        : op(o), left(std::move(l)), right(std::move(r)) {}
+        : left(std::move(l)), right(std::move(r)), op(o) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
@@ -354,6 +418,7 @@ struct FunctionExpression : ExpressionNode {
     DataType return_type = DataType::ANY;
     std::vector<std::unique_ptr<ASTNode>> body;
     bool is_goroutine = false;
+    bool is_awaited = false;
     
     // NEW: For three-phase compilation system
     std::string compilation_assigned_name_;  // Name assigned during Phase 1
@@ -442,7 +507,7 @@ struct OperatorCall : ExpressionNode {
     TokenType operator_type;
     std::string class_name;  // Class that defines the operator
     OperatorCall(std::unique_ptr<ExpressionNode> left, TokenType op, std::unique_ptr<ExpressionNode> right, const std::string& cls)
-        : left_operand(std::move(left)), operator_type(op), right_operand(std::move(right)), class_name(cls) {}
+        : left_operand(std::move(left)), right_operand(std::move(right)), operator_type(op), class_name(cls) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 

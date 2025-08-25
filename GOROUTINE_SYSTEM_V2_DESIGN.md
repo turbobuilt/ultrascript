@@ -1329,6 +1329,458 @@ void EventSystem::process_io_event(int fd, uint32_t events) {
 }
 ```
 
+## Lexical Scope and Variable Management System
+
+### Problem Statement
+
+JavaScript's lexical scoping must work identically in goroutines as in regular functions. Variables captured by goroutines, callbacks, and closures must remain accessible even after parent functions complete. The challenge is balancing performance with JavaScript semantics.
+
+### Solution: Static Analysis with Optimized Assembly Generation
+
+We use **static analysis** at compile time to determine the optimal variable access strategy and generate highly optimized assembly code that minimizes runtime overhead.
+
+### Architecture Overview
+
+#### 1. **Static Analysis Phase**
+
+During compilation, we analyze each function to determine:
+- Which variables belong to which lexical scope level
+- Which variables are accessed by goroutines, callbacks, or closures
+- Optimal memory layout and access patterns
+
+```cpp
+struct LexicalScopeInfo {
+    int scope_level;              // 0 = current, 1 = parent, 2 = grandparent, etc.
+    std::string variable_name;
+    size_t offset_in_scope;       // Byte offset within that scope
+    bool escapes_current_function; // Captured by goroutines/callbacks
+};
+
+class StaticScopeAnalyzer {
+private:
+    std::unordered_map<std::string, LexicalScopeInfo> variable_scope_map_;
+    std::vector<std::vector<std::string>> scope_stack_; // Track nested scopes
+    
+public:
+    struct ScopeOptimizationPlan {
+        std::set<int> required_scope_levels;           // Scope addresses to pass down
+        std::vector<std::string> variables_to_cache;   // ALL parent scope variables to cache addresses for
+    };
+    
+    void analyze_function(ASTNode* function_node) {
+        // 1. Build scope hierarchy for the function
+        build_scope_hierarchy(function_node);
+        
+        // 2. Classify each variable by scope level
+        for (auto& var_decl : find_variable_declarations(function_node)) {
+            LexicalScopeInfo info;
+            info.scope_level = calculate_scope_level(var_decl);
+            info.variable_name = var_decl.name;
+            info.offset_in_scope = calculate_offset(var_decl);
+            info.escapes_current_function = check_if_escapes(var_decl, function_node);
+            
+            variable_scope_map_[var_decl.name] = info;
+        }
+        
+        // 3. Generate optimization plan for this function
+        generate_optimization_plan();
+    }
+    
+    ScopeOptimizationPlan get_optimization_plan() { return optimization_plan_; }
+    
+private:
+    ScopeOptimizationPlan optimization_plan_;
+    
+    void generate_optimization_plan() {
+        // Add ALL parent scope variables to the caching list
+        for (auto& [var_name, info] : variable_scope_map_) {
+            if (info.scope_level > 0) {
+                optimization_plan_.required_scope_levels.insert(info.scope_level);
+                optimization_plan_.variables_to_cache.push_back(var_name);
+            }
+        }
+    }
+};
+```
+
+#### 2. **Optimized Assembly Generation**
+
+Based on static analysis, we generate different assembly patterns optimized for escaping vs non-escaping functions:
+
+**Non-Escaping Functions (Stack-Only Variables):**
+```asm
+; Direct stack access - no R15 register needed
+; All variables at compile-time known offsets from RBP
+mov rax, [rbp - 24]    ; Local variable at stack offset -24 (1 instruction)
+mov rbx, [rbp - 32]    ; Another local variable at offset -32 (1 instruction)
+; Zero overhead - same as normal C/C++ stack variable access
+```
+
+**Escaping Functions - Current Scope Variables (Scope Level 0):**
+```asm
+; R15 points to current lexical scope (heap-allocated for escaping functions)
+; Variable at offset 16 in current scope:
+mov rax, [r15 + 16]    ; Direct heap scope access - 1 instruction
+```
+
+**Escaping Functions - Parent Scope Variables (Scope Level 1+):**
+
+**Smart Register-Based Scope Optimization**
+```asm
+; OPTIMAL: Only load scope pointers into registers if THIS function accesses them
+; Static analysis determines which scopes are actually used by current function
+
+; Example 1: Function accesses parent and grandparent scopes
+; Function prologue - load ONLY the scopes we actually use:
+mov r12, [rbp - 8]     ; Load parent scope (we access parent variables)
+mov r13, [rbp - 16]    ; Load grandparent scope (we access grandparent variables)  
+; Skip R14 - we don't access great-grandparent variables in this function
+
+; Variable access becomes 1 instruction for scopes in registers:
+mov rax, [r12 + 24]    ; Access parent_var1 - 1 instruction!
+mov rbx, [r13 + 32]    ; Access grandparent_var1 - 1 instruction!
+inc QWORD PTR [r12 + 40] ; Increment parent_var2 directly - 1 instruction!
+
+; Example 2: Function only accesses parent scope variables
+; Function prologue - minimal register usage:
+mov r12, [rbp - 8]     ; Only load parent scope (that's all we need)
+; R13, R14 available for other optimizations since we don't need them
+
+; Example 3: Function doesn't access parent scopes but children do
+; Function prologue - no scope registers needed for this function:
+; R12-R14 completely available for other optimizations
+; Parent scope pointers still passed on stack for children: [rbp - 8], [rbp - 16], etc.
+
+; Callee-saved registers survive function calls automatically  
+call some_function     ; R12, R13 values preserved across call (if loaded)
+mov rax, [r12 + 24]    ; Still works after function call - no reload needed!
+```
+
+**Fallback: Stack Caching (When Too Many Scopes)**
+```asm
+; If more than 4 scope levels needed, fall back to stack caching:
+; Use registers for first 4 most frequently accessed scopes
+; Cache remaining scope addresses on stack
+
+mov r12, [rbp - 8]     ; Parent scope in register
+mov r13, [rbp - 16]    ; Grandparent scope in register
+; Cache deeper scopes on stack:
+mov rax, [rbp - 24]    ; Load great-grandparent scope
+add rax, 48            ; Calculate &deep_var address  
+mov [rbp - 32], rax    ; Cache deep variable address on stack
+```
+
+**Function Setup for Variable Address Caching:**
+```asm
+; During function prologue, calculate and cache ALL parent scope variable addresses ON STACK
+push rbp
+mov rbp, rsp
+sub rsp, 64                    ; Stack space for cached addresses + locals
+
+; Cache parent scope variable addresses on stack
+mov rax, [rbp - 8]             ; Load parent scope address 
+add rax, 24                    ; Calculate &parent_var1
+mov [rbp - 24], rax            ; Cache parent_var1 address ON STACK at [rbp - 24]
+
+mov rax, [rbp - 8]             ; Load parent scope address
+add rax, 32                    ; Calculate &parent_var2  
+mov [rbp - 32], rax            ; Cache parent_var2 address ON STACK at [rbp - 32]
+
+mov rax, [rbp - 16]            ; Load grandparent scope address
+add rax, 48                    ; Calculate &grandparent_var1
+mov [rbp - 40], rax            ; Cache grandparent_var1 address ON STACK at [rbp - 40]
+```
+
+#### 3. **Runtime Lexical Scope Layout**
+
+**Stack Frame Structure for Non-Escaping Functions:**
+```cpp
+struct NonEscapingStackFrame {
+    // Standard stack frame
+    void* return_address;
+    void* saved_rbp;
+    
+    // Direct local variables (no scope pointers needed)
+    int64_t local_var1;          // At [rbp - 16]
+    double local_var2;           // At [rbp - 24] 
+    std::string local_var3;      // At [rbp - 56]
+    // ... compile-time known offsets from RBP
+};
+```
+
+**Stack Frame Structure for Escaping Functions:**
+```cpp
+struct EscapingStackFrame {
+    // Standard stack frame
+    void* return_address;
+    void* saved_rbp;
+    
+    // Lexical scope data - passed down through call chain
+    void* current_scope_ptr;      // Always in R15 register
+    void* parent_scope_ptr;       // At [rbp - 8] if needed by children
+    void* grandparent_scope_ptr;  // At [rbp - 16] if needed by children
+    // ... more parent scopes as needed for child functions
+    
+    // OPTIMIZATION: Cached variable addresses (for functions that access parent variables)
+    void* cached_parent_var1_addr;     // At [rbp - 24] - direct access to frequently used parent variable
+    void* cached_parent_var2_addr;     // At [rbp - 32] - another parent variable
+    void* cached_grandparent_var1_addr; // At [rbp - 40] - grandparent variable
+    // ... more cached addresses based on static analysis
+    
+    // Remaining stack variables (if any) follow
+    int64_t temp_var1;
+    double temp_var2;
+    // ...
+};
+```
+
+**Lexical Scope Memory Layout (Heap-Allocated for Escaping Functions Only):**
+```cpp
+struct LexicalScopeMemory {
+    // Metadata (for GC and debugging)
+    uint32_t scope_id;
+    uint32_t variable_count;
+    std::atomic<int32_t> ref_count;  // Reference counting for escaping scopes
+    
+    // Variable storage (determined by static analysis)
+    char variable_data[];  // Variables stored at predetermined offsets
+};
+```
+
+#### 4. **Code Generation Strategy**
+
+**For Non-Escaping Functions (Stack-Only Variables):**
+```cpp
+void generate_function_without_escaping_variables(FunctionNode* func) {
+    // No scope allocation needed - use direct stack offsets
+    // R15 register is free for other uses
+    
+    // Generate standard stack frame setup
+    emit_assembly(R"(
+        push rbp
+        mov rbp, rsp
+        sub rsp, %d    ; Allocate space for local variables
+    )", total_locals_size);
+    
+    // Generate variable access with direct stack offsets
+    for (auto& var_access : func->variable_accesses) {
+        auto stack_offset = calculate_stack_offset(var_access.name);
+        
+        // Direct stack access - zero overhead
+        emit_assembly("mov rax, [rbp - %d]", stack_offset);
+    }
+    
+    // Standard function epilogue
+    emit_assembly(R"(
+        mov rsp, rbp
+        pop rbp
+        ret
+    )");
+}
+```
+
+**For Escaping Functions (Heap-Allocated Scopes):**
+```cpp
+void generate_function_with_escaping_variables(FunctionNode* func) {
+    // Allocate lexical scope on heap with reference counting
+    emit_assembly(R"(
+        ; Standard prologue
+        push rbp
+        mov rbp, rsp
+        sub rsp, %d                    ; Stack space for scope pointers
+        
+        ; Allocate scope on heap
+        mov rdi, %d                    ; Scope size
+        call malloc                    ; Allocate heap memory
+        mov r15, rax                   ; R15 = current scope pointer
+        
+        ; Initialize reference count
+        mov DWORD PTR [r15 + 8], 1     ; ref_count = 1
+        
+        ; Copy parent scope pointers if needed
+        mov rax, [rbp - 8]             ; Get parent scope (if exists)
+        mov [r15 + 12], rax            ; Store parent scope reference
+    )", stack_space_needed, scope_size);
+    
+    // Generate variable access patterns
+    for (auto& var_access : func->variable_accesses) {
+        auto info = scope_analyzer_.get_variable_info(var_access.name);
+        
+        if (info.scope_level == 0) {
+            // Current scope: direct R15 access
+            emit_assembly("mov rax, [r15 + %d]", info.offset_in_scope);
+        } else {
+            // Parent scope: +1 instruction overhead
+            emit_assembly(R"(
+                mov rax, [rbp - %d]        ; Load parent scope address
+                mov rax, [rax + %d]        ; Access variable
+            )", info.scope_level * 8, info.offset_in_scope);
+        }
+    }
+    
+    // Add cleanup code
+    emit_assembly(R"(
+        ; Decrement reference count at function exit
+        mov rdi, r15                   ; Current scope
+        call decrement_scope_ref_count ; May free if count reaches 0
+        
+        ; Standard epilogue
+        mov rsp, rbp
+        pop rbp
+        ret
+    )");
+}
+```
+
+#### 5. **Performance Characteristics**
+
+**Variable Access Overhead:**
+- **Non-escaping functions**: 0 overhead (direct stack access like C/C++)
+- **Escaping functions - current scope**: 0 overhead (direct R15+offset access)
+- **Escaping functions - parent scope**: 0 overhead (cached variable addresses - always used)
+- **Multiple parent scope levels**: 0 overhead (all variable addresses cached on stack)
+
+**Memory Layout Efficiency:**
+- **Non-escaping functions**: Zero malloc overhead, direct stack allocation
+- **Escaping functions**: One malloc per function with escaping variables
+- **Scope pointers**: Minimal stack space (8 bytes per scope level needed by children)
+- **Variable address caching**: Additional stack space for ALL parent variables accessed (8 bytes per cached variable address)
+
+**Simplified Caching Strategy:**
+- **All escaping functions**: Always cache addresses of ALL parent scope variables accessed
+- **No usage-based decisions**: Eliminates complexity of choosing between strategies
+- **Consistent performance**: Every parent scope variable access is exactly 1 instruction
+
+**Assembly Instruction Patterns:**
+```asm
+; NON-ESCAPING FUNCTIONS (0 overhead):
+mov rax, [rbp - offset]           ; 1 instruction - identical to C/C++
+
+; ESCAPING FUNCTIONS - CURRENT SCOPE (0 overhead):
+mov rax, [r15 + offset]           ; 1 instruction
+
+; ESCAPING FUNCTIONS - PARENT SCOPE (Always use variable address caching):
+mov rax, [rbp - cached_addr_offset] ; 1 instruction - get cached variable address from stack
+
+; EXAMPLE: Function accessing multiple parent scope variables with stack-cached addresses
+; Optimized approach (addresses cached on stack during prologue):
+
+; Reading/Writing directly using stack-cached addresses:
+mov rax, [rbp - 24]              ; Get cached address of var1 from stack
+mov rdx, [rax]                   ; Read var1 value using cached address
+mov rax, [rbp - 32]              ; Get cached address of var2 from stack  
+mov [rax], rdx                   ; Write to var2 using cached address
+mov rax, [rbp - 40]              ; Get cached address of var3 from stack
+inc QWORD PTR [rax]              ; Increment var3 directly using cached address
+
+; COMPARISON TO TRADITIONAL APPROACH:
+; Traditional JavaScript engines might use:
+mov rax, [rbp + closure_ptr]      ; 1. Load closure object
+mov rax, [rax + scope_chain]      ; 2. Load scope chain
+mov rax, [rax + parent_link]      ; 3. Traverse to parent scope
+mov rax, [rax + var_offset]       ; 4. Access variable (4 instructions total)
+```
+
+**Register Usage Optimization:**
+- **Non-escaping functions**: R15 register available for other optimizations
+- **Escaping functions**: R15 dedicated to current scope pointer
+- **All functions**: Only use heap allocation when variables actually escape
+
+
+
+So we would have to do lexical scope analysis to figure out what scope addresses have to be passed to each child.  In the fastest case with no outer variale scope access, no lexical scope addresses would be passed down. Unfortunately, if a deeper descendent needs it but an intermediate function doesn't, we would still need to include the address in all intermediate functions so that it can be set for the child functions. We would need to keep track of the needed scopes and variables based on static analysis. Then we would do an optimization pass where we essentially compute that grandchild needs grandparent scope and ensure intermediate scopes know they need to get those scope addresses. Then when generating the code for the child functions we would know the offset for each needed scope from the parent function stack and push it onto the child function stack, and the child function code would be generated to be able to access varibles from each of those lexical scopes.
+
+
+
+
+#### 6. **Integration with Goroutine System**
+
+**Goroutine Creation with Scope Capture:**
+```cpp
+void create_goroutine_with_scope_capture(GoroutineNode* node) {
+    auto captured_vars = analyze_captured_variables(node);
+    
+    if (any_variables_escape(captured_vars)) {
+        // Promote current scope to heap before creating goroutine
+        emit_assembly(R"(
+            ; Convert stack scope to heap scope
+            mov rdi, r15                  ; Current scope (stack)
+            call promote_scope_to_heap    ; Returns heap scope in rax
+            mov r15, rax                  ; Update current scope pointer
+            
+            ; Increment reference count for goroutine
+            inc DWORD PTR [r15 + 8]       ; ref_count++
+        )");
+    }
+    
+    // Create goroutine with scope reference
+    emit_goroutine_creation_code(node, "r15");
+}
+```
+
+#### 7. **Debugging and Development Support**
+
+**Debug Information Generation:**
+```cpp
+struct ScopeDebugInfo {
+    uint32_t function_id;
+    uint32_t scope_level;
+    std::vector<VariableDebugInfo> variables;
+    
+    struct VariableDebugInfo {
+        std::string name;
+        size_t offset;
+        std::string type;
+        bool is_captured;
+    };
+};
+
+#ifdef DEBUG_MODE
+void generate_debug_info(FunctionNode* func) {
+    // Generate debug symbols for scope layout
+    // Enable scope inspection in debugger
+    // Add runtime scope validation checks
+}
+#endif
+```
+
+#### 8. **Memory Management Strategy**
+
+**Reference Counting for Escaping Scopes:**
+```cpp
+void generate_scope_reference_counting(bool escapes) {
+    if (escapes) {
+        emit_assembly(R"(
+            ; Atomic increment for thread safety
+            lock inc DWORD PTR [r15 + 8]   ; Atomic ref_count increment
+            
+            ; At scope exit:
+            lock dec DWORD PTR [r15 + 8]   ; Atomic ref_count decrement
+            jz free_scope                  ; Free if count reaches 0
+        )");
+    }
+}
+
+extern "C" void free_scope_if_zero_refs(LexicalScopeMemory* scope) {
+    if (scope->ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        // Call destructors for complex objects
+        call_variable_destructors(scope);
+        free(scope);
+    }
+}
+```
+
+### Key Benefits of This Approach
+
+1. **Minimal Runtime Overhead**: Static analysis eliminates runtime scope chain traversal
+2. **Predictable Performance**: +0 instructions for current scope, +1 for parent scopes
+3. **Memory Efficient**: Only save parent scope addresses that are actually accessed
+4. **JavaScript Compatible**: Perfect lexical scope semantics maintained
+5. **Debugger Friendly**: Clear memory layout with debug information
+6. **Thread Safe**: Atomic reference counting for shared scopes
+
+This static analysis approach provides the optimal balance of JavaScript compatibility, runtime performance, and implementation complexity for UltraScript's high-performance goroutine system.
+
 ## Remaining Unsolved Issues
 
 ### 1. **FFI Integration Complexity**
@@ -1514,3 +1966,880 @@ The implementation will still be extremely complex and will require:
 **Estimated Implementation Time:** 6-12 months for core functionality, plus 6-12 months for optimization and production hardening.
 
 **Recommendation:** This event-driven design represents the optimal balance of performance, efficiency, and maintainability. It provides Go-level performance with JavaScript-friendly semantics, making it ideal for UltraScript's high-performance goals while maintaining the familiar async/await programming model.
+
+## 9. Lexical Scope and Variable Management System
+
+### Problem Statement
+
+JavaScript's lexical scoping must work identically in goroutines as in regular functions. Variables captured by goroutines, callbacks, and closures must remain accessible even after parent functions complete. The challenge is balancing performance with JavaScript semantics.
+
+### Solution: Escape Analysis with Stack/Heap Lexical Scopes
+
+We use **escape analysis** to determine optimal storage strategy per function:
+
+- **Non-escaping variables**: Lexical scope allocated on **stack** (zero malloc overhead)
+- **Any escaping variables**: Lexical scope allocated on **heap** (one malloc, reference counted)
+
+### Architecture Overview
+
+#### 1. **Escape Analysis Phase**
+
+```cpp
+struct VariableEscapeInfo {
+    std::string name;
+    bool escapes_to_goroutine;
+    bool escapes_to_callback;
+    bool escapes_to_return;        // Returned from function
+    size_t offset_in_scope;        // Offset within lexical scope
+    size_t size;                   // Variable size
+};
+
+class EscapeAnalyzer {
+public:
+    enum class ScopeLocation { STACK, HEAP };
+    
+    ScopeLocation analyze_function(ASTNode* function, std::vector<VariableEscapeInfo>& variables) {
+        // Analyze each variable to see if it escapes
+        for (auto& var_decl : function->variable_declarations) {
+            VariableEscapeInfo info;
+            info.name = var_decl.name;
+            info.escapes_to_goroutine = is_captured_by_goroutine(var_decl.name, function);
+            info.escapes_to_callback = is_captured_by_callback(var_decl.name, function);
+            info.escapes_to_return = is_returned_from_function(var_decl.name, function);
+            
+            variables.push_back(info);
+        }
+        
+        // Simple rule: if ANY variable escapes, use heap for entire lexical scope
+        for (const auto& var : variables) {
+            if (var.escapes_to_goroutine || var.escapes_to_callback || var.escapes_to_return) {
+                return ScopeLocation::HEAP;
+            }
+        }
+        
+        return ScopeLocation::STACK;  // All variables are local - maximum performance
+    }
+};
+```
+
+#### 2. **Stack-Based Lexical Scopes (Maximum Performance)**
+
+For functions with no escaping variables, the lexical scope is allocated directly on the stack:
+
+```asm
+; function pureLocal(a, b) { var x = a + b; var y = x * 2; return y; }
+
+pureLocal:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 32                  ; Stack space for lexical scope
+                                ; Layout: [rbp-8]=a, [rbp-16]=b, [rbp-24]=x, [rbp-32]=y
+    
+    ; Initialize lexical scope with parameters
+    mov [rbp-8], rdi            ; a = parameter 1
+    mov [rbp-16], rsi           ; b = parameter 2
+    
+    ; var x = a + b (pure stack arithmetic)
+    mov rax, [rbp-8]            ; Load a
+    add rax, [rbp-16]           ; Add b
+    mov [rbp-24], rax           ; Store x
+    
+    ; var y = x * 2 (pure stack arithmetic)  
+    mov rax, [rbp-24]           ; Load x
+    shl rax, 1                  ; Multiply by 2
+    mov [rbp-32], rax           ; Store y
+    
+    ; return y
+    mov rax, [rbp-32]           ; Load return value
+    leave                       ; Automatic stack cleanup
+    ret
+
+; Performance: ZERO malloc overhead, maximum variable access speed
+```
+
+#### 3. **Heap-Based Lexical Scopes (JavaScript Semantics)**
+
+For functions with escaping variables, the lexical scope is allocated on the heap with reference counting:
+
+```asm
+; function withGoroutine(a, b) { 
+;   var x = a + b; 
+;   var y = x * 2; 
+;   go async function() { console.log(x, y); }; 
+;   return y; 
+; }
+
+withGoroutine:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 8                   ; Stack space for heap pointer storage
+    
+    ; Allocate lexical scope on heap (ONE malloc for all variables)
+    mov rdi, 40                  ; Size: a(8) + b(8) + x(8) + y(8) + ref_count(8)
+    call runtime_malloc
+    mov [rbp-8], rax            ; Store scope pointer on stack
+    mov r15, rax                ; Load scope pointer into R15 for fast access
+    
+    ; Initialize lexical scope with parameters
+    mov [r15 + 0], rdi          ; a = parameter 1
+    mov [r15 + 8], rsi          ; b = parameter 2
+    mov qword [r15 + 32], 1     ; ref_count = 1
+    
+    ; var x = a + b (heap variable arithmetic)
+    mov rax, [r15 + 0]          ; Load a
+    add rax, [r15 + 8]          ; Add b
+    mov [r15 + 16], rax         ; Store x
+    
+    ; var y = x * 2 (heap variable arithmetic)
+    mov rax, [r15 + 16]         ; Load x
+    shl rax, 1                  ; Multiply by 2
+    mov [r15 + 24], rax         ; Store y
+    
+    ; Create goroutine with captured lexical scope
+    mov rdi, [rbp-8]            ; Pass heap scope pointer
+    call create_goroutine_with_scope
+    mov r15, [rbp-8]            ; RESTORE R15 after function call
+    
+    ; return y (fast access via R15)
+    mov rax, [r15 + 24]         ; Load y
+    
+    ; Release our reference to lexical scope
+    mov rdi, [rbp-8]            ; Load scope pointer
+    call runtime_release_scope  ; Decrement ref_count
+    
+    leave
+    ret
+
+; Performance: One malloc overhead + fast variable access via R15
+```
+
+#### 4. **Code Generation Strategy**
+
+```cpp
+class LexicalScopeCodeGenerator {
+public:
+    void generate_function(ASTNode* function) {
+        std::vector<VariableEscapeInfo> variables;
+        auto scope_location = escape_analyzer_.analyze_function(function, variables);
+        
+        if (scope_location == ScopeLocation::STACK) {
+            generate_stack_scope_function(function, variables);
+        } else {
+            generate_heap_scope_function(function, variables);
+        }
+    }
+    
+private:
+    void generate_stack_scope_function(ASTNode* function, 
+                                      const std::vector<VariableEscapeInfo>& variables) {
+        // Calculate stack layout for all variables
+        size_t total_stack_size = calculate_stack_layout(variables);
+        
+        // Generate function prologue with stack allocation
+        emit_stack_prologue(total_stack_size);
+        
+        // All variable access uses direct stack offsets: [rbp + offset]
+        for (auto& stmt : function->statements) {
+            generate_stack_variable_operations(stmt, variables);
+        }
+        
+        // Stack cleanup is automatic
+        emit_stack_epilogue();
+    }
+    
+    void generate_heap_scope_function(ASTNode* function, 
+                                     const std::vector<VariableEscapeInfo>& variables) {
+        // Calculate heap layout for all variables + ref_count
+        size_t scope_object_size = calculate_heap_layout(variables);
+        
+        // Generate heap allocation and R15 setup
+        emit_heap_allocation(scope_object_size);
+        emit_r15_scope_setup();
+        
+        // Variable access uses R15-based addressing: [r15 + offset]
+        for (auto& stmt : function->statements) {
+            if (is_function_call(stmt)) {
+                generate_function_call(stmt);
+                emit_r15_restoration();  // mov r15, [rbp-8]
+            } else {
+                generate_heap_variable_operations(stmt, variables);
+            }
+        }
+        
+        // Reference counting cleanup
+        emit_scope_reference_release();
+    }
+    
+    void generate_stack_variable_access(const std::string& var_name, 
+                                       const std::vector<VariableEscapeInfo>& variables) {
+        auto var_info = find_variable(var_name, variables);
+        // Direct stack access: mov rax, [rbp + var_info.stack_offset]
+        emit_stack_memory_access(var_info.stack_offset);
+    }
+    
+    void generate_heap_variable_access(const std::string& var_name, 
+                                      const std::vector<VariableEscapeInfo>& variables) {
+        auto var_info = find_variable(var_name, variables);
+        // R15-based heap access: mov rax, [r15 + var_info.heap_offset]
+        emit_heap_memory_access_via_r15(var_info.heap_offset);
+    }
+};
+```
+
+### 6. **Lexical Scope Lifetime Management**
+
+Managing lexical scope lifetimes is critical for JavaScript semantics, especially with asynchronous operations, event listeners, and nested callbacks that can outlive their parent functions.
+
+#### **Core Challenge: Event-Driven Lifetimes**
+
+Unlike traditional function scopes, JavaScript lexical scopes must survive beyond function execution when captured by:
+- Event listeners (potentially indefinite lifetime)
+- setTimeout/setInterval callbacks  
+- Goroutines and async operations
+- Nested callback chains
+
+#### **Thread-Safe Reference Counting System**
+
+```cpp
+struct LexicalScope {
+    // Thread-safe reference counting with proper memory ordering
+    std::atomic<int32_t> total_ref_count{1};
+    
+    // Detailed reference tracking for debugging and management
+    std::atomic<int32_t> parent_function_refs{1};     // Parent function holding reference
+    std::atomic<int32_t> event_listener_refs{0};      // Event listeners
+    std::atomic<int32_t> timeout_refs{0};             // setTimeout/setInterval callbacks
+    std::atomic<int32_t> goroutine_refs{0};           // Active goroutines  
+    std::atomic<int32_t> child_scope_refs{0};         // Child scopes depending on this scope
+    
+    // Scope hierarchy for nested function support
+    LexicalScope* parent_scope{nullptr};
+    std::vector<LexicalScope*> child_scopes;
+    
+    // Exception-safe RAII reference management
+    class ScopeRef {
+        LexicalScope* scope_;
+        std::atomic<int32_t>* specific_counter_;
+    public:
+        ScopeRef(LexicalScope* scope, std::atomic<int32_t>* counter) 
+            : scope_(scope), specific_counter_(counter) {
+            scope_->total_ref_count.fetch_add(1, std::memory_order_relaxed);
+            specific_counter_->fetch_add(1, std::memory_order_relaxed);
+        }
+        
+        ~ScopeRef() {
+            if (scope_) {
+                specific_counter_->fetch_sub(1, std::memory_order_relaxed);
+                scope_->try_release();
+            }
+        }
+        
+        // Move-only semantics for exception safety
+        ScopeRef(ScopeRef&& other) noexcept 
+            : scope_(other.scope_), specific_counter_(other.specific_counter_) {
+            other.scope_ = nullptr;
+        }
+        
+        ScopeRef& operator=(ScopeRef&& other) noexcept {
+            if (this != &other) {
+                if (scope_) {
+                    specific_counter_->fetch_sub(1, std::memory_order_relaxed);
+                    scope_->try_release();
+                }
+                scope_ = other.scope_;
+                specific_counter_ = other.specific_counter_;
+                other.scope_ = nullptr;
+            }
+            return *this;
+        }
+    };
+    
+    // Factory methods for creating exception-safe references
+    ScopeRef create_event_listener_ref() {
+        return ScopeRef(this, &event_listener_refs);
+    }
+    
+    ScopeRef create_timeout_ref() {
+        return ScopeRef(this, &timeout_refs);
+    }
+    
+    ScopeRef create_goroutine_ref() {
+        return ScopeRef(this, &goroutine_refs);
+    }
+    
+    void try_release() {
+        // Use acquire-release ordering for proper synchronization
+        if (total_ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            // Last reference - safe to delete
+            cleanup_and_delete();
+        }
+    }
+    
+private:
+    void cleanup_and_delete() {
+        // Cleanup child scope dependencies
+        for (auto* child : child_scopes) {
+            child->parent_scope = nullptr;
+            child->try_release();
+        }
+        
+        // Release parent scope dependency
+        if (parent_scope) {
+            parent_scope->remove_child_scope(this);
+            parent_scope->try_release();
+        }
+        
+        delete this;
+    }
+    
+    void remove_child_scope(LexicalScope* child) {
+        auto it = std::find(child_scopes.begin(), child_scopes.end(), child);
+        if (it != child_scopes.end()) {
+            child_scopes.erase(it);
+            child_scope_refs.fetch_sub(1, std::memory_order_relaxed);
+        }
+    }
+};
+```
+
+#### **Event System Integration**
+
+```cpp
+class EventLifetimeManager {
+    std::unordered_map<void*, std::vector<LexicalScope::ScopeRef>> object_scope_refs_;
+    std::mutex refs_mutex_;  // Protect the map during concurrent access
+    
+public:
+    void register_event_listener(void* object, const std::string& event_name, 
+                                LexicalScope* scope) {
+        std::lock_guard<std::mutex> lock(refs_mutex_);
+        
+        // Create exception-safe reference that will be automatically released
+        object_scope_refs_[object].emplace_back(scope->create_event_listener_ref());
+        
+        // Register cleanup callback with native event system
+        register_object_destructor(object, [this, object]() {
+            this->cleanup_object_references(object);
+        });
+    }
+    
+    void cleanup_object_references(void* object) {
+        std::lock_guard<std::mutex> lock(refs_mutex_);
+        
+        // Automatic cleanup - RAII ScopeRef destructors handle reference counting
+        object_scope_refs_.erase(object);
+    }
+    
+    void cancel_timeout(int timer_id) {
+        // When timers are cancelled, corresponding ScopeRef is destroyed
+        // automatically releasing the lexical scope reference
+        auto it = active_timeouts_.find(timer_id);
+        if (it != active_timeouts_.end()) {
+            active_timeouts_.erase(it);  // ScopeRef destructor called automatically
+        }
+    }
+    
+private:
+    std::unordered_map<int, LexicalScope::ScopeRef> active_timeouts_;
+};
+```
+
+#### **Scope Hierarchy Management**
+
+```cpp
+class ScopeHierarchyManager {
+public:
+    LexicalScope* create_child_scope(LexicalScope* parent) {
+        auto* child = new LexicalScope();
+        
+        if (parent) {
+            // Child scope depends on parent - create bidirectional link
+            child->parent_scope = parent;
+            parent->child_scopes.push_back(child);
+            
+            // Parent scope gains a reference from child dependency
+            parent->total_ref_count.fetch_add(1, std::memory_order_relaxed);
+            parent->child_scope_refs.fetch_add(1, std::memory_order_relaxed);
+        }
+        
+        return child;
+    }
+    
+    void handle_nested_callback(LexicalScope* parent_scope, LexicalScope* child_scope) {
+        // Callback that needs both parent and child scopes
+        auto parent_ref = parent_scope->create_timeout_ref();
+        auto child_ref = child_scope->create_timeout_ref();
+        
+        // Create timeout that captures both references
+        timer_system_.schedule(1000, [parent_ref = std::move(parent_ref), 
+                                     child_ref = std::move(child_ref)]() {
+            // Use both scopes safely
+            // References automatically released when lambda is destroyed
+        });
+    }
+};
+```
+
+#### **Exception-Safe Callback Execution**
+
+```cpp
+class CallbackExecutor {
+public:
+    void execute_timeout_callback(std::function<void()> callback, 
+                                 LexicalScope::ScopeRef scope_ref) {
+        try {
+            callback();
+            // scope_ref automatically released when function exits (success case)
+        } catch (...) {
+            // scope_ref automatically released when function exits (exception case)
+            // RAII ensures no reference leaks
+            throw;
+        }
+    }
+    
+    void execute_event_callback(std::function<void()> callback,
+                               LexicalScope::ScopeRef scope_ref) {
+        // Exception-safe wrapper
+        struct CallbackWrapper {
+            std::function<void()> cb;
+            LexicalScope::ScopeRef ref;
+            
+            void operator()() {
+                try {
+                    cb();
+                } catch (...) {
+                    // ref automatically released on exception
+                    throw;
+                }
+                // ref automatically released on success
+            }
+        };
+        
+        CallbackWrapper wrapper{std::move(callback), std::move(scope_ref)};
+        wrapper();
+    }
+};
+```
+
+#### **Circular Reference Detection and Weak References**
+
+```cpp
+class CircularReferenceManager {
+    std::unordered_set<LexicalScope*> current_traversal_;
+    
+public:
+    bool detect_cycle(LexicalScope* scope) {
+        if (current_traversal_.count(scope)) {
+            return true;  // Cycle detected
+        }
+        
+        current_traversal_.insert(scope);
+        
+        for (auto* child : scope->child_scopes) {
+            if (detect_cycle(child)) {
+                return true;
+            }
+        }
+        
+        current_traversal_.erase(scope);
+        return false;
+    }
+    
+    // Weak references for cache-like scenarios where circular refs are expected
+    class WeakScopeRef {
+        std::weak_ptr<LexicalScope> weak_scope_;
+    public:
+        WeakScopeRef(LexicalScope* scope) : weak_scope_(scope->shared_from_this()) {}
+        
+        LexicalScope* try_lock() {
+            return weak_scope_.lock().get();
+        }
+    };
+};
+```
+
+#### **Debug and Monitoring System**
+
+```cpp
+class ScopeLifetimeDebugger {
+    std::unordered_map<LexicalScope*, ScopeDebugInfo> scope_info_;
+    std::mutex debug_mutex_;
+    
+    struct ScopeDebugInfo {
+        std::string function_name;
+        std::chrono::steady_clock::time_point created_at;
+        std::vector<std::string> reference_sources;
+    };
+    
+public:
+    void register_scope(LexicalScope* scope, const std::string& function_name) {
+        std::lock_guard<std::mutex> lock(debug_mutex_);
+        scope_info_[scope] = {
+            function_name,
+            std::chrono::steady_clock::now(),
+            {}
+        };
+    }
+    
+    void print_scope_status() {
+        std::lock_guard<std::mutex> lock(debug_mutex_);
+        
+        for (auto& [scope, info] : scope_info_) {
+            auto age = std::chrono::steady_clock::now() - info.created_at;
+            auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(age).count();
+            
+            std::cout << "Scope " << scope << " (" << info.function_name << "):\n"
+                     << "  Age: " << age_ms << "ms\n"
+                     << "  Total refs: " << scope->total_ref_count.load() << "\n"
+                     << "  Event listeners: " << scope->event_listener_refs.load() << "\n"
+                     << "  Timeouts: " << scope->timeout_refs.load() << "\n"
+                     << "  Goroutines: " << scope->goroutine_refs.load() << "\n"
+                     << "  Child scopes: " << scope->child_scope_refs.load() << "\n";
+        }
+    }
+    
+    void check_for_leaks() {
+        std::lock_guard<std::mutex> lock(debug_mutex_);
+        
+        for (auto& [scope, info] : scope_info_) {
+            auto age = std::chrono::steady_clock::now() - info.created_at;
+            auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(age).count();
+            
+            // Flag scopes that have been alive for a long time with references
+            if (age_ms > 60000 && scope->total_ref_count.load() > 0) {
+                std::cout << "POTENTIAL LEAK: Scope " << scope 
+                         << " (" << info.function_name << ") alive for " 
+                         << age_ms << "ms with " << scope->total_ref_count.load() 
+                         << " references\n";
+            }
+        }
+    }
+};
+```
+
+#### **Key Design Principles**
+
+1. **RAII Reference Management**: All scope references use RAII wrappers that automatically handle cleanup, preventing leaks even with exceptions
+
+2. **Thread-Safe Operations**: All reference counting uses proper atomic operations with acquire-release memory ordering
+
+3. **Exception Safety**: Reference counting is exception-safe - references are properly released even when callbacks throw
+
+4. **Hierarchical Dependencies**: Child scopes automatically keep parent scopes alive through reference counting
+
+5. **Event System Integration**: Automatic cleanup when objects are destroyed or event listeners are removed
+
+6. **Debug Support**: Comprehensive monitoring and leak detection for development and debugging
+
+This system ensures that lexical scopes remain available exactly as long as needed while preventing memory leaks and handling all the complex lifetime scenarios that JavaScript's event-driven model requires.
+```
+
+### Performance Benefits
+
+#### Stack Lexical Scopes (70-80% of functions)
+- ✅ **Zero allocation overhead**: Stack pointer movement only (0 cycles)
+- ✅ **Zero cleanup overhead**: Automatic when function returns  
+- ✅ **Maximum variable access speed**: Direct `[rbp + offset]` addressing
+- ✅ **No register constraints**: All registers available for optimization
+- ✅ **Perfect for pure computations, loops, mathematical operations**
+
+#### Heap Lexical Scopes (20-30% of functions)  
+- ⚡ **Minimal allocation overhead**: One malloc for entire scope (~50-100 cycles)
+- ⚡ **Fast variable access**: `[r15 + offset]` after R15 restoration (1-3 cycles)
+- ⚡ **Perfect JavaScript semantics**: Variables outlive function scope
+- ⚡ **Automatic lifetime management**: Reference counting prevents memory leaks
+- ⚡ **Goroutine-compatible**: Variables accessible across threads
+
+### Architecture Portability
+
+The lexical scope approach is architecture-agnostic:
+
+- **x86_64**: Uses R15 register with restoration after calls
+- **ARM64**: Uses X19 register (callee-saved, no restoration needed!)  
+- **WebAssembly**: Uses local variables (automatically preserved)
+- **Future architectures**: Abstract backend system handles differences
+
+### Code Generation Examples
+
+**Pure Stack Function (90%+ of tight loops):**
+```ultraScript
+function calculateSum(array) {
+    var sum = 0;           // Stack variable
+    var temp = 0;          // Stack variable
+    
+    for (var i = 0; i < array.length; i++) {
+        temp = array[i] * 2;       // Pure stack arithmetic
+        sum += temp;               // Pure stack arithmetic
+    }
+    return sum;  // Stack return
+}
+// Assembly: Direct [rbp+offset] access throughout - maximum performance
+```
+
+**Heap Scope Function (perfect JavaScript semantics):**
+```ultraScript
+function withAsyncOperations(data) {
+    var processedCount = 0;        // Heap - shared with goroutines
+    var results = [];              // Heap - shared with callbacks
+    var localTemp = 0;             // Heap - all variables in same scope
+    
+    for (var i = 0; i < data.length; i++) {
+        go async function() {
+            results.push(process(data[i]));  // Access heap variables
+            processedCount++;                // Atomic increment
+        };
+    }
+    
+    setTimeout(() => {
+        console.log("Results:", results);    // Access heap variables
+    }, 1000);
+    
+    return processedCount;
+}
+// Assembly: [r15+offset] access with one malloc for entire scope
+```
+
+This approach provides **maximum performance** for pure functions while enabling **perfect JavaScript semantics** when variables need to escape their lexical scope.
+
+#### 4. **Goroutine Integration**
+
+Goroutines automatically capture scope references with zero additional overhead:
+
+```cpp
+class Goroutine {
+    std::vector<void*> captured_scopes_;  // Scope object references
+    
+public:
+    template<typename ScopeType>
+    void capture_scope(ScopeType* scope) {
+        scope->add_ref();  // Increment reference count
+        captured_scopes_.push_back(scope);
+    }
+    
+    ~Goroutine() {
+        // Automatically release all scope references
+        for (auto* scope_ptr : captured_scopes_) {
+            static_cast<RefCountedScope*>(scope_ptr)->release();
+        }
+    }
+};
+```
+
+#### 5. **Lifetime Management**
+
+Reference counting automatically handles complex parent-child relationships:
+
+```ultraScript
+function parent() {
+    var sharedData = { count: 0 };  // Allocated in ParentFunctionScope
+    
+    // Child goroutine increments scope reference count
+    go async function() {
+        await someAsyncOperation();
+        sharedData.count++;  // Scope guaranteed to be alive
+    };
+    
+    // setTimeout also increments scope reference count  
+    setTimeout(() => {
+        sharedData.count++;  // Scope guaranteed to be alive
+    }, 5000);
+    
+    return "done";  // Parent releases its reference, but children keep scope alive
+}
+```
+
+**Reference Counting Flow:**
+1. `parent()` called → scope created with `ref_count = 1`
+2. Goroutine created → `ref_count = 2`
+3. `setTimeout` created → `ref_count = 3` 
+4. `parent()` returns → `ref_count = 2`
+5. Goroutine completes → `ref_count = 1`
+6. Timer fires and completes → `ref_count = 0` → scope deallocated
+
+### Code Generation Example
+
+**Original UltraScript:**
+```ultraScript
+function calculateResults(data, threshold) {
+    var processed = 0;
+    var results = [];
+    var total = data.length;
+    
+    for (var i = 0; i < total; i++) {
+        go async function() {
+            if (data[i] > threshold) {
+                results.push(data[i] * 2);
+                processed++;
+            }
+        };
+    }
+    
+    return processed;
+}
+```
+
+**Generated JIT Assembly Implementation:**
+```asm
+; Auto-generated scope object layout (calculated at compile time)
+; CalculateResultsFunctionScope:
+; [r15 + 0]  = data parameter (DynamicValue)
+; [r15 + 8]  = threshold parameter (DynamicValue)  
+; [r15 + 16] = processed variable (atomic int64_t)
+; [r15 + 24] = results variable (Array)
+; [r15 + 32] = total variable (int64_t)
+; [r15 + 40] = i variable (int64_t)
+; [r15 + 48] = ref_count (atomic int32_t)
+
+calculateResults:
+    ; Function prologue
+    push rbp
+    mov rbp, rsp
+    sub rsp, 16                    ; Stack space for scope pointer storage
+    
+    ; Allocate lexical scope object on heap
+    mov rdi, 52                    ; Size of CalculateResultsFunctionScope
+    call runtime_malloc
+    mov [rbp-8], rax              ; Store scope address on stack
+    mov r15, rax                  ; Load scope pointer into R15
+    
+    ; Initialize scope object with parameters
+    mov [r15 + 0], rdi            ; data parameter
+    mov [r15 + 8], rsi            ; threshold parameter
+    mov qword [r15 + 16], 0       ; processed = 0
+    mov qword [r15 + 24], 0       ; results = Array()
+    mov qword [r15 + 48], 1       ; ref_count = 1
+    
+    ; var total = data.length (involves function call)
+    mov rdi, [r15 + 0]            ; Load data parameter
+    call get_array_length         ; Function call clobbers R15
+    mov r15, [rbp-8]              ; RESTORE R15 after function call
+    mov [r15 + 32], rax           ; total = array length
+    
+    ; for (var i = 0; i < total; i++)
+    mov qword [r15 + 40], 0       ; i = 0
+    
+loop_start:
+    mov rax, [r15 + 40]           ; Load i
+    cmp rax, [r15 + 32]          ; Compare i with total
+    jge loop_end                  ; Exit if i >= total
+    
+    ; Create goroutine with scope capture
+    mov rdi, [rbp-8]              ; Pass scope object address
+    mov rsi, [r15 + 40]          ; Pass current value of i
+    call create_goroutine_with_captured_scope ; Clobbers R15
+    mov r15, [rbp-8]              ; RESTORE R15 after function call
+    
+    ; i++
+    inc qword [r15 + 40]          ; Fast increment of i
+    jmp loop_start
+    
+loop_end:
+    ; return processed
+    mov rax, [r15 + 16]           ; Load processed value
+    
+    ; Release scope object (decrement ref_count)
+    mov rdi, [rbp-8]              ; Load scope address
+    call runtime_release_scope    ; Clobbers R15 (but we're done)
+    
+    leave                         ; Clean up stack
+    ret
+
+; Goroutine function (receives scope object as parameter)
+goroutine_function:
+    push rbp
+    mov rbp, rsp
+    mov r15, rdi                  ; R15 = captured scope object
+    
+    ; Increment ref_count atomically
+    lock inc dword [r15 + 48]     ; atomic ref_count++
+    
+    ; if (data[captured_i] > threshold)
+    mov rdi, [r15 + 0]            ; Load data array
+    mov rsi, rcx                  ; captured_i (passed as parameter)
+    call array_get_element        ; Function call
+    mov r15, rdi                  ; RESTORE R15 (rdi still has scope address)
+    
+    ; Compare with threshold
+    mov rbx, [r15 + 8]            ; Load threshold
+    ; ... comparison logic ...
+    
+    ; results.push(data[i] * 2)
+    mov rdi, [r15 + 24]           ; Load results array
+    call array_push               ; Function call
+    mov r15, [rbp-8]              ; RESTORE R15 (if we stored scope on stack)
+    
+    ; processed++ (atomic)
+    lock inc qword [r15 + 16]     ; atomic processed++
+    
+    ; Release scope reference
+    lock dec dword [r15 + 48]     ; atomic ref_count--
+    jnz goroutine_end             ; Jump if ref_count > 0
+    
+    ; ref_count == 0, free the scope object
+    mov rdi, r15                  ; Pass scope object address
+    call runtime_free_scope
+    
+goroutine_end:
+    leave
+    ret
+```
+
+### Runtime Support Functions
+
+```cpp
+extern "C" {
+    void* runtime_malloc(size_t size) {
+        // Optimized allocator for scope objects
+        return aligned_alloc(8, size);  // 8-byte aligned for performance
+    }
+    
+    void runtime_release_scope(void* scope_obj) {
+        std::atomic<int>* ref_count = (std::atomic<int>*)((char*)scope_obj + 48);
+        if (ref_count->fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            // Last reference - free the scope object
+            free(scope_obj);
+        }
+    }
+    
+    void create_goroutine_with_captured_scope(void* scope_obj, int64_t captured_i) {
+        // Increment reference count before creating goroutine
+        std::atomic<int>* ref_count = (std::atomic<int>*)((char*)scope_obj + 48);
+        ref_count->fetch_add(1, std::memory_order_relaxed);
+        
+        // Create goroutine with captured scope and loop variable
+        goroutine_scheduler.create([scope_obj, captured_i]() {
+            goroutine_function(scope_obj, captured_i);
+        });
+    }
+}
+```
+```
+
+### Performance Benefits
+
+1. **Zero Goroutine Overhead**: Variable capture requires no additional work
+2. **Native Speed Access**: Register-based variable access is identical to stack performance
+3. **Perfect JavaScript Semantics**: All closures and lexical scope work exactly as expected
+4. **Thread-Safe by Design**: Heap allocation allows cross-thread access without special handling
+5. **Automatic Memory Management**: Reference counting prevents leaks and use-after-free
+
+### Thread Safety Notes
+
+For maximum performance, variables are **not automatically thread-safe**. Developers use explicit `atomic` operations when needed:
+
+```ultraScript
+function threadSafeExample() {
+    var counter = 0;  // Unsafe access
+    
+    go async function() {
+        counter++;           // Unsafe - race condition possible
+        atomic counter++;    // Safe - uses atomic increment
+        atomic {             // Safe block - all operations atomic
+            counter += 5;
+            console.log(counter);
+        }
+    };
+}
+```
+
+for accessing data cross goroutine, for now we do not have thread safety so to speak for performance. we will handle atomics and locking later.

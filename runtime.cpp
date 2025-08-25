@@ -1,13 +1,16 @@
 #include "runtime.h"
 #include "compiler.h"
-#include "lexical_scope.h"
+// Removed lexical_scope.h include - using pure static analysis now
 #include "regex.h"
-#include "goroutine_system.h"
+#include "goroutine_system_v2.h"
 #include "ultra_performance_array.h"
 #include "dynamic_properties.h"
 #include <iostream>
 #include <algorithm>
 #include <chrono>
+
+// External goroutine ID counter from goroutine_system_v2.cpp
+extern std::atomic<int64_t> g_next_goroutine_id;
 #include <unordered_map>
 #include <pthread.h>
 #include <signal.h>
@@ -71,10 +74,10 @@ extern "C" void __debug_stack_load(void* rbp_addr, int64_t offset, void* loaded_
 
 // Global instances
 // Using pointers to control initialization/destruction order
-static GoroutineScheduler* global_scheduler = nullptr;
+// static GoroutineScheduler* global_scheduler = nullptr;  // REMOVED: Using EventDrivenScheduler V2
 static std::mutex scheduler_mutex;
 
-// Timer globals moved to goroutine_system.cpp to avoid duplicates
+// Timer globals moved to goroutine_system_v2.cpp to avoid duplicates
 
 ThreadPool::ThreadPool(size_t num_threads) {
     // Use the full number of available hardware threads for maximum performance
@@ -155,18 +158,18 @@ std::atomic<uint16_t> g_next_function_id{1};  // Start at 1, 0 is reserved for "
 static std::unordered_set<void*> g_allocated_promises;
 static std::mutex g_promise_registry_mutex;
 
-// Helper function to create and track a promise
-static void* create_tracked_promise(std::shared_ptr<Promise> promise) {
-    auto* promise_ptr = new std::shared_ptr<Promise>(promise);
+// Helper function to create and track a promise - UNUSED in V2
+// static void* create_tracked_promise(std::shared_ptr<Promise> promise) {
+//     auto* promise_ptr = new std::shared_ptr<Promise>(promise);
+//     
+//     // Track allocated promise for cleanup
+//     {
+//         std::lock_guard<std::mutex> lock(g_promise_registry_mutex);
+//         g_allocated_promises.insert(promise_ptr);
+//     }
     
-    // Track allocated promise for cleanup
-    {
-        std::lock_guard<std::mutex> lock(g_promise_registry_mutex);
-        g_allocated_promises.insert(promise_ptr);
-    }
-    
-    return promise_ptr;
-}
+//     return promise_ptr;
+// }
 
 // Global executable memory info for thread-safe access
 ExecutableMemoryInfo g_executable_memory = {nullptr, 0, {}};
@@ -248,7 +251,7 @@ void __runtime_cleanup() {
     __new_goroutine_system_cleanup();
 }
 
-// Main goroutine functions moved to goroutine_system.cpp
+// Main goroutine functions moved to goroutine_system_v2.cpp
 
 // Optimized goroutine spawn with direct function IDs - NO string lookups
 void* __goroutine_spawn_fast(uint16_t func_id) {
@@ -259,13 +262,13 @@ void* __goroutine_spawn_fast(uint16_t func_id) {
     }
     
     // Create a task that calls the function directly - minimal overhead
-    auto task = [func_ptr]() {
-        typedef int64_t (*FuncType)();
-        FuncType func = reinterpret_cast<FuncType>(func_ptr);
-        return func();
-    };
+    typedef int64_t (*FuncType)();
+    FuncType func = reinterpret_cast<FuncType>(func_ptr);
     
-    GoroutineScheduler::instance().spawn(task);
+    auto goroutine = std::make_shared<Goroutine>(g_next_goroutine_id.fetch_add(1), 
+                                                 [func]() { func(); });
+    
+    EventDrivenScheduler::instance().schedule_regular(goroutine);
     return reinterpret_cast<void*>(1);
 }
 
@@ -277,13 +280,13 @@ void* __goroutine_spawn_fast_arg1(uint16_t func_id, int64_t arg1) {
     }
     
     // Create a task that calls the function with one argument - minimal overhead
-    auto task = [func_ptr, arg1]() {
-        typedef int64_t (*FuncType)(int64_t);
-        FuncType func = reinterpret_cast<FuncType>(func_ptr);
-        return func(arg1);
-    };
+    typedef int64_t (*FuncType)(int64_t);
+    FuncType func = reinterpret_cast<FuncType>(func_ptr);
     
-    GoroutineScheduler::instance().spawn(task);
+    auto goroutine = std::make_shared<Goroutine>(g_next_goroutine_id.fetch_add(1), 
+                                                 [func, arg1]() { func(arg1); });
+    
+    EventDrivenScheduler::instance().schedule_regular(goroutine);
     return reinterpret_cast<void*>(1);
 }
 
@@ -295,13 +298,13 @@ void* __goroutine_spawn_fast_arg2(uint16_t func_id, int64_t arg1, int64_t arg2) 
     }
     
     // Create a task that calls the function with two arguments - minimal overhead
-    auto task = [func_ptr, arg1, arg2]() {
-        typedef int64_t (*FuncType)(int64_t, int64_t);
-        FuncType func = reinterpret_cast<FuncType>(func_ptr);
-        return func(arg1, arg2);
-    };
+    typedef int64_t (*FuncType)(int64_t, int64_t);
+    FuncType func = reinterpret_cast<FuncType>(func_ptr);
     
-    GoroutineScheduler::instance().spawn(task);
+    auto goroutine = std::make_shared<Goroutine>(g_next_goroutine_id.fetch_add(1), 
+                                                 [func, arg1, arg2]() { func(arg1, arg2); });
+    
+    EventDrivenScheduler::instance().schedule_regular(goroutine);
     return reinterpret_cast<void*>(1);
 }
 
@@ -1087,13 +1090,13 @@ void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg) {
         typedef int (*func_t)();  // Same signature as main function
         func_t function = reinterpret_cast<func_t>(func_ptr);
         
-        std::function<void()> task = [function]() {
+        auto goroutine = std::make_shared<Goroutine>(g_next_goroutine_id.fetch_add(1), [function]() {
             printf("[DEBUG] Goroutine task executing, calling function at %p\n", function);
             int result = function();  // Properly handle return value
             printf("[DEBUG] Goroutine task completed with result: %d\n", result);
-        };
+        });
         
-        GoroutineScheduler::instance().spawn(task, nullptr);
+        EventDrivenScheduler::instance().schedule_regular(goroutine);
         printf("[DEBUG] Goroutine spawned successfully\n");
     } else {
         std::cerr << "ERROR: __goroutine_spawn_func_ptr called with null function pointer" << std::endl;

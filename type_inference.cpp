@@ -1,9 +1,14 @@
 #include "compiler.h"
 #include "parser_gc_integration.h"  // For complete ParserGCIntegration definition
+#include "static_scope_analyzer.h"  // For new lexical scope system
 #include <regex>
 #include <algorithm>
 #include <iostream>
 #include <cmath>
+
+// TypeInference constructor and destructor (needed for unique_ptr with forward declaration)
+TypeInference::TypeInference() = default;
+TypeInference::~TypeInference() = default;
 
 DataType TypeInference::infer_type(const std::string& expression) {
     if (variable_types.find(expression) != variable_types.end()) {
@@ -393,7 +398,7 @@ void TypeInference::set_variable_offset(const std::string& name, int64_t offset)
     variable_offsets[name] = offset;
 }
 
-int64_t TypeInference::get_variable_offset(const std::string& name) {
+int64_t TypeInference::get_variable_offset(const std::string& name) const {
     auto it = variable_offsets.find(name);
     return it != variable_offsets.end() ? it->second : -8; // Default to -8 if not found
 }
@@ -648,4 +653,180 @@ DataType TypeInference::get_best_numeric_operator_type(uint32_t class_type_id, c
     
     // Delegate to string version  
     return get_best_numeric_operator_type(class_name, numeric_literal);
+}
+
+// Removed old lexical scope methods - using pure static analysis now
+
+void TypeInference::set_analyzing_function_call(bool analyzing) {
+    inside_function_call = analyzing;
+    std::cout << "[DEBUG] TypeInference: Function call analysis mode: " << (analyzing ? "ON" : "OFF") << std::endl;
+}
+
+void TypeInference::set_analyzing_callback(bool analyzing) {
+    inside_callback = analyzing;
+    std::cout << "[DEBUG] TypeInference: Callback analysis mode: " << (analyzing ? "ON" : "OFF") << std::endl;
+}
+
+void TypeInference::set_analyzing_goroutine(bool analyzing) {
+    inside_goroutine = analyzing;
+    std::cout << "[DEBUG] TypeInference: Goroutine analysis mode: " << (analyzing ? "ON" : "OFF") << std::endl;
+}
+
+bool TypeInference::variable_escapes(const std::string& name) const {
+    return escaped_variables.count(name) > 0;
+}
+
+TypeInference::VariableStorage TypeInference::get_variable_storage(const std::string& name) const {
+    auto it = variable_storage.find(name);
+    if (it != variable_storage.end()) {
+        return it->second;
+    }
+    // Default to stack storage for variables that haven't been analyzed yet
+    return VariableStorage::STACK;
+}
+
+std::vector<std::string> TypeInference::get_escaped_variables_in_scope() const {
+    std::vector<std::string> result;
+    if (!scope_stack.empty()) {
+        for (const std::string& var_name : scope_stack.back()) {
+            if (variable_escapes(var_name)) {
+                result.push_back(var_name);
+            }
+        }
+    }
+    return result;
+}
+
+std::vector<std::string> TypeInference::get_stack_variables_in_scope() const {
+    std::vector<std::string> result;
+    if (!scope_stack.empty()) {
+        for (const std::string& var_name : scope_stack.back()) {
+            if (!variable_escapes(var_name)) {
+                result.push_back(var_name);
+            }
+        }
+    }
+    return result;
+}
+
+int TypeInference::get_variable_scope_depth(const std::string& name) const {
+    auto it = variable_scope_depth.find(name);
+    return (it != variable_scope_depth.end()) ? it->second : -1;
+}
+
+void TypeInference::debug_print_escape_info() const {
+    std::cout << "\n=== ESCAPE ANALYSIS DEBUG INFO ===" << std::endl;
+    std::cout << "Current scope depth: " << current_scope_depth << std::endl;
+    std::cout << "Escaped variables: ";
+    for (const std::string& var : escaped_variables) {
+        std::cout << var << " ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Variable storage assignments:" << std::endl;
+    for (const auto& [name, storage] : variable_storage) {
+        std::cout << "  " << name << " -> " << (storage == VariableStorage::STACK ? "STACK" : "HEAP_LEXICAL") << std::endl;
+    }
+    
+    std::cout << "Scope stack size: " << scope_stack.size() << std::endl;
+    for (size_t i = 0; i < scope_stack.size(); ++i) {
+        std::cout << "  Scope " << i << ": ";
+        for (const std::string& var : scope_stack[i]) {
+            std::cout << var << " ";
+        }
+        std::cout << std::endl;
+    }
+    std::cout << "=================================" << std::endl;
+}
+
+// NEW LEXICAL SCOPE SYSTEM: Implementation of static analysis-based methods
+
+void TypeInference::set_current_function_analysis(const std::string& function_name) {
+    current_function_being_analyzed_ = function_name;
+    
+    // Initialize lexical scope integration if needed
+    if (!lexical_scope_integration_) {
+        lexical_scope_integration_ = std::make_unique<LexicalScopeIntegration>();
+    }
+    
+    std::cout << "[DEBUG] TypeInference: Set current function analysis to '" << function_name << "'" << std::endl;
+}
+
+void TypeInference::analyze_function_lexical_scopes(const std::string& function_name, ASTNode* function_node) {
+    if (!lexical_scope_integration_) {
+        lexical_scope_integration_ = std::make_unique<LexicalScopeIntegration>();
+    }
+    
+    std::cout << "[DEBUG] TypeInference: Analyzing lexical scopes for function '" << function_name << "'" << std::endl;
+    lexical_scope_integration_->analyze_function(function_name, function_node);
+}
+
+bool TypeInference::function_needs_r15_register(const std::string& function_name) const {
+    if (!lexical_scope_integration_) {
+        return false;  // Default to no R15 needed if not analyzed
+    }
+    
+    return lexical_scope_integration_->function_needs_r15_register(function_name);
+}
+
+bool TypeInference::function_uses_heap_scope(const std::string& function_name) const {
+    if (!lexical_scope_integration_) {
+        return false;  // Default to stack-only if not analyzed
+    }
+    
+    return lexical_scope_integration_->should_use_heap_scope(function_name);
+}
+
+std::vector<int> TypeInference::get_required_parent_scope_levels(const std::string& function_name) const {
+    if (!lexical_scope_integration_) {
+        return {};  // No parent scopes needed if not analyzed
+    }
+    
+    return lexical_scope_integration_->get_required_parent_scope_levels(function_name);
+}
+
+size_t TypeInference::get_heap_scope_size(const std::string& function_name) const {
+    if (!lexical_scope_integration_) {
+        return 0;  // No heap scope if not analyzed
+    }
+    
+    return lexical_scope_integration_->get_heap_scope_size(function_name);
+}
+
+bool TypeInference::variable_escapes_in_function(const std::string& function_name, const std::string& var_name) const {
+    if (!lexical_scope_integration_) {
+        // Fall back to old escape analysis
+        return variable_escapes(var_name);
+    }
+    
+    return lexical_scope_integration_->variable_escapes(function_name, var_name);
+}
+
+int64_t TypeInference::get_variable_offset_in_function(const std::string& function_name, const std::string& var_name) const {
+    if (!lexical_scope_integration_) {
+        // Fall back to old offset calculation
+        return get_variable_offset(var_name);
+    }
+    
+    return lexical_scope_integration_->get_variable_offset(function_name, var_name);
+}
+
+// Lexical scope analysis methods for AST code generation
+void TypeInference::mark_variable_used(const std::string& name) {
+    // Mark variable as used - this helps with escape analysis
+    if (inside_goroutine || inside_callback) {
+        escaped_variables.insert(name);
+    }
+}
+
+void TypeInference::mark_variable_in_goroutine(const std::string& name) {
+    // Variable is used inside a goroutine - it escapes
+    escaped_variables.insert(name);
+}
+
+void TypeInference::mark_variable_passed_to_function(const std::string& name) {
+    // Variable passed to function - may escape depending on function
+    if (inside_goroutine || inside_callback) {
+        escaped_variables.insert(name);
+    }
 }

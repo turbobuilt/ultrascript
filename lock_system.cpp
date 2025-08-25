@@ -1,17 +1,11 @@
 #include "lock_system.h"
-#include "goroutine_system.h"
+#include "goroutine_system_v2.h"
 #include <cassert>
 #include <thread>
 #include <stdexcept>
 
 
-// Simple stub implementation for goroutine integration
-// In a full implementation, this would integrate with the goroutine scheduler
-std::shared_ptr<Goroutine> get_current_goroutine() {
-    // For now, return nullptr to indicate main thread or fallback behavior
-    return nullptr;
-}
-
+// Lock system uses get_current_goroutine() from goroutine_system_v2.cpp
 std::atomic<uint64_t> Lock::next_lock_id_{1};
 
 #ifdef GOTS_DEBUG
@@ -228,8 +222,9 @@ void Lock::yield_to_scheduler_if_needed() {
     // if we're blocking and allow other goroutines to run
     auto current_goroutine = get_current_goroutine();
     if (current_goroutine) {
-        // Signal that this goroutine is waiting
-        current_goroutine->trigger_event_loop();
+        // Signal that this goroutine is yielding - V2 system will handle this
+        // through the event-driven scheduler automatically
+        std::this_thread::yield();
     } else {
         // Fallback for non-goroutine threads
         std::this_thread::yield();
@@ -242,7 +237,8 @@ void Lock::notify_goroutine_scheduler() {
     // which goroutines to run next
     auto current_goroutine = get_current_goroutine();
     if (current_goroutine) {
-        current_goroutine->trigger_event_loop();
+        // V2 system handles scheduling automatically through event-driven approach
+        // No explicit triggering needed
     }
 }
 

@@ -110,6 +110,8 @@ public:
     void emit_call_fast(uint16_t func_id) override;
     void emit_goroutine_spawn_fast(uint16_t func_id) override;
     void emit_goroutine_spawn_direct(void* function_address) override;
+    void emit_goroutine_spawn_and_wait_direct(void* function_address);
+    void emit_goroutine_spawn_and_wait_fast(uint16_t func_id);
     
     // Lock operations
     void emit_lock_acquire(int lock_reg) override;

@@ -55,13 +55,15 @@ public:
     virtual void emit_goroutine_spawn_with_func_ptr() = 0;
     virtual void emit_goroutine_spawn_with_func_id() = 0;
     virtual void emit_goroutine_spawn_with_address(void* function_address) = 0;
+    virtual void emit_goroutine_spawn_direct(void* function_address) = 0;
+    virtual void emit_goroutine_spawn_fast(uint16_t func_id) = 0;
+    virtual void emit_goroutine_spawn_and_wait_direct(void* function_address) = 0;
+    virtual void emit_goroutine_spawn_and_wait_fast(uint16_t func_id) = 0;
     virtual void emit_promise_resolve(int value_reg) = 0;
     virtual void emit_promise_await(int promise_reg) = 0;
     
     // High-Performance Function Calls
     virtual void emit_call_fast(uint16_t func_id) = 0;
-    virtual void emit_goroutine_spawn_fast(uint16_t func_id) = 0;
-    virtual void emit_goroutine_spawn_direct(void* function_address) = 0;
     
     // Lock operations
     virtual void emit_lock_acquire(int lock_reg) = 0;

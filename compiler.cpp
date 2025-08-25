@@ -3,7 +3,7 @@
 #include "x86_codegen_v2.h"  // For X86CodeGenV2 validation
 #include "runtime.h"
 #include "runtime_syscalls.h"
-#include "goroutine_system.h"
+#include "goroutine_system_v2.h"
 #include "function_compilation_manager.h"
 #include "ffi_syscalls.h"  // FFI integration
 
@@ -537,7 +537,8 @@ void GoTSCompiler::execute() {
             
             // Signal main goroutine completion immediately for synchronous programs
             // This prevents hanging when no actual goroutines are spawned
-            GoroutineScheduler::instance().signal_main_goroutine_completion();
+            // Signal main goroutine completion for V2 system
+            // EventDrivenScheduler::instance().signal_main_goroutine_completion();
             
             // Timer processing is now handled by the main goroutine's event loop
             
