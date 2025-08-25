@@ -10,6 +10,7 @@
 #include <chrono>
 #include <signal.h>
 #include <atomic>
+#include <memory>
 
 
 
@@ -187,14 +188,14 @@ void run_program(const std::string& filename) {
         std::string program = read_file(filename);
         std::cout << "DEBUG: run_program() - File read completed, size: " << program.size() << " bytes" << std::endl;
         
-        std::cout << "DEBUG: run_program() - Creating compiler" << std::endl;
-        GoTSCompiler compiler(Backend::X86_64);
+        std::cout << "DEBUG: run_program() - Creating compiler (heap allocated)" << std::endl;
+        auto compiler = std::make_unique<GoTSCompiler>(Backend::X86_64);
         std::cout << "DEBUG: run_program() - Compiler created, setting current file" << std::endl;
-        compiler.set_current_file(filename);
+        compiler->set_current_file(filename);
         std::cout << "DEBUG: run_program() - Current file set, starting compilation" << std::endl;
-        compiler.compile(program);
+        compiler->compile(program);
         std::cout << "DEBUG: run_program() - Compilation completed, starting execution" << std::endl;
-        compiler.execute();
+        compiler->execute();
         std::cout << "DEBUG: run_program() - Execution completed" << std::endl;
         
         // After main execution, wait for active goroutines and timers using new system

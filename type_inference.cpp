@@ -811,6 +811,49 @@ int64_t TypeInference::get_variable_offset_in_function(const std::string& functi
     return lexical_scope_integration_->get_variable_offset(function_name, var_name);
 }
 
+// HIGH-PERFORMANCE REGISTER-BASED SCOPE ACCESS METHODS
+int TypeInference::get_register_for_scope_level(const std::string& function_name, int scope_level) const {
+    if (!lexical_scope_integration_) {
+        return -1;  // No register assigned
+    }
+    
+    return lexical_scope_integration_->get_register_for_scope_level(function_name, scope_level);
+}
+
+std::unordered_set<int> TypeInference::get_used_scope_registers(const std::string& function_name) const {
+    if (!lexical_scope_integration_) {
+        return {};  // Empty set
+    }
+    
+    return lexical_scope_integration_->get_used_scope_registers(function_name);
+}
+
+bool TypeInference::needs_stack_fallback(const std::string& function_name) const {
+    if (!lexical_scope_integration_) {
+        return false;
+    }
+    
+    return lexical_scope_integration_->needs_stack_fallback(function_name);
+}
+
+// CONTEXT TRACKING FOR CODE GENERATION
+void TypeInference::push_function_context(const std::string& function_name) {
+    function_context_stack_.push(function_name);
+}
+
+void TypeInference::pop_function_context() {
+    if (!function_context_stack_.empty()) {
+        function_context_stack_.pop();
+    }
+}
+
+std::string TypeInference::get_current_function_context() const {
+    if (!function_context_stack_.empty()) {
+        return function_context_stack_.top();
+    }
+    return "main";  // Default to main if no context
+}
+
 // Lexical scope analysis methods for AST code generation
 void TypeInference::mark_variable_used(const std::string& name) {
     // Mark variable as used - this helps with escape analysis

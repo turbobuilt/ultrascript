@@ -15,6 +15,7 @@
 #include <regex>
 #include <optional>
 #include <chrono>
+#include <stack>
 
 // Forward declarations
 struct Token;
@@ -235,6 +236,7 @@ private:
     // NEW LEXICAL SCOPE SYSTEM: Static analysis-based approach
     std::unique_ptr<LexicalScopeIntegration> lexical_scope_integration_;
     std::string current_function_being_analyzed_;  // Track current function for analysis
+    std::stack<std::string> function_context_stack_;  // Track nested function contexts
 
 public:
     // Constructor and destructor need to be explicitly declared due to unique_ptr with forward declaration
@@ -343,6 +345,16 @@ public:
     // Updated variable access methods with function context
     bool variable_escapes_in_function(const std::string& function_name, const std::string& var_name) const;
     int64_t get_variable_offset_in_function(const std::string& function_name, const std::string& var_name) const;
+    
+    // HIGH-PERFORMANCE REGISTER-BASED SCOPE ACCESS METHODS
+    int get_register_for_scope_level(const std::string& function_name, int scope_level) const;
+    std::unordered_set<int> get_used_scope_registers(const std::string& function_name) const;
+    bool needs_stack_fallback(const std::string& function_name) const;
+    
+    // CONTEXT TRACKING FOR CODE GENERATION
+    void push_function_context(const std::string& function_name);
+    void pop_function_context();
+    std::string get_current_function_context() const;
     
     // For debugging escape analysis
     void debug_print_escape_info() const;

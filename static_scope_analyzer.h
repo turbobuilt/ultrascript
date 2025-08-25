@@ -25,6 +25,11 @@ struct FunctionScopeAnalysis {
     std::unordered_map<std::string, LexicalScopeInfo> variables; // Variable info
     size_t total_stack_space_needed;                    // For non-escaping variables
     size_t total_heap_scope_size;                       // For escaping variables
+    
+    // REGISTER ALLOCATION FOR HIGH-PERFORMANCE LEXICAL SCOPE ACCESS
+    std::unordered_map<int, int> scope_level_to_register; // scope_level -> register_id (12=R12, 13=R13, 14=R14, 15=R15, 3=RBX)
+    std::unordered_set<int> used_scope_registers;       // Which registers are allocated for scopes
+    bool needs_stack_fallback = false;                  // If more than 5 scope levels, use stack fallback
 };
 
 class StaticScopeAnalyzer {
@@ -36,6 +41,13 @@ private:
     // Current analysis state
     std::string current_function_name_;
     int current_scope_level_;
+    int current_goroutine_depth_ = 0;  // Track nested goroutine depth
+    
+    // Internal helper methods for AST walking
+    void walk_ast_for_scopes(ASTNode* node);
+    void add_variable_to_scope(const std::string& name, int scope_level, DataType type);
+    void record_variable_usage(const std::string& name, int usage_scope_level);
+    void determine_register_allocation(const std::string& function_name);
     
 public:
     StaticScopeAnalyzer();
@@ -93,6 +105,11 @@ public:
     bool should_use_heap_scope(const std::string& function_name) const;
     std::vector<int> get_required_parent_scope_levels(const std::string& function_name) const;
     size_t get_heap_scope_size(const std::string& function_name) const;
+    
+    // HIGH-PERFORMANCE REGISTER-BASED SCOPE ACCESS
+    int get_register_for_scope_level(const std::string& function_name, int scope_level) const;
+    std::unordered_set<int> get_used_scope_registers(const std::string& function_name) const;
+    bool needs_stack_fallback(const std::string& function_name) const;
     
     // Analysis trigger
     void analyze_function(const std::string& function_name, ASTNode* function_node);

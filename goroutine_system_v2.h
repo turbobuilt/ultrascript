@@ -401,10 +401,14 @@ private:
     std::queue<std::shared_ptr<Goroutine>> regular_queue_;     // Regular async work
     std::mutex queue_mutex_;
     
-    // Thread pool management
+    // Thread pool management - lazy instantiation
     std::vector<std::unique_ptr<ThreadWorker>> thread_workers_;
-    int num_threads_;
+    std::vector<std::thread> worker_threads_; // Store thread handles for proper joining
+    int max_threads_;  // Maximum threads (up to hardware concurrency)
+    std::atomic<int> active_threads_{0}; // Currently active thread count
     std::atomic<bool> should_shutdown_{false};
+    std::atomic<bool> shutdown_completed_{false}; // Prevent double shutdown
+    std::mutex thread_creation_mutex_; // Protect lazy thread creation
     
     // FFI Thread Pool Integration
     std::unique_ptr<FFIThreadPool> ffi_thread_pool_;
@@ -444,6 +448,10 @@ private:
     bool try_wake_idle_thread_for_queued_work();
     void wake_threads_for_queued_work();
     int find_least_loaded_thread();
+    
+    // Lazy thread creation
+    bool ensure_thread_available(); // Creates new thread if needed and under limit
+    void create_new_worker_thread(); // Actually creates and starts a new thread
 };
 
 // FFI integration functions

@@ -246,9 +246,20 @@ void __runtime_init() {
     __new_goroutine_system_init();
 }
 
+// Prevent double cleanup
+static std::atomic<bool> cleanup_completed{false};
+
 // Main cleanup - wait for all goroutines
 void __runtime_cleanup() {
+    // Check if cleanup was already called
+    if (cleanup_completed.exchange(true)) {
+        std::cout << "DEBUG: __runtime_cleanup() already called, skipping" << std::endl;
+        return;
+    }
+    
+    std::cout << "DEBUG: __runtime_cleanup() starting" << std::endl;
     __new_goroutine_system_cleanup();
+    std::cout << "DEBUG: __runtime_cleanup() completed" << std::endl;
 }
 
 // Main goroutine functions moved to goroutine_system_v2.cpp

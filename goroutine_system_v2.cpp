@@ -405,6 +405,7 @@ FFIThreadPool& FFIThreadPool::instance() {
 FFIThread* FFIThreadPool::acquire_thread_for_binding() {
     std::lock_guard<std::mutex> lock(allocation_mutex_);
     
+    // First, check if we have any available threads
     for (auto& thread : ffi_threads_) {
         if (thread->is_available()) {
             available_count_.fetch_sub(1);
@@ -412,7 +413,19 @@ FFIThread* FFIThreadPool::acquire_thread_for_binding() {
         }
     }
     
-    return nullptr; // No threads available
+    // If no threads available, create a new one (lazy allocation)
+    // Limit to reasonable maximum (e.g., 100 instead of 1000)
+    if (ffi_threads_.size() < 100) {
+        ffi_threads_.push_back(std::make_unique<FFIThread>());
+        available_count_.fetch_add(1);
+        
+        // Return the newly created thread
+        auto& new_thread = ffi_threads_.back();
+        available_count_.fetch_sub(1);
+        return new_thread.get();
+    }
+    
+    return nullptr; // Hit maximum limit
 }
 
 void FFIThreadPool::release_thread(FFIThread* thread) {
@@ -905,52 +918,82 @@ EventDrivenScheduler& EventDrivenScheduler::instance() {
     return instance;
 }
 
-void EventDrivenScheduler::initialize(int num_threads) {
-    if (num_threads <= 0) {
-        num_threads = std::thread::hardware_concurrency();
-        if (num_threads <= 0) num_threads = 4; // Fallback
+void EventDrivenScheduler::initialize(int max_threads) {
+    if (max_threads <= 0) {
+        // Set maximum to hardware concurrency, but start with 0 threads
+        max_threads = std::thread::hardware_concurrency();
+        if (max_threads <= 0) max_threads = 4; // Fallback
     }
     
-    num_threads_ = num_threads;
+    max_threads_ = max_threads;
+    active_threads_.store(0);
     
-    // Initialize thread workers
-    thread_workers_.reserve(num_threads_);
-    for (int i = 0; i < num_threads_; ++i) {
-        thread_workers_.push_back(std::make_unique<ThreadWorker>(i));
-    }
+    // Reserve space for potential threads but don't create them yet
+    thread_workers_.reserve(max_threads_);
+    worker_threads_.reserve(max_threads_);
     
-    // Start thread worker threads
-    for (int i = 0; i < num_threads_; ++i) {
-        std::thread worker_thread(&ThreadWorker::main_loop, thread_workers_[i].get());
-        worker_thread.detach(); // Let them run independently
-    }
+    // DON'T create any threads yet - they'll be created on demand
     
-    // Initialize FFI thread pool
+    // Initialize FFI thread pool (lazy - don't create threads until needed)
     ffi_thread_pool_ = std::make_unique<FFIThreadPool>();
-    ffi_thread_pool_->initialize_pool(1000); // 1000 FFI threads
+    // DON'T pre-create threads: ffi_thread_pool_->initialize_pool(1000);
     
     // Initialize event system
-    EventSystem::instance().initialize(num_threads_);
+    EventSystem::instance().initialize(max_threads_);
 }
 
 void EventDrivenScheduler::shutdown() {
-    should_shutdown_.store(true);
-    
-    // Shutdown thread workers
-    for (auto& worker : thread_workers_) {
-        worker->should_exit_.store(true);
-        worker->wake_for_work();
+    // Prevent double shutdown (important for static destructor safety)
+    if (shutdown_completed_.exchange(true)) {
+        std::cout << "DEBUG: EventDrivenScheduler::shutdown() already called, skipping" << std::endl;
+        return;
     }
     
+    should_shutdown_.store(true);
+    
+    std::cout << "DEBUG: Shutdown - starting with " << active_threads_.load() << " active threads" << std::endl;
+    
+    // Only shutdown threads if any were actually created
+    int current_active = active_threads_.load();
+    if (current_active > 0) {
+        std::cout << "DEBUG: Shutdown - shutting down " << current_active << " threads" << std::endl;
+        // Shutdown thread workers - signal them to exit
+        for (int i = 0; i < current_active && i < thread_workers_.size(); ++i) {
+            if (thread_workers_[i]) {
+                thread_workers_[i]->should_exit_.store(true);
+                thread_workers_[i]->wake_for_work();
+            }
+        }
+        
+        // CRITICAL: Join all worker threads to prevent race conditions and stack corruption
+        for (int i = 0; i < current_active && i < worker_threads_.size(); ++i) {
+            if (worker_threads_[i].joinable()) {
+                worker_threads_[i].join();
+            }
+        }
+        std::cout << "DEBUG: Shutdown - thread shutdown completed" << std::endl;
+    } else {
+        std::cout << "DEBUG: Shutdown - no threads to shutdown" << std::endl;
+    }
+    
+    std::cout << "DEBUG: Shutdown - about to shutdown FFI thread pool" << std::endl;
     // Shutdown FFI thread pool
     if (ffi_thread_pool_) {
         ffi_thread_pool_->shutdown();
     }
+    std::cout << "DEBUG: Shutdown - FFI thread pool shutdown completed" << std::endl;
     
+    std::cout << "DEBUG: Shutdown - about to shutdown event system" << std::endl;
     // Shutdown event system
     EventSystem::instance().shutdown();
+    std::cout << "DEBUG: Shutdown - event system shutdown completed" << std::endl;
     
+    std::cout << "DEBUG: Shutdown - cleaning up containers" << std::endl;
+    // Clear thread containers and reset counters
     thread_workers_.clear();
+    worker_threads_.clear();
+    active_threads_.store(0);
+    std::cout << "DEBUG: Shutdown - cleanup completed successfully" << std::endl;
 }
 
 void EventDrivenScheduler::wait_for_completion() {
@@ -965,10 +1008,11 @@ void EventDrivenScheduler::wait_for_completion() {
             continue;
         }
         
-        // Check if all threads are idle
+        // Check if all active threads are idle
         all_idle = true;
-        for (auto& worker : thread_workers_) {
-            if (!worker->is_idle_.load()) {
+        int active_count = active_threads_.load();
+        for (int i = 0; i < active_count && i < thread_workers_.size(); ++i) {
+            if (thread_workers_[i] && !thread_workers_[i]->is_idle_.load()) {
                 all_idle = false;
                 break;
             }
@@ -985,14 +1029,22 @@ void EventDrivenScheduler::schedule_priority(std::shared_ptr<Goroutine> goroutin
         return; // Success - thread is handling the goroutine
     }
     
-    // 2. No idle threads available - queue for later
+    // 2. No idle threads available - try creating new thread if under limit
+    if (ensure_thread_available()) {
+        // Try again with potentially new thread
+        if (try_wake_idle_thread(goroutine)) {
+            return;
+        }
+    }
+    
+    // 3. All threads busy or at limit - queue for later
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         priority_queue_.push(goroutine);
     }
     
-    // 3. CRITICAL FIX: Try to wake threads again after queuing
-    // This handles the race condition where threads went idle between steps 1 and 2
+    // 4. CRITICAL FIX: Try to wake threads again after queuing
+    // This handles the race condition where threads went idle between steps
     try_wake_idle_thread_for_queued_work();
 }
 
@@ -1005,14 +1057,22 @@ void EventDrivenScheduler::schedule_regular(std::shared_ptr<Goroutine> goroutine
         return; // Success - thread is handling the goroutine
     }
     
-    // 2. No idle threads available - queue for later
+    // 2. No idle threads available - try creating new thread if under limit
+    if (ensure_thread_available()) {
+        // Try again with potentially new thread
+        if (try_wake_idle_thread(goroutine)) {
+            return;
+        }
+    }
+    
+    // 3. All threads busy or at limit - queue for later
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         regular_queue_.push(goroutine);
     }
     
-    // 3. CRITICAL FIX: Try to wake threads again after queuing
-    // This handles the race condition where threads went idle between steps 1 and 2
+    // 4. CRITICAL FIX: Try to wake threads again after queuing
+    // This handles the race condition where threads went idle between steps
     try_wake_idle_thread_for_queued_work();
 }
 
@@ -1167,16 +1227,17 @@ void EventDrivenScheduler::clear_affinity_conflicts_for_ffi_binding(int old_thre
 bool EventDrivenScheduler::try_wake_idle_thread(std::shared_ptr<Goroutine> goroutine) {
     // Try threads in order, preferring goroutine's preferred thread
     int preferred = goroutine->get_preferred_thread();
+    int current_active = active_threads_.load();
     
-    // First try preferred thread if it exists
-    if (preferred >= 0 && preferred < num_threads_) {
+    // First try preferred thread if it exists and is within active range
+    if (preferred >= 0 && preferred < current_active) {
         if (thread_workers_[preferred]->try_assign_work(goroutine)) {
             return true;
         }
     }
     
-    // Then try any idle thread
-    for (int i = 0; i < num_threads_; ++i) {
+    // Then try any idle thread within active range
+    for (int i = 0; i < current_active; ++i) {
         if (i == preferred) continue; // Already tried
         if (thread_workers_[i]->try_assign_work(goroutine)) {
             return true;
@@ -1190,7 +1251,8 @@ bool EventDrivenScheduler::try_wake_idle_thread_for_queued_work() {
     // This function specifically handles the race condition case
     // It tries to wake an idle thread to process queued work
     
-    for (int i = 0; i < num_threads_; ++i) {
+    int current_active = active_threads_.load();
+    for (int i = 0; i < current_active; ++i) {
         if (thread_workers_[i]->try_assign_queued_work()) {
             return true; // Successfully woke thread to check queue
         }
@@ -1206,9 +1268,51 @@ void EventDrivenScheduler::wake_threads_for_queued_work() {
 }
 
 int EventDrivenScheduler::find_least_loaded_thread() {
-    // Simple round-robin for now
+    // Simple round-robin for now - but need to account for actual active threads
+    if (active_threads_.load() == 0) {
+        return -1; // No threads available yet
+    }
     static std::atomic<int> counter{0};
-    return counter.fetch_add(1) % num_threads_;
+    return counter.fetch_add(1) % active_threads_.load();
+}
+
+// Lazy thread creation methods
+bool EventDrivenScheduler::ensure_thread_available() {
+    std::lock_guard<std::mutex> lock(thread_creation_mutex_);
+    
+    int current_active = active_threads_.load();
+    
+    // Check if all current threads are busy and we can create more
+    if (current_active < max_threads_) {
+        // Check if any existing threads are idle
+        for (int i = 0; i < current_active; ++i) {
+            if (thread_workers_[i] && thread_workers_[i]->is_idle_.load()) {
+                return true; // Found an idle thread, no need to create new one
+            }
+        }
+        
+        // All threads are busy, create a new one
+        create_new_worker_thread();
+        return true;
+    }
+    
+    return false; // Hit thread limit
+}
+
+void EventDrivenScheduler::create_new_worker_thread() {
+    int thread_id = active_threads_.load();
+    
+    // Create new worker
+    thread_workers_.push_back(std::make_unique<ThreadWorker>(thread_id));
+    
+    // Start the thread
+    worker_threads_.emplace_back(&ThreadWorker::main_loop, thread_workers_[thread_id].get());
+    
+    // Increment active thread count
+    active_threads_.fetch_add(1);
+    
+    std::cout << "DEBUG: Created new worker thread " << thread_id 
+              << " (total: " << active_threads_.load() << "/" << max_threads_ << ")" << std::endl;
 }
 
 //=============================================================================
@@ -1475,4 +1579,10 @@ extern "C" void* __goroutine_spawn_and_wait_fast(void* func_address) {
 
 extern "C" void* __goroutine_spawn_direct(void* function_address) {
     return __runtime_spawn_goroutine_v2(function_address);
+}
+
+extern "C" void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg) {
+    // This function spawns a goroutine by calling the function pointer with argument
+    // For now, just call the direct spawning function - this can be improved later
+    return __runtime_spawn_goroutine_v2(func_ptr);
 }

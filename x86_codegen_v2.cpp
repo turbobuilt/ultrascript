@@ -75,10 +75,10 @@ double __dynamic_value_extract_float64(void* dynamic_value_ptr);
 
 
 // Forward declarations for goroutine functions that are not in runtime.h
-void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg);
-void* __goroutine_spawn_and_wait_direct(void* function_address);
-void* __goroutine_spawn_and_wait_fast(void* func_address);
-void* __goroutine_spawn_direct(void* function_address);
+extern "C" void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg);
+extern "C" void* __goroutine_spawn_and_wait_direct(void* function_address);
+extern "C" void* __goroutine_spawn_and_wait_fast(void* func_address);
+extern "C" void* __goroutine_spawn_direct(void* function_address);
 
 // =============================================================================
 // Utility Functions  
@@ -1196,6 +1196,63 @@ void X86CodeGenTester::benchmark_code_generation_speed() {
     // Performance benchmarking would go here
     std::cout << "Benchmarking code generation speed...\n";
     // Implementation would time various code generation patterns
+}
+
+// HIGH-PERFORMANCE LEXICAL SCOPE REGISTER MANAGEMENT
+void X86CodeGenV2::emit_scope_register_setup(int scope_level) {
+    std::cout << "[DEBUG] X86CodeGenV2: Setting up scope registers for level " << scope_level << std::endl;
+    
+    // For now, just emit a basic setup - this should be integrated with StaticScopeAnalyzer later
+    // Save R12 (our primary scope register)
+    emit_scope_register_save(12);
+    
+    // Initialize R12 to null for now - actual scope setup would happen elsewhere
+    X86Reg reg = X86Reg::R12;
+    ImmediateOperand zero_imm(0);
+    instruction_builder->mov(reg, zero_imm);
+    std::cout << "[DEBUG] X86CodeGenV2: Initialized scope register R12 to null" << std::endl;
+}
+
+void X86CodeGenV2::emit_scope_register_save(int reg_id) {
+    // Save callee-saved register to stack
+    X86Reg reg = get_register_for_int(reg_id);
+    instruction_builder->push(reg);
+    stack_frame.saved_registers.push_back(reg);
+    std::cout << "[DEBUG] X86CodeGenV2: Saved scope register " << reg_id << " to stack" << std::endl;
+}
+
+void X86CodeGenV2::emit_scope_register_restore(int reg_id) {
+    // Restore callee-saved register from stack
+    X86Reg reg = get_register_for_int(reg_id);
+    instruction_builder->pop(reg);
+    std::cout << "[DEBUG] X86CodeGenV2: Restored scope register " << reg_id << " from stack" << std::endl;
+}
+
+void X86CodeGenV2::emit_scope_pointer_load(int reg_id, int scope_level) {
+    // Load scope pointer for a specific scope level into the designated register
+    // This would typically load from parent function's stack frame or heap
+    X86Reg scope_reg = get_register_for_int(reg_id);
+    
+    // For now, load from a stack offset based on scope level
+    // Real implementation would use actual scope management
+    int64_t scope_offset = -16 - (scope_level * 8);  // Stack-based fallback
+    MemoryOperand mem_op(X86Reg::RBP, scope_offset);
+    instruction_builder->mov(scope_reg, mem_op);
+    
+    std::cout << "[DEBUG] X86CodeGenV2: Loaded scope level " << scope_level 
+              << " pointer into register " << reg_id << " from offset " << scope_offset << std::endl;
+}
+
+void X86CodeGenV2::emit_variable_load_from_scope_register(int dst_reg, int scope_reg, int64_t offset) {
+    // ULTRA-FAST: Direct load from scope register + offset (1 instruction)
+    X86Reg dst = get_register_for_int(dst_reg);
+    X86Reg scope = get_register_for_int(scope_reg);
+    
+    MemoryOperand mem_op(scope, offset);
+    instruction_builder->mov(dst, mem_op);
+    
+    std::cout << "[DEBUG] X86CodeGenV2: ULTRA-FAST variable access: R" << dst_reg 
+              << " = [R" << scope_reg << " + " << offset << "]" << std::endl;
 }
 
 

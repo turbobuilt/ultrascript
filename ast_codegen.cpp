@@ -1,5 +1,6 @@
 #include "compiler.h"
 #include "x86_codegen_improved.h"  // For X86CodeGenImproved class
+#include "x86_codegen_v2.h"        // For X86CodeGenV2 class with scope register methods
 #include "runtime.h"
 #include "runtime_object.h"
 #include "compilation_context.h"
@@ -496,16 +497,41 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     result_type = var_type;
     
     // NEW LEXICAL SCOPE SYSTEM: Load variable based on static analysis
-    // TODO: Get current function name from context
-    std::string current_function = "main";  // Placeholder - need to get from context
+    std::string current_function = types.get_current_function_context();
     
     if (types.function_uses_heap_scope(current_function)) {
         // Function uses heap scopes - determine if this variable escapes
         if (types.variable_escapes_in_function(current_function, name)) {
-            // Variable in heap scope - use R15 + offset
-            int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
-            gen.emit_mov_reg_reg_offset(0, 15, heap_offset);  // RAX = [R15 + offset]
-            std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from heap scope at R15+" << heap_offset << std::endl;
+            // Variable escapes - determine which scope level and register
+            int scope_level = 0; // TODO: Get actual scope level from variable info
+            int scope_register = types.get_register_for_scope_level(current_function, scope_level);
+            
+            if (scope_register != -1) {
+                // ULTRA-FAST: Direct register-based scope access (1 instruction)
+                int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
+                
+                // Use X86CodeGenV2 specific scope register method
+                if (auto* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+                    x86_gen->emit_variable_load_from_scope_register(0, scope_register, heap_offset);
+                    std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from register-based scope R" 
+                              << scope_register << "+" << heap_offset << " (ULTRA-FAST)" << std::endl;
+                } else {
+                    // This should not happen if we're using X86CodeGenV2
+                    throw std::runtime_error("Register-based scope access requires X86CodeGenV2");
+                }
+            } else if (types.needs_stack_fallback(current_function)) {
+                // FALLBACK: Stack-based scope access for deep scopes
+                int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
+                gen.emit_mov_reg_mem(1, -16 - (scope_level * 8));  // Load scope pointer from stack
+                gen.emit_mov_reg_reg_offset(0, 1, heap_offset);    // RAX = [scope_ptr + offset]
+                std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack-cached scope at level " 
+                          << scope_level << "+" << heap_offset << std::endl;
+            } else {
+                // Traditional heap scope access via R15
+                int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
+                gen.emit_mov_reg_reg_offset(0, 15, heap_offset);  // RAX = [R15 + offset]
+                std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from heap scope at R15+" << heap_offset << std::endl;
+            }
         } else {
             // Variable on stack in escaping function
             int64_t stack_offset = types.get_variable_offset_in_function(current_function, name);
@@ -513,7 +539,7 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
             std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack at RBP" << stack_offset << std::endl;
         }
     } else {
-        // Non-escaping function - direct stack access (no R15 needed)
+        // Non-escaping function - direct stack access (no heap scopes needed)
         int64_t stack_offset = types.get_variable_offset_in_function(current_function, name);
         if (stack_offset == 0) {
             // Default to -8 for backward compatibility
@@ -1803,6 +1829,9 @@ void FunctionExpression::compile_function_body(CodeGenerator& gen, TypeInference
         return;
     }
     
+    // LEXICAL SCOPE CONTEXT: Track function entry for proper scope analysis
+    types.push_function_context(func_name);
+    
     // Save current stack offset state
     TypeInference local_types;
     local_types.reset_for_function();
@@ -1871,6 +1900,9 @@ void FunctionExpression::compile_function_body(CodeGenerator& gen, TypeInference
         gen.emit_mov_reg_imm(0, 0);  // mov rax, 0
         gen.emit_function_return();
     }
+    
+    // LEXICAL SCOPE CONTEXT: Track function exit
+    types.pop_function_context();
     
     // Safety check before final debug output
     if (!func_name.empty() && func_name.size() <= 1000) {

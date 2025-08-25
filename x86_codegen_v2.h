@@ -3,6 +3,7 @@
 #include "x86_instruction_builder.h"
 #include "codegen_forward.h"
 #include <memory>
+#include <unordered_set>
 
 
 
@@ -176,6 +177,13 @@ public:
     
     // Memory management helpers
     void set_stack_frame_size(size_t size) { stack_frame.local_stack_size = size; }
+    
+    // HIGH-PERFORMANCE LEXICAL SCOPE REGISTER MANAGEMENT
+    void emit_scope_register_setup(int scope_level);
+    void emit_scope_register_save(int reg_id);
+    void emit_scope_register_restore(int reg_id);
+    void emit_scope_pointer_load(int reg_id, int scope_level);
+    void emit_variable_load_from_scope_register(int dst_reg, int scope_reg, int64_t offset);
     
     // Stack management for function frames (required by base interface)
     void set_function_stack_size(int64_t size) override { stack_frame.local_stack_size = size; }
