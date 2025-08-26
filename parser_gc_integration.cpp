@@ -12,7 +12,7 @@ void ParserGCIntegration::enter_scope(const std::string& scope_name, bool is_fun
     scope_stack_.push_back(scope);
     
     // Register with escape analyzer
-    EscapeAnalyzer::instance().enter_scope(scope.scope_id);
+    GCEscapeAnalyzer::instance().enter_scope(scope.scope_id);
     
     std::cout << "[GC-Parser] Entered scope '" << scope_name << "' (id=" << scope.scope_id << ")" << std::endl;
 }
@@ -26,7 +26,7 @@ void ParserGCIntegration::exit_scope() {
     ScopeInfo& current = scope_stack_.back();
     
     // Register scope exit with escape analyzer
-    EscapeAnalyzer::instance().exit_scope(current.scope_id);
+    GCEscapeAnalyzer::instance().exit_scope(current.scope_id);
     
     std::cout << "[GC-Parser] Exiting scope '" << current.scope_name << "' (id=" << current.scope_id 
               << ") with " << current.declared_variables.size() << " variables" << std::endl;
@@ -47,7 +47,7 @@ void ParserGCIntegration::declare_variable(const std::string& name, DataType typ
     size_t variable_id = next_variable_id_++;
     current.variable_ids[name] = variable_id;
     
-    EscapeAnalyzer::instance().register_variable(variable_id, name, current.scope_id);
+    GCEscapeAnalyzer::instance().register_variable(variable_id, name, current.scope_id);
     
     // Track variable across scopes
     variable_scopes_[name].push_back(current.scope_id);
@@ -102,7 +102,7 @@ void ParserGCIntegration::mark_closure_capture(const std::vector<std::string>& c
     for (const std::string& var : captured_vars) {
         size_t variable_id = get_variable_id(var);
         if (variable_id != 0) {
-            EscapeAnalyzer::instance().register_escape(variable_id, EscapeType::CALLBACK, 0);
+            GCEscapeAnalyzer::instance().register_escape(variable_id, EscapeType::CALLBACK, 0);
         }
         std::cout << "[GC-Parser] Variable '" << var << "' captured by closure" << std::endl;
     }
@@ -115,7 +115,7 @@ void ParserGCIntegration::mark_goroutine_capture(const std::vector<std::string>&
     for (const std::string& var : captured_vars) {
         size_t variable_id = get_variable_id(var);
         if (variable_id != 0) {
-            EscapeAnalyzer::instance().register_escape(variable_id, EscapeType::GOROUTINE, 0);
+            GCEscapeAnalyzer::instance().register_escape(variable_id, EscapeType::GOROUTINE, 0);
         }
         std::cout << "[GC-Parser] Variable '" << var << "' captured by goroutine" << std::endl;
     }
@@ -182,7 +182,7 @@ void ParserGCIntegration::propagate_escape_to_parents(const std::string& var_nam
                     auto id_it = scope.variable_ids.find(var_name);
                     if (id_it != scope.variable_ids.end()) {
                         // Mark the variable as escaped in EscapeAnalyzer
-                        EscapeAnalyzer::instance().register_escape(id_it->second, EscapeType::GLOBAL_ASSIGN, 0);
+                        GCEscapeAnalyzer::instance().register_escape(id_it->second, EscapeType::GLOBAL_ASSIGN, 0);
                         std::cout << "[GC-Parser] Marking variable '" << var_name 
                                   << "' (id=" << id_it->second << ") as escaped" << std::endl;
                     }

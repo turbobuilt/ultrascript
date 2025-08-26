@@ -16,6 +16,56 @@ void Parser::finalize_gc_analysis() {
     }
 }
 
+void Parser::initialize_lexical_scope_system() {
+    escape_analyzer_ = std::make_unique<EscapeAnalyzer>();
+    lexical_scope_address_tracker_ = std::make_unique<LexicalScopeAddressTracker>();
+    
+    // Register the lexical scope address tracker as a consumer of escape events
+    escape_analyzer_->register_consumer(lexical_scope_address_tracker_.get());
+    
+    std::cout << "[Parser] Initialized lexical scope address system" << std::endl;
+}
+
+void Parser::finalize_lexical_scope_analysis() {
+    if (lexical_scope_address_tracker_) {
+        lexical_scope_address_tracker_->print_scope_address_analysis();
+    }
+    std::cout << "[Parser] Finalized lexical scope analysis" << std::endl;
+}
+
+void Parser::add_variable_to_current_scope(const std::string& name, const std::string& type) {
+    current_scope_variables_[name] = type;
+    std::cout << "[Parser] Added variable to current scope: " << name << " : " << type << std::endl;
+    
+    // Also notify the escape analyzer
+    if (escape_analyzer_) {
+        escape_analyzer_->add_variable_to_scope(name, type);
+    }
+}
+
+void Parser::set_current_scope_variables(const std::unordered_map<std::string, std::string>& variables) {
+    current_scope_variables_ = variables;
+    std::cout << "[Parser] Set current scope with " << variables.size() << " variables" << std::endl;
+    
+    // Also notify the escape analyzer
+    if (escape_analyzer_) {
+        escape_analyzer_->set_current_scope_variables(variables);
+    }
+}
+
+// Scope management for function bodies
+void Parser::enter_function_scope() {
+    // Clear the current scope variables - function starts with empty local scope
+    current_scope_variables_.clear();
+    std::cout << "[Parser] Entered new function scope (cleared local variables)" << std::endl;
+}
+
+void Parser::exit_function_scope(const std::unordered_map<std::string, std::string>& parent_scope) {
+    // Restore the parent scope variables
+    current_scope_variables_ = parent_scope;
+    std::cout << "[Parser] Exited function scope (restored " << parent_scope.size() << " parent variables)" << std::endl;
+}
+
 Parser::~Parser() {
     // Default destructor - the unique_ptr will handle cleanup properly now
     // since ParserGCIntegration is a complete type in this translation unit
@@ -56,12 +106,31 @@ bool Parser::check(TokenType type) {
     return current_token().type == type;
 }
 
+bool Parser::is_at_end() {
+    return pos >= tokens.size() || current_token().type == TokenType::EOF_TOKEN;
+}
+
 std::unique_ptr<ExpressionNode> Parser::parse_expression() {
     return parse_assignment_expression();
 }
 
 std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
     auto expr = parse_ternary();
+    
+    // Check for arrow function: identifier => body or (params) => body
+    if (check(TokenType::ARROW)) {
+        // Check if expr is suitable for arrow function parameters
+        if (auto identifier = dynamic_cast<Identifier*>(expr.get())) {
+            // Single parameter arrow function: x => body
+            std::string param_name = identifier->name;
+            expr.release(); // Release the identifier since we'll use it as parameter
+            return parse_arrow_function_from_identifier(param_name);
+        } else {
+            // For now, we don't handle (x, y) => body syntax
+            // This would require detecting parenthesized parameter lists
+            // TODO: Implement multi-parameter arrow functions
+        }
+    }
     
     if (match(TokenType::ASSIGN) || match(TokenType::PLUS_ASSIGN) ||
         match(TokenType::MINUS_ASSIGN) || match(TokenType::MULTIPLY_ASSIGN) ||
@@ -243,7 +312,11 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
             return expr;
         } else if (auto func_expr = dynamic_cast<FunctionExpression*>(expr.get())) {
             func_expr->is_goroutine = true;
-            std::cout << "DEBUG: Parser set is_goroutine=true on FunctionExpression" << std::endl;
+            std::cout << "[Parser] Marked FunctionExpression as goroutine" << std::endl;
+            
+            // Escape analysis is already handled in function expression parsing
+            // No need to duplicate it here
+            
             return expr;
         } else {
             throw std::runtime_error("'go' can only be used with function calls or function expressions");
@@ -808,6 +881,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             throw std::runtime_error("Expected '{' to start function body");
         }
         
+        // GC INTEGRATION: Enter function scope for proper variable scoping
+        if (gc_integration_) {
+            gc_integration_->enter_scope("function_expr", true);
+        }
+        
+        // LEXICAL SCOPE MANAGEMENT: Save parent scope before entering function
+        std::unordered_map<std::string, std::string> parent_scope = current_scope_variables_;
+        enter_function_scope(); // Clear local scope for function body
+        
         while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
             func_expr->body.push_back(parse_statement());
         }
@@ -817,6 +899,29 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 error_reporter->report_parse_error("Expected '}' to end function body", current_token());
             }
             throw std::runtime_error("Expected '}' to end function body");
+        }
+        
+        // GC INTEGRATION: Exit function scope
+        if (gc_integration_) {
+            gc_integration_->exit_scope();
+        }
+        
+        // LEXICAL SCOPE MANAGEMENT: Restore parent scope and perform escape analysis
+        exit_function_scope(parent_scope);
+        
+        // NEW LEXICAL SCOPE SYSTEM: Analyze function for variable captures AFTER parsing
+        // Now we can distinguish between local variables (in function) and parent scope variables
+        if (escape_analyzer_ && !func_expr->body.empty()) {
+            std::cout << "[Parser] Starting escape analysis for function expression" << std::endl;
+            std::cout << "[Parser] Parent scope has " << parent_scope.size() << " variables available" << std::endl;
+            
+            // Set the PARENT scope variables in the escape analyzer (not local variables!)
+            escape_analyzer_->set_current_scope_variables(parent_scope);
+            
+            // Analyze each statement in the function body for variable escapes from parent scope
+            for (auto& stmt : func_expr->body) {
+                escape_analyzer_->analyze_function_for_escapes(func_expr.get(), stmt.get());
+            }
         }
         
         return func_expr;
@@ -933,8 +1038,8 @@ std::unique_ptr<ASTNode> Parser::parse_statement() {
             }
             // Check for for-in without parentheses: for let key in obj
             else {
-                // Skip optional let/var/const
-                if (peek_token(lookahead).type == TokenType::LET || 
+                // Skip optional let/var/const  
+                if (peek_token(lookahead).type == TokenType::LET ||
                     peek_token(lookahead).type == TokenType::VAR ||
                     peek_token(lookahead).type == TokenType::CONST) {
                     lookahead++;
@@ -945,8 +1050,14 @@ std::unique_ptr<ASTNode> Parser::parse_statement() {
                     return parse_for_in_statement();
                 }
             }
+            // Default: regular for-loop
+            // Default: regular for-loop
             return parse_for_statement();
         }
+    }
+    
+    if (check(TokenType::WHILE)) {
+        return parse_while_statement();
     }
     
     if (check(TokenType::SWITCH)) {
@@ -1033,6 +1144,30 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
         throw std::runtime_error("Expected '}' to end function body");
     }
     
+    // NEW LEXICAL SCOPE SYSTEM: Analyze nested function for variable captures
+    if (escape_analyzer_ && !func_decl->body.empty()) {
+        std::cout << "[Parser] Starting escape analysis for nested function: " << func_name << std::endl;
+        std::cout << "[Parser] Current scope has " << current_scope_variables_.size() << " variables available" << std::endl;
+        
+        // Set the parent function context in the lexical scope address tracker
+        if (lexical_scope_address_tracker_) {
+            // TODO: Get current parent function - for now use nullptr
+            // This would need to track the current function being parsed
+            lexical_scope_address_tracker_->set_current_parent_function(nullptr);
+        }
+        
+        // Set the current scope variables in the escape analyzer
+        escape_analyzer_->set_current_scope_variables(current_scope_variables_);
+        
+        // Analyze each statement in the function body for variable escapes
+        for (auto& stmt : func_decl->body) {
+            // Convert FunctionDecl to FunctionExpression temporarily for analysis
+            auto temp_func_expr = std::make_unique<FunctionExpression>();
+            temp_func_expr->name = func_name;
+            escape_analyzer_->analyze_function_for_escapes(temp_func_expr.get(), stmt.get());
+        }
+    }
+
     // GC Integration: Exit function scope
     if (gc_integration_) {
         gc_integration_->exit_scope();
@@ -1061,6 +1196,14 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
         gc_integration_->declare_variable(var_name, type);
     }
     
+    // Lexical Scope System: Add variable to current scope for escape analysis
+    std::string type_str = "auto"; // Convert DataType to string
+    if (type == DataType::INT32) type_str = "int";
+    else if (type == DataType::FLOAT64) type_str = "float64";
+    else if (type == DataType::STRING) type_str = "string";
+    else if (type == DataType::BOOLEAN) type_str = "bool";
+    add_variable_to_current_scope(var_name, type_str);
+    
     std::unique_ptr<ExpressionNode> value = nullptr;
     if (match(TokenType::ASSIGN)) {
         value = parse_expression();
@@ -1074,6 +1217,22 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
     auto assignment = std::make_unique<Assignment>(var_name, std::move(value));
     assignment->declared_type = type;
     assignment->declared_element_type = last_parsed_array_element_type;
+    
+    // Set the declaration kind based on the parsed token type
+    switch (decl_type) {
+        case TokenType::VAR: 
+            assignment->declaration_kind = Assignment::VAR; 
+            break;
+        case TokenType::LET: 
+            assignment->declaration_kind = Assignment::LET; 
+            break;
+        case TokenType::CONST: 
+            assignment->declaration_kind = Assignment::CONST; 
+            break;
+        default: 
+            assignment->declaration_kind = Assignment::VAR; 
+            break;
+    }
     
     // Clear the element type after use
     last_parsed_array_element_type = DataType::ANY;
@@ -1173,8 +1332,22 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
                 value = parse_expression();
             }
             
-            auto assignment = std::make_unique<Assignment>(var_name, std::move(value));
+            // Convert TokenType to Assignment::DeclarationKind
+            Assignment::DeclarationKind assignment_kind = Assignment::VAR;
+            switch (decl_type) {
+                case TokenType::VAR: assignment_kind = Assignment::VAR; break;
+                case TokenType::LET: assignment_kind = Assignment::LET; break;
+                case TokenType::CONST: assignment_kind = Assignment::CONST; break;
+                default: assignment_kind = Assignment::VAR; break;
+            }
+            
+            auto assignment = std::make_unique<Assignment>(var_name, std::move(value), assignment_kind);
             assignment->declared_type = type;
+            
+            // Set the declaration kind on the ForLoop for scope analysis
+            for_loop->init_declaration_kind = assignment_kind;
+            for_loop->creates_block_scope = (assignment_kind == Assignment::LET || assignment_kind == Assignment::CONST);
+            
             for_loop->init = std::move(assignment);
         } else {
             for_loop->init = parse_statement();
@@ -1217,6 +1390,42 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
     }
     
     return std::move(for_loop);
+}
+
+std::unique_ptr<ASTNode> Parser::parse_while_statement() {
+    if (!match(TokenType::WHILE)) {
+        throw std::runtime_error("Expected 'while'");
+    }
+    
+    bool has_parens = false;
+    if (check(TokenType::LPAREN)) {
+        has_parens = true;
+        advance();
+    }
+    
+    // Parse condition
+    auto condition = parse_expression();
+    
+    if (has_parens && !match(TokenType::RPAREN)) {
+        throw std::runtime_error("Expected ')' after while condition");
+    }
+    
+    auto while_loop = std::make_unique<WhileLoop>(std::move(condition));
+    
+    // Parse body - support both braced and single statement
+    if (match(TokenType::LBRACE)) {
+        while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+            while_loop->body.push_back(parse_statement());
+        }
+        
+        if (!match(TokenType::RBRACE)) {
+            throw std::runtime_error("Expected '}' after while body");
+        }
+    } else {
+        while_loop->body.push_back(parse_statement());
+    }
+    
+    return std::move(while_loop);
 }
 
 std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
@@ -2031,4 +2240,138 @@ std::unique_ptr<OperatorOverloadDecl> Parser::parse_operator_overload_declaratio
     }
     
     return operator_decl;
+}
+
+// LEXICAL SCOPE ANALYSIS METHODS
+
+std::vector<std::string> Parser::analyze_function_variable_captures(FunctionExpression* func_expr) {
+    std::cout << "[DEBUG] Parser::analyze_function_variable_captures - Analyzing function body" << std::endl;
+    std::vector<std::string> captured_vars;
+    
+    if (!func_expr) {
+        return captured_vars;
+    }
+    
+    // Walk through all statements in the function body to find variable references
+    for (const auto& stmt : func_expr->body) {
+        find_variable_references_in_node(stmt.get(), captured_vars);
+    }
+    
+    // Remove duplicates
+    std::sort(captured_vars.begin(), captured_vars.end());
+    captured_vars.erase(std::unique(captured_vars.begin(), captured_vars.end()), captured_vars.end());
+    
+    std::cout << "[DEBUG] Parser::analyze_function_variable_captures - Found " << captured_vars.size() << " unique variable references" << std::endl;
+    return captured_vars;
+}
+
+void Parser::find_variable_references_in_node(ASTNode* node, std::vector<std::string>& variables) {
+    if (!node) return;
+    
+    // Check different node types for variable references
+    if (auto* identifier = dynamic_cast<Identifier*>(node)) {
+        std::cout << "[DEBUG] Parser::find_variable_references_in_node - Found variable reference: '" << identifier->name << "'" << std::endl;
+        variables.push_back(identifier->name);
+    }
+    else if (auto* assignment = dynamic_cast<Assignment*>(node)) {
+        // Assignment target and value
+        variables.push_back(assignment->variable_name);
+        if (assignment->value) {
+            find_variable_references_in_node(assignment->value.get(), variables);
+        }
+    }
+    else if (auto* func_call = dynamic_cast<FunctionCall*>(node)) {
+        // Function call arguments
+        for (const auto& arg : func_call->arguments) {
+            find_variable_references_in_node(arg.get(), variables);
+        }
+    }
+    else if (auto* method_call = dynamic_cast<MethodCall*>(node)) {
+        // Method call - add object_name and arguments
+        variables.push_back(method_call->object_name);
+        for (const auto& arg : method_call->arguments) {
+            find_variable_references_in_node(arg.get(), variables);
+        }
+    }
+    else if (auto* binary_op = dynamic_cast<BinaryOp*>(node)) {
+        // Binary operation operands
+        if (binary_op->left) {
+            find_variable_references_in_node(binary_op->left.get(), variables);
+        }
+        if (binary_op->right) {
+            find_variable_references_in_node(binary_op->right.get(), variables);
+        }
+    }
+    // Add more node types as needed...
+    
+    std::cout << "[DEBUG] Parser::find_variable_references_in_node - Processed node of type: " << typeid(*node).name() << std::endl;
+}
+
+// Arrow function parsing methods
+std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_identifier(const std::string& param_name) {
+    // We're parsing: identifier => body
+    if (!match(TokenType::ARROW)) {
+        throw std::runtime_error("Expected '=>' in arrow function");
+    }
+    
+    auto arrow_func = std::make_unique<ArrowFunction>();
+    
+    // Add the single parameter
+    Variable param;
+    param.name = param_name;
+    param.type = DataType::ANY;  // Infer later
+    arrow_func->parameters.push_back(param);
+    
+    // Parse the arrow function body
+    if (check(TokenType::LBRACE)) {
+        // Block body: x => { return x + 1; }
+        arrow_func->is_single_expression = false;
+        match(TokenType::LBRACE);
+        
+        // Parse statements in the block body
+        while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+            arrow_func->body.push_back(parse_statement());
+        }
+        
+        if (!match(TokenType::RBRACE)) {
+            throw std::runtime_error("Expected '}' after arrow function body");
+        }
+    } else {
+        // Expression body: x => x + 1
+        arrow_func->is_single_expression = true;
+        arrow_func->expression = parse_assignment_expression();
+    }
+    
+    return arrow_func;
+}
+
+std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_params(const std::vector<Variable>& params) {
+    // We're parsing: (x, y) => body
+    if (!match(TokenType::ARROW)) {
+        throw std::runtime_error("Expected '=>' in arrow function");
+    }
+    
+    auto arrow_func = std::make_unique<ArrowFunction>();
+    arrow_func->parameters = params;
+    
+    // Parse the arrow function body (same logic as single parameter version)
+    if (check(TokenType::LBRACE)) {
+        // Block body: (x, y) => { return x + y; }
+        arrow_func->is_single_expression = false;
+        match(TokenType::LBRACE);
+        
+        while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+            arrow_func->body.push_back(parse_statement());
+        }
+        
+        if (!match(TokenType::RBRACE)) {
+            throw std::runtime_error("Expected '}' after arrow function body");
+        }
+    } else {
+        // Expression body: (x, y) => x + y
+        arrow_func->is_single_expression = true;
+        arrow_func->expression = parse_assignment_expression();
+    }
+    
+    return arrow_func;
 }

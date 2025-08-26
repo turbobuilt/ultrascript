@@ -72,9 +72,9 @@ struct EscapeInfo {
 };
 
 // Tracks escape analysis during compilation
-class EscapeAnalyzer {
+class GCEscapeAnalyzer {
 public:
-    static EscapeAnalyzer& instance();
+    static GCEscapeAnalyzer& instance();
     
     // Called during parsing/compilation
     void enter_scope(size_t scope_id);
@@ -96,7 +96,7 @@ private:
     std::unordered_map<size_t, size_t> variable_scopes_;
     std::vector<EscapeInfo> escape_info_;
     
-    EscapeAnalyzer() = default;
+    GCEscapeAnalyzer() = default;
 };
 
 // ============================================================================

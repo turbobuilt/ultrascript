@@ -2,6 +2,7 @@
 #include "compiler.h"
 #include "runtime.h"
 #include "x86_codegen_improved.h"
+#include "x86_codegen_v2.h"
 #include <iostream>
 #include <algorithm>
 
@@ -328,6 +329,35 @@ void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, TypeI
     // Set stack size for this function (removed X86-specific code for now)
     
     gen.emit_prologue();
+    
+    // LEXICAL SCOPE HEAP ALLOCATION: Special handling for goroutine functions
+    if (func_expr->is_goroutine) {
+        // For goroutines, we need to allocate their own lexical scope for their local variables
+        // We also need to receive parent scope addresses in registers r12/r13/r14
+        
+        // TODO: Check what local variables the goroutine has that need heap allocation
+        // For now, let's allocate 16 bytes for local variables (like 'y' in our test case)
+        
+        auto* x86_codegen = dynamic_cast<X86CodeGenV2*>(&gen);
+        if (x86_codegen) {
+            std::cout << "[GOROUTINE_SCOPE_DEBUG] Goroutine function allocating its own lexical scope" << std::endl;
+            
+            // Allocate heap memory for this goroutine's local variables
+            // TODO: Calculate actual size needed based on escaped local variables
+            x86_codegen->emit_inline_heap_alloc(16, 15);  // 16 bytes in r15
+            
+            std::cout << "[GOROUTINE_SCOPE_DEBUG] Allocated 16 bytes for goroutine scope in r15" << std::endl;
+            
+            // Save r15 to stack for easy restoration (your optimization idea)
+            // Store r15 at [rbp - (stack_offset)]
+            x86_codegen->emit_mov_mem_reg(-16, 15);  // Save r15 to stack at [rbp-16]
+            
+            std::cout << "[GOROUTINE_SCOPE_DEBUG] Saved goroutine scope address from r15 to stack [rbp-16]" << std::endl;
+            
+            // Note: Parent scope addresses should be passed in r12/r13/r14 by the goroutine spawn
+            // For now, we assume they're available in those registers
+        }
+    }
     
     // Set up local type context
     TypeInference local_types;

@@ -410,6 +410,10 @@ std::vector<Token> Lexer::tokenize() {
                             type = TokenType::EQUAL;
                             value = "==";
                         }
+                    } else if (current_char() == '>') {
+                        type = TokenType::ARROW;
+                        value = "=>";
+                        // Don't decrement pos, we want to consume both '=' and '>'
                     } else {
                         pos--; column--;
                         type = TokenType::ASSIGN;

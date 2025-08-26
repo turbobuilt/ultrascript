@@ -3,7 +3,7 @@ CXXFLAGS = -std=c++17 -O0 -Wall -Wextra -pthread
 LDFLAGS = -pthread -ldl
 
 SRCDIR = .
-SOURCES = compiler.cpp lexer.cpp parser.cpp minimal_parser_gc.cpp gc_system.cpp type_inference.cpp x86_instruction_builder.cpp x86_pattern_builder.cpp x86_codegen_v2.cpp ast_codegen.cpp compilation_context.cpp runtime.cpp runtime_syscalls.cpp regex.cpp error_reporter.cpp syntax_highlighter.cpp simple_main.cpp goroutine_system_v2.cpp function_compilation_manager.cpp lock_system.cpp lock_jit_integration.cpp runtime_http_server.cpp runtime_http_client.cpp console_log_overhaul.cpp ffi_syscalls.cpp free_runtime.cpp dynamic_properties.cpp static_scope_analyzer.cpp
+SOURCES = compiler.cpp lexer.cpp parser.cpp minimal_parser_gc.cpp gc_system.cpp type_inference.cpp x86_instruction_builder.cpp x86_pattern_builder.cpp x86_codegen_v2.cpp ast_codegen.cpp compilation_context.cpp runtime.cpp runtime_syscalls.cpp regex.cpp error_reporter.cpp syntax_highlighter.cpp simple_main.cpp goroutine_system_v2.cpp function_compilation_manager.cpp lock_system.cpp lock_jit_integration.cpp runtime_http_server.cpp runtime_http_client.cpp console_log_overhaul.cpp ffi_syscalls.cpp free_runtime.cpp dynamic_properties.cpp static_scope_analyzer.cpp escape_analyzer.cpp lexical_scope_layout.cpp lexical_scope_address_tracker.cpp
 ASM_SOURCES = context_switch.s
 OBJECTS = $(SOURCES:.cpp=.o) $(ASM_SOURCES:.s=.o)
 TARGET = ultraScript

@@ -1586,3 +1586,42 @@ extern "C" void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg) {
     // For now, just call the direct spawning function - this can be improved later
     return __runtime_spawn_goroutine_v2(func_ptr);
 }
+
+extern "C" void* __goroutine_spawn_func_ptr_with_scope(void* func_ptr, void* arg, void* parent_scope_addr) {
+    printf("[DEBUG] __goroutine_spawn_func_ptr_with_scope called with func_ptr=%p, arg=%p, parent_scope=%p\n", 
+           func_ptr, arg, parent_scope_addr);
+    
+    // Create a wrapper that will set up the scope address before calling the actual function
+    // We need to store both the function pointer and parent scope address
+    struct GoroutineContext {
+        void* function_ptr;
+        void* parent_scope_addr;
+        void* arg;
+    };
+    
+    GoroutineContext* context = new GoroutineContext{func_ptr, parent_scope_addr, arg};
+    
+    // Create a C-style wrapper function that sets up r12 with parent scope before calling function
+    static auto wrapper_func = +[](void* ctx_ptr) -> void* {
+        GoroutineContext* ctx = static_cast<GoroutineContext*>(ctx_ptr);
+        printf("[DEBUG] Goroutine wrapper: setting r12 to parent_scope=%p, calling function=%p\n", 
+               ctx->parent_scope_addr, ctx->function_ptr);
+        
+        // Set up r12 with parent scope address before calling the goroutine function
+        // This is inline assembly to set r12 and call the function
+        void* result;
+        __asm__ volatile (
+            "mov %1, %%r12\n\t"     // Set r12 to parent scope address
+            "call *%2\n\t"          // Call the goroutine function
+            "mov %%rax, %0\n\t"     // Store result
+            : "=m" (result)
+            : "r" (ctx->parent_scope_addr), "r" (ctx->function_ptr)
+            : "r12", "rax"
+        );
+        
+        delete ctx;  // Clean up context
+        return result;
+    };
+    
+    return __runtime_spawn_goroutine_v2(reinterpret_cast<void*>(wrapper_func));
+}

@@ -178,6 +178,9 @@ public:
     // Memory management helpers
     void set_stack_frame_size(size_t size) { stack_frame.local_stack_size = size; }
     
+    // INLINE HEAP ALLOCATION FOR LEXICAL SCOPES (ultra-fast malloc alternative)
+    void emit_inline_heap_alloc(size_t size, int result_reg);  // Allocate heap memory inline, result in result_reg
+    
     // HIGH-PERFORMANCE LEXICAL SCOPE REGISTER MANAGEMENT
     void emit_scope_register_setup(int scope_level);
     void emit_scope_register_save(int reg_id);

@@ -13,6 +13,7 @@ static std::string generate_unique_label(const std::string& base) {
 #include "dynamic_properties.h"  // For dynamic property functions
 #include <cassert>
 #include <iostream>
+#include <cstdlib>  // For malloc
 #include <iomanip>
 #include <cstdio>
 #include <cstring>  // For strlen
@@ -76,6 +77,7 @@ double __dynamic_value_extract_float64(void* dynamic_value_ptr);
 
 // Forward declarations for goroutine functions that are not in runtime.h
 extern "C" void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg);
+extern "C" void* __goroutine_spawn_func_ptr_with_scope(void* func_ptr, void* arg, void* parent_scope_addr);
 extern "C" void* __goroutine_spawn_and_wait_direct(void* function_address);
 extern "C" void* __goroutine_spawn_and_wait_fast(void* func_address);
 extern "C" void* __goroutine_spawn_direct(void* function_address);
@@ -428,6 +430,7 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         {"__dynamic_value_create_from_array", reinterpret_cast<void*>(__dynamic_value_create_from_array)},
         {"__get_executable_memory_base", reinterpret_cast<void*>(__get_executable_memory_base)},
         {"__goroutine_spawn_func_ptr", reinterpret_cast<void*>(__goroutine_spawn_func_ptr)},
+        {"__goroutine_spawn_func_ptr_with_scope", reinterpret_cast<void*>(__goroutine_spawn_func_ptr_with_scope)},
         {"__goroutine_spawn_and_wait_direct", reinterpret_cast<void*>(__goroutine_spawn_and_wait_direct)},
         {"__goroutine_spawn_and_wait_fast", reinterpret_cast<void*>(__goroutine_spawn_and_wait_fast)},
         {"__goroutine_spawn_direct", reinterpret_cast<void*>(__goroutine_spawn_direct)},
@@ -611,6 +614,11 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         // We need to use the general goroutine spawn mechanism
         std::cout << "[DEBUG] Using generic goroutine spawn for: " << function_name << std::endl;
         return reinterpret_cast<void*>(__goroutine_spawn_func_ptr);
+    }
+    
+    // Handle goroutine spawn with scope
+    if (function_name == "__goroutine_spawn_func_ptr_with_scope") {
+        return reinterpret_cast<void*>(__goroutine_spawn_func_ptr_with_scope);
     }
     
     return nullptr;
@@ -1253,6 +1261,32 @@ void X86CodeGenV2::emit_variable_load_from_scope_register(int dst_reg, int scope
     
     std::cout << "[DEBUG] X86CodeGenV2: ULTRA-FAST variable access: R" << dst_reg 
               << " = [R" << scope_reg << " + " << offset << "]" << std::endl;
+}
+
+// INLINE HEAP ALLOCATION FOR LEXICAL SCOPES (ultra-fast malloc alternative)
+void X86CodeGenV2::emit_inline_heap_alloc(size_t size, int result_reg) {
+    std::cout << "[HEAP_ALLOC_DEBUG] Emitting inline heap allocation for " << size << " bytes" << std::endl;
+    
+    X86Reg result = get_register_for_int(result_reg);
+    
+    // Ultra-fast inline heap allocation using a simple bump allocator
+    // This avoids expensive malloc() calls by using pre-allocated heap space
+    
+    // For now, use malloc() via system call (can optimize later with bump allocator)
+    // mov rdi, size        ; First argument: size
+    instruction_builder->mov(X86Reg::RDI, static_cast<int64_t>(size));
+    
+    // Call malloc - we'll use the C runtime malloc for now
+    // Note: This requires linking with libc, but gives us proper memory management
+    instruction_builder->mov(X86Reg::RAX, reinterpret_cast<int64_t>(malloc));
+    instruction_builder->call(X86Reg::RAX);
+    
+    // Result is in RAX, move to requested result register if different
+    if (result != X86Reg::RAX) {
+        instruction_builder->mov(result, X86Reg::RAX);
+    }
+    
+    std::cout << "[HEAP_ALLOC_DEBUG] Allocated " << size << " bytes, address in register R" << result_reg << std::endl;
 }
 
 

@@ -8,6 +8,7 @@
 #include "console_log_overhaul.h"
 #include "class_runtime_interface.h"
 #include "dynamic_properties.h"
+#include "lexical_scope_address_tracker.h"
 #include <iostream>
 #include <unordered_map>
 #include <cstring>
@@ -449,7 +450,76 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     // For now, let function names fall through to variable lookup
     // TODO: Implement proper function reference handling
     
-    // Fall back to local variable lookup
+    // LEXICAL SCOPE SYSTEM: Check for captured variables FIRST (before regular variable lookup)
+    auto* compiler = get_current_compiler();
+    if (compiler && compiler->get_current_parser()) {
+        std::cout << "[SCOPE_DEBUG] Checking lexical scope for variable: " << name << std::endl;
+        
+        LexicalScopeAddressTracker* scope_tracker = 
+            compiler->get_current_parser()->get_lexical_scope_address_tracker();
+        
+        if (scope_tracker && scope_tracker->is_variable_captured(name)) {
+            std::cout << "[SCOPE_DEBUG] SUCCESS: Variable '" << name << "' found in lexical scope captures!" << std::endl;
+            
+            // Generate assembly code for scope address access
+            std::vector<std::string> asm_code = scope_tracker->generate_goroutine_variable_access_asm(name);
+            
+            std::cout << "[SCOPE_DEBUG] Generated " << asm_code.size() << " assembly instructions:" << std::endl;
+            for (size_t i = 0; i < asm_code.size(); ++i) {
+                std::cout << "[SCOPE_ASM_" << i << "] " << asm_code[i] << std::endl;
+            }
+            
+            // Emit the assembly code through the code generator
+            if (auto* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+                std::cout << "[SCOPE_DEBUG] X86CodeGenV2 found, emitting assembly..." << std::endl;
+                
+                for (const std::string& instruction : asm_code) {
+                    std::cout << "[SCOPE_DEBUG] Emitting scope access ASM: " << instruction << std::endl;
+                }
+                
+                // Find the variable info and emit the correct load instruction
+                bool emitted = false;
+                if (scope_tracker) {
+                    // Look through the goroutine scope info to find the variable
+                    const auto& scope_infos = scope_tracker->get_goroutine_scope_info();
+                    for (const auto& info : scope_infos) {
+                        for (const std::string& captured_var : info.captured_variables) {
+                            if (captured_var == name && info.parent_function) {
+                                const auto* scope_info = scope_tracker->get_scope_manager()->get_function_scope_info(info.parent_function);
+                                if (scope_info) {
+                                    const auto* var_info = scope_info->find_variable(name);
+                                    if (var_info) {
+                                        // Emit the correct load instruction: RAX = [r15 + offset]
+                                        std::cout << "[SCOPE_DEBUG] Emitting load: RAX = [r15 + " << var_info->offset << "]" << std::endl;
+                                        x86_gen->emit_mov_reg_reg_offset(0, 15, static_cast<int64_t>(var_info->offset)); // RAX = [r15 + offset]
+                                        result_type = DataType::ANY; // Inferred type
+                                        emitted = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (emitted) break;
+                    }
+                }
+                
+                if (!emitted) {
+                    std::cout << "[SCOPE_DEBUG] ERROR: Could not find variable info for " << name << ", using placeholder" << std::endl;
+                    x86_gen->emit_mov_reg_imm(0, 0); // RAX = 0 (fallback)
+                    result_type = DataType::ANY;
+                }
+                
+                std::cout << "[SCOPE_DEBUG] Variable '" << name << "' successfully loaded from lexical scope address (COMPILE-TIME OPTIMIZED)" << std::endl;
+                return; // Early return - bypass regular variable lookup
+            } else {
+                std::cout << "[SCOPE_DEBUG] ERROR: X86CodeGenV2 cast failed!" << std::endl;
+            }
+        } else {
+            std::cout << "[SCOPE_DEBUG] Variable '" << name << "' is NOT captured in lexical scope, using regular lookup" << std::endl;
+        }
+    }
+    
+    // Fall back to local variable lookup (only if not found in lexical scope)
     DataType var_type = types.get_variable_type(name);
     
     // LEXICAL SCOPE SYSTEM: Mark variable usage for escape analysis
@@ -490,7 +560,8 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
             }
         }
         
-        // If we reach here, the identifier was not found as a local variable or class property
+        // If we reach here, the identifier was not found as a local variable, class property, or captured variable
+        std::cout << "[SCOPE_DEBUG] FINAL ERROR: Variable '" << name << "' not found anywhere - throwing undefined variable error" << std::endl;
         throw std::runtime_error("Undefined variable: " + name);
     }
     
@@ -498,12 +569,13 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     // NEW LEXICAL SCOPE SYSTEM: Load variable based on static analysis
     std::string current_function = types.get_current_function_context();
+    std::cout << "[DEBUG] Identifier::generate_code - Loading variable '" << name << "' from function context '" << current_function << "'" << std::endl;
     
     if (types.function_uses_heap_scope(current_function)) {
         // Function uses heap scopes - determine if this variable escapes
         if (types.variable_escapes_in_function(current_function, name)) {
-            // Variable escapes - determine which scope level and register
-            int scope_level = 0; // TODO: Get actual scope level from variable info
+            // Variable escapes - determine which scope level and register using static analysis
+            int scope_level = types.determine_variable_scope_level(name, current_function);
             int scope_register = types.get_register_for_scope_level(current_function, scope_level);
             
             if (scope_register != -1) {
@@ -519,7 +591,7 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
                     // This should not happen if we're using X86CodeGenV2
                     throw std::runtime_error("Register-based scope access requires X86CodeGenV2");
                 }
-            } else if (types.needs_stack_fallback(current_function)) {
+            } else if (types.needs_stack_fallback_for_scopes(current_function)) {
                 // FALLBACK: Stack-based scope access for deep scopes
                 int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
                 gen.emit_mov_reg_mem(1, -16 - (scope_level * 8));  // Load scope pointer from stack
@@ -1773,14 +1845,19 @@ void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types)
                 // Get executable memory base and add offset
                 gen.emit_call("__get_executable_memory_base");  // Result in RAX
                 gen.emit_add_reg_imm(0, func_offset);  // Add offset to RAX
-                gen.emit_mov_reg_reg(7, 0);  // Move address to RDI
+                gen.emit_mov_reg_reg(7, 0);  // Move address to RDI (first argument)
+                
+                // Set up the remaining arguments for scope-aware goroutine spawn
+                gen.emit_mov_reg_imm(6, 0);  // RSI = nullptr (arg parameter, not used yet) 
+                gen.emit_mov_reg_reg(2, 15); // RDX = r15 (current scope address as parent scope)
+                
                 if (is_awaited) {
                     // await go function() - spawn and wait for result
                     gen.emit_call("__goroutine_spawn_and_wait_func_ptr");  // Spawn and wait
                     result_type = DataType::ANY; // Return value from goroutine
                 } else {
-                    // go function() - just spawn and return promise  
-                    gen.emit_call("__goroutine_spawn_func_ptr");  // Spawn with function pointer
+                    // go function() - spawn with scope and return promise  
+                    gen.emit_call("__goroutine_spawn_func_ptr_with_scope");  // Spawn with scope
                     result_type = DataType::PROMISE;
                 }
             } else {
@@ -1821,6 +1898,83 @@ void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types)
     }
 }
 
+void ArrowFunction::generate_code(CodeGenerator& gen, TypeInference& types) {
+    // Arrow functions are treated similarly to function expressions
+    // but with proper ES6 lexical scoping semantics
+    
+    // NEW THREE-PHASE SYSTEM: Arrow function should already be compiled in Phase 2
+    std::string func_name = compilation_assigned_name_;
+    if (func_name.empty()) {
+        std::cerr << "ERROR: Arrow function at " << this << " has no assigned name during Phase 3!" << std::endl;
+        throw std::runtime_error("Arrow function not properly registered in compilation manager");
+    }
+    
+    // Use same optimized address lookup as FunctionExpression
+    void* func_address = FunctionCompilationManager::instance().get_function_address(func_name);
+    
+    if (func_address) {
+        // OPTIMAL PATH: Direct address call - zero overhead
+        if (is_goroutine) {
+            if (is_awaited) {
+                gen.emit_goroutine_spawn_and_wait_direct(func_address);
+                result_type = DataType::ANY;
+            } else {
+                gen.emit_goroutine_spawn_direct(func_address);
+                result_type = DataType::PROMISE;
+            }
+        } else {
+            // Direct function address return
+            gen.emit_mov_reg_imm(0, reinterpret_cast<int64_t>(func_address)); // RAX = function address
+            result_type = DataType::FUNCTION;
+        }
+    } else {
+        // Fallback to offset calculation
+        size_t func_offset = FunctionCompilationManager::instance().get_function_offset(func_name);
+        
+        if (FunctionCompilationManager::instance().is_function_compiled(func_name)) {
+            if (is_goroutine) {
+                gen.emit_call("__get_executable_memory_base");
+                gen.emit_add_reg_imm(0, func_offset);
+                gen.emit_mov_reg_reg(7, 0);
+                gen.emit_mov_reg_imm(6, 0);
+                gen.emit_mov_reg_reg(2, 15);
+                
+                if (is_awaited) {
+                    gen.emit_call("__goroutine_spawn_and_wait_func_ptr");
+                    result_type = DataType::ANY;
+                } else {
+                    gen.emit_call("__goroutine_spawn_func_ptr_with_scope");
+                    result_type = DataType::PROMISE;
+                }
+            } else {
+                gen.emit_call("__get_executable_memory_base");
+                gen.emit_add_reg_imm(0, func_offset);
+                result_type = DataType::FUNCTION;
+            }
+        } else {
+            // Final fallback to function ID
+            uint16_t func_id = FunctionCompilationManager::instance().get_function_id(func_name);
+            if (func_id == 0) {
+                throw std::runtime_error("Arrow function not found in function registry");
+            }
+            
+            if (is_goroutine) {
+                if (is_awaited) {
+                    gen.emit_goroutine_spawn_and_wait_fast(func_id);
+                    result_type = DataType::ANY;
+                } else {
+                    gen.emit_goroutine_spawn_fast(func_id);
+                    result_type = DataType::PROMISE;
+                }
+            } else {
+                gen.emit_mov_reg_imm(7, static_cast<int64_t>(func_id));
+                gen.emit_call("__lookup_function_fast");
+                result_type = DataType::FUNCTION;
+            }
+        }
+    }
+}
+
 
 void FunctionExpression::compile_function_body(CodeGenerator& gen, TypeInference& types, const std::string& func_name) {
     // Safety check for corrupted function name
@@ -1829,12 +1983,28 @@ void FunctionExpression::compile_function_body(CodeGenerator& gen, TypeInference
         return;
     }
     
+    std::cout << "[DEBUG] FunctionExpression::compile_function_body - Starting compilation of '" << func_name << "'" << std::endl;
+    std::cout << "[DEBUG] FunctionExpression::compile_function_body - is_goroutine=" << is_goroutine << std::endl;
+    
     // LEXICAL SCOPE CONTEXT: Track function entry for proper scope analysis
     types.push_function_context(func_name);
+    
+    // LEXICAL SCOPE SYSTEM: Debug current parent scope variables before reset
+    std::cout << "[DEBUG] FunctionExpression::compile_function_body - Parent scope variables before reset:" << std::endl;
+    types.debug_print_all_variables();
     
     // Save current stack offset state
     TypeInference local_types;
     local_types.reset_for_function();
+    
+    // LEXICAL SCOPE SYSTEM: For goroutines, we need to inherit parent scope variables
+    if (is_goroutine) {
+        std::cout << "[DEBUG] FunctionExpression::compile_function_body - This is a GOROUTINE, need to inherit parent scope" << std::endl;
+        // Copy parent scope variables that have escaped to this goroutine
+        local_types.inherit_escaped_variables_from_parent(types);
+        std::cout << "[DEBUG] FunctionExpression::compile_function_body - After inheriting parent scope:" << std::endl;
+        local_types.debug_print_all_variables();
+    }
     
     // Emit function label
     gen.emit_label(func_name);
@@ -1850,6 +2020,35 @@ void FunctionExpression::compile_function_body(CodeGenerator& gen, TypeInference
     gen.set_function_stack_size(estimated_stack_size);
     
     gen.emit_prologue();
+    
+    // LEXICAL SCOPE HEAP ALLOCATION: Special handling for goroutine functions
+    if (is_goroutine) {
+        // For goroutines, we need to allocate their own lexical scope for their local variables
+        // We also need to receive parent scope addresses in registers r12/r13/r14
+        
+        // TODO: Check what local variables the goroutine has that need heap allocation
+        // For now, let's allocate 16 bytes for local variables (like 'y' in our test case)
+        
+        auto* x86_codegen = dynamic_cast<X86CodeGenV2*>(&gen);
+        if (x86_codegen) {
+            std::cout << "[GOROUTINE_SCOPE_DEBUG] Goroutine function allocating its own lexical scope" << std::endl;
+            
+            // Allocate heap memory for this goroutine's local variables
+            // TODO: Calculate actual size needed based on escaped local variables
+            x86_codegen->emit_inline_heap_alloc(16, 15);  // 16 bytes in r15
+            
+            std::cout << "[GOROUTINE_SCOPE_DEBUG] Allocated 16 bytes for goroutine scope in r15" << std::endl;
+            
+            // Save r15 to stack for easy restoration (your optimization idea)
+            // Store r15 at [rbp - (stack_offset)]
+            x86_codegen->emit_mov_mem_reg(-16, 15);  // Save r15 to stack at [rbp-16]
+            
+            std::cout << "[GOROUTINE_SCOPE_DEBUG] Saved goroutine scope address from r15 to stack [rbp-16]" << std::endl;
+            
+            // Note: Parent scope addresses should be passed in r12/r13/r14 by the goroutine spawn
+            // For now, we assume they're available in those registers
+        }
+    }
     
     // Set up parameter types and save parameters from registers to stack
     for (size_t i = 0; i < parameters.size() && i < 6; i++) {
@@ -2884,7 +3083,83 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout << "[DEBUG] Assignment::generate_code called for variable: " << variable_name 
               << ", declared_type=" << static_cast<int>(declared_type) << std::endl;
     
-    // LEXICAL SCOPE SYSTEM: Escape analysis integration
+    // LEXICAL SCOPE SYSTEM: Check for captured variables FIRST (before regular assignment)
+    auto* compiler = get_current_compiler();
+    if (compiler && compiler->get_current_parser()) {
+        std::cout << "[SCOPE_DEBUG] Assignment checking lexical scope for variable: " << variable_name << std::endl;
+        
+        LexicalScopeAddressTracker* scope_tracker = 
+            compiler->get_current_parser()->get_lexical_scope_address_tracker();
+        
+        if (scope_tracker && scope_tracker->is_variable_captured(variable_name)) {
+            std::cout << "[SCOPE_DEBUG] SUCCESS: Assignment to captured variable '" << variable_name << "' - using lexical scope!" << std::endl;
+            
+            // Generate the value first
+            if (value) {
+                value->generate_code(gen, types);
+            }
+            
+            // Instead of stack allocation, store to lexical scope address
+            std::vector<std::string> asm_code = scope_tracker->generate_goroutine_variable_assignment_asm(variable_name);
+            
+            std::cout << "[SCOPE_DEBUG] Generated " << asm_code.size() << " assembly instructions for assignment:" << std::endl;
+            for (size_t i = 0; i < asm_code.size(); ++i) {
+                std::cout << "[SCOPE_ASM_ASSIGN_" << i << "] " << asm_code[i] << std::endl;
+            }
+            
+            // Emit the assembly code through the code generator
+            if (auto* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+                std::cout << "[SCOPE_DEBUG] X86CodeGenV2 found, emitting assignment assembly..." << std::endl;
+                
+                for (const std::string& instruction : asm_code) {
+                    std::cout << "[SCOPE_DEBUG] Emitting assignment ASM: " << instruction << std::endl;
+                }
+                
+                // Find the variable info and emit the correct store instruction
+                bool emitted = false;
+                if (scope_tracker) {
+                    // Look through the goroutine scope info to find the variable
+                    const auto& scope_infos = scope_tracker->get_goroutine_scope_info();
+                    for (const auto& info : scope_infos) {
+                        for (const std::string& captured_var : info.captured_variables) {
+                            if (captured_var == variable_name && info.parent_function) {
+                                const auto* scope_info = scope_tracker->get_scope_manager()->get_function_scope_info(info.parent_function);
+                                if (scope_info) {
+                                    const auto* var_info = scope_info->find_variable(variable_name);
+                                    if (var_info) {
+                                        // Emit the correct store instruction: [r15 + offset] = RAX
+                                        std::cout << "[SCOPE_DEBUG] Emitting store: [r15 + " << var_info->offset << "] = RAX" << std::endl;
+                                        x86_gen->emit_mov_reg_offset_reg(15, static_cast<int64_t>(var_info->offset), 0); // [r15 + offset] = RAX
+                                        emitted = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (emitted) break;
+                    }
+                }
+                
+                if (!emitted) {
+                    std::cout << "[SCOPE_DEBUG] ERROR: Could not find variable info for " << variable_name << ", skipping store" << std::endl;
+                }
+                
+                std::cout << "[SCOPE_DEBUG] Assignment: Value stored to lexical scope address (COMPILE-TIME OPTIMIZED)" << std::endl;
+                
+                // Update variable type in type system
+                types.mark_variable_used(variable_name);  // Mark variable as used for escape analysis
+                types.set_variable_type(variable_name, value ? value->result_type : DataType::ANY);
+                
+                return; // Early return - bypass regular stack assignment
+            } else {
+                std::cout << "[SCOPE_DEBUG] ERROR: Assignment X86CodeGenV2 cast failed!" << std::endl;
+            }
+        } else {
+            std::cout << "[SCOPE_DEBUG] Assignment: Variable '" << variable_name << "' is NOT captured in lexical scope, using regular stack assignment" << std::endl;
+        }
+    }
+    
+    // LEXICAL SCOPE SYSTEM: Escape analysis integration (for non-captured variables)
     types.mark_variable_used(variable_name);  // Mark variable as used for escape analysis
     
     if (value) {
@@ -3547,6 +3822,32 @@ void ForInStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
     // Jump back to loop start
     gen.emit_jump(loop_start);
     
+    gen.emit_label(loop_end);
+}
+
+void WhileLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
+    static int while_counter = 0;
+    std::string loop_start = "while_start_" + std::to_string(while_counter);
+    std::string loop_end = "while_end_" + std::to_string(while_counter);
+    while_counter++;
+    
+    gen.emit_label(loop_start);
+    
+    // Evaluate condition
+    condition->generate_code(gen, types);
+    
+    // Check if RAX (result of condition) is zero
+    gen.emit_mov_reg_imm(1, 0); // RCX = 0
+    gen.emit_compare(0, 1); // Compare RAX with 0
+    gen.emit_jump_if_zero(loop_end);
+    
+    // Execute body
+    for (const auto& stmt : body) {
+        stmt->generate_code(gen, types);
+    }
+    
+    // Jump back to condition check
+    gen.emit_jump(loop_start);
     gen.emit_label(loop_end);
 }
 

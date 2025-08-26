@@ -1,0 +1,315 @@
+# UltraScript ES6 Scoping Test Suite Makefile
+# Comprehensive test management for ES6 block scoping validation
+
+CXX = g++
+CXXFLAGS = -std=c++17 -I. -pthread -ldl -Wall -Wextra
+BUILD_TYPE ?= debug
+
+# Add optimization flags based on build type
+ifeq ($(BUILD_TYPE),release)
+    CXXFLAGS += -O3 -DNDEBUG
+else
+    CXXFLAGS += -O0 -g -DDEBUG
+endif
+
+# Complete UltraScript object dependencies for ES6 tests
+ULTRASCRIPT_OBJECTS = \
+	ast_codegen.o \
+	compilation_context.o \
+	compiler.o \
+	console_log_overhaul.o \
+	dynamic_properties.o \
+	error_reporter.o \
+	escape_analyzer.o \
+	ffi_syscalls.o \
+	free_runtime.o \
+	function_compilation_manager.o \
+	gc_system.o \
+	goroutine_system_v2.o \
+	lexer.o \
+	lexical_scope_address_tracker.o \
+	lexical_scope_layout.o \
+	lock_jit_integration.o \
+	lock_system.o \
+	minimal_parser_gc.o \
+	parser.o \
+	regex.o \
+	runtime.o \
+	runtime_syscalls.o \
+	static_scope_analyzer.o \
+	syntax_highlighter.o \
+	type_inference.o \
+	x86_codegen_v2.o \
+	x86_instruction_builder.o \
+	x86_pattern_builder.o \
+	runtime_http_client.o \
+	runtime_http_server.o \
+	context_switch.o
+
+# Find all ES6 test source files
+ES6_TEST_SOURCES = $(wildcard test_*es6*.cpp test_*javascript*.cpp test_ultra_complex*.cpp)
+ES6_TEST_EXECUTABLES = $(ES6_TEST_SOURCES:.cpp=)
+
+# Legacy test targets (for compatibility)
+LEGACY_TESTS = test_real_js_validation ultrascript_integration_test simple_js_validation
+
+.PHONY: all es6-tests legacy-tests tests clean check-deps list-tests run-tests run-es6-tests full-build help
+
+# Default target - build ES6 scoping tests
+all: check-deps es6-tests
+
+# Check if UltraScript dependencies exist
+check-deps:
+	@echo "🔍 Checking UltraScript dependencies..."
+	@missing=0; \
+	for obj in $(ULTRASCRIPT_OBJECTS); do \
+		if [ ! -f "$$obj" ]; then \
+			echo "❌ Missing: $$obj"; \
+			missing=$$((missing + 1)); \
+		fi \
+	done; \
+	if [ $$missing -gt 0 ]; then \
+		echo "💡 Run 'make' or 'bash build.sh' first to build UltraScript"; \
+		exit 1; \
+	else \
+		echo "✅ All dependencies found ($(words $(ULTRASCRIPT_OBJECTS)) files)"; \
+	fi
+
+# Build all ES6 scoping tests
+es6-tests: $(ES6_TEST_EXECUTABLES)
+	@echo "✅ All ES6 scoping tests built successfully ($(words $(ES6_TEST_EXECUTABLES)) tests)"
+
+# Build legacy tests (for backward compatibility)
+legacy-tests: $(LEGACY_TESTS)
+	@echo "✅ Legacy tests built successfully"
+
+# Build all tests (ES6 + legacy)
+tests: es6-tests legacy-tests
+
+# Generic rule to build any ES6 test executable
+$(ES6_TEST_EXECUTABLES): %: %.cpp $(ULTRASCRIPT_OBJECTS)
+	@echo "🔨 Building ES6 test: $@..."
+	$(CXX) $(CXXFLAGS) -o $@ $< $(ULTRASCRIPT_OBJECTS)
+	@echo "✅ Built $@ successfully"
+
+# Legacy test rules (specific dependencies may differ)
+test_real_js_validation: test_real_js_validation.cpp $(ULTRASCRIPT_OBJECTS)
+	@echo "🔨 Building legacy test: $@..."
+	$(CXX) $(CXXFLAGS) -o $@ $< $(ULTRASCRIPT_OBJECTS)
+
+ultrascript_integration_test: ultrascript_integration_test.cpp $(ULTRASCRIPT_OBJECTS)
+	@echo "🔨 Building legacy test: $@..."
+	$(CXX) $(CXXFLAGS) -o $@ $< $(ULTRASCRIPT_OBJECTS)
+
+simple_js_validation: simple_js_validation.cpp $(ULTRASCRIPT_OBJECTS)
+	@echo "🔨 Building legacy test: $@..."
+	$(CXX) $(CXXFLAGS) -o $@ $< $(ULTRASCRIPT_OBJECTS)
+
+# Run all ES6 scoping tests
+run-es6-tests: es6-tests
+	@echo "🚀 Running ES6 Scoping Tests..."
+	@passed=0; failed=0; total=0; \
+	for test in $(ES6_TEST_EXECUTABLES); do \
+		if [ -f "$$test" ]; then \
+			echo ""; \
+			echo "=== Running: $$test ==="; \
+			total=$$((total + 1)); \
+			if ./$$test; then \
+				echo "✅ $$test PASSED"; \
+				passed=$$((passed + 1)); \
+			else \
+				echo "❌ $$test FAILED"; \
+				failed=$$((failed + 1)); \
+			fi \
+		fi \
+	done; \
+	echo ""; \
+	echo "🏆 ES6 TEST RESULTS: $$passed/$$total passed"; \
+	if [ $$failed -eq 0 ]; then \
+		echo "🎉 ALL ES6 SCOPING TESTS PASSED!"; \
+	else \
+		exit 1; \
+	fi
+
+# Run all tests (ES6 + legacy)
+run-tests: tests
+	@echo "🚀 Running All Tests..."
+	@$(MAKE) run-es6-tests
+	@echo ""; \
+	echo "🔍 Running legacy tests..."; \
+	for test in $(LEGACY_TESTS); do \
+		if [ -f "$$test" ]; then \
+			echo "Running: $$test"; \
+			./$$test || echo "❌ $$test failed"; \
+		fi \
+	done
+
+# Run a specific test
+run-%: %
+	@echo "🚀 Running specific test: $<..."
+	./$<
+
+# List available tests
+list-tests:
+	@echo "📋 Available ES6 Scoping Tests:"
+	@if [ "$(ES6_TEST_SOURCES)" ]; then \
+		for test in $(ES6_TEST_SOURCES); do \
+			basename="$$(basename $$test .cpp)"; \
+			if grep -q "ULTRA COMPLEX" "$$test" 2>/dev/null; then \
+				desc="(Ultra-complex nested scoping)"; \
+			elif grep -q "Raw JavaScript" "$$test" 2>/dev/null; then \
+				desc="(Raw JavaScript ES6 validation)"; \
+			else \
+				desc="(ES6 scoping test)"; \
+			fi; \
+			printf "   %-40s %s\n" "$$basename" "$$desc"; \
+		done; \
+	else \
+		echo "   No ES6 test files found"; \
+	fi
+	@echo ""
+	@echo "📋 Legacy Tests:"
+	@for test in $(LEGACY_TESTS); do \
+		printf "   %-40s %s\n" "$$test" "(Legacy validation)"; \
+	done
+	@echo ""
+	@echo "Total: $(words $(ES6_TEST_SOURCES)) ES6 tests + $(words $(LEGACY_TESTS)) legacy tests"
+
+# Clean test executables
+clean:
+	@echo "🧹 Cleaning test executables..."
+	rm -f $(ES6_TEST_EXECUTABLES) $(LEGACY_TESTS)
+	@echo "✅ Cleaned test executables"
+
+# Rebuild UltraScript and run ES6 tests
+full-build:
+	@echo "🔄 Full rebuild: UltraScript + ES6 Tests"
+	$(MAKE) clean
+	bash build.sh
+	$(MAKE) run-es6-tests
+
+# Help target
+help:
+	@echo "UltraScript ES6 Scoping Test Suite Makefile"
+	@echo "=========================================="
+	@echo ""
+	@echo "Primary Targets:"
+	@echo "  all           - Check deps and build ES6 tests (default)"
+	@echo "  es6-tests     - Build all ES6 scoping tests"
+	@echo "  run-es6-tests - Build and run ES6 tests"
+	@echo "  run-tests     - Build and run all tests (ES6 + legacy)"
+	@echo "  list-tests    - List available tests"
+	@echo "  clean         - Remove test executables"
+	@echo "  full-build    - Rebuild UltraScript + run ES6 tests"
+	@echo ""
+	@echo "Specific Test Targets:"
+	@echo "  run-TESTNAME  - Build and run specific test"
+	@echo ""
+	@echo "Utility Targets:"
+	@echo "  check-deps    - Check UltraScript dependencies"
+	@echo "  legacy-tests  - Build legacy validation tests"
+	@echo "  help          - Show this help"
+	@echo ""
+	@echo "Variables:"
+	@echo "  BUILD_TYPE    - debug (default) or release"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make                                    # Build ES6 tests"
+	@echo "  make run-es6-tests                      # Run ES6 tests"
+	@echo "  make run-test_ultra_complex_es6_scoping # Run specific test"
+	@echo "  make BUILD_TYPE=release run-es6-tests   # Optimized build"
+
+# Don't delete intermediate files
+.PRECIOUS: $(ES6_TEST_EXECUTABLES) $(LEGACY_TESTS)
+test_real_js_validation: test_real_js_validation.cpp $(ALL_OBJECTS)
+	@echo "Building real JavaScript validation test..."
+	$(CXX) $(CXXFLAGS) $< $(ALL_OBJECTS) -o $@ $(LDFLAGS)
+
+# Core-only test (reduced objects to avoid linking issues)
+core-only: ultrascript_integration_test
+
+ultrascript_integration_test: ultrascript_integration_test.cpp static_scope_analyzer.o
+	@echo "Building integration test with minimal objects..."
+	$(CXX) $(CXXFLAGS) $< static_scope_analyzer.o -o $@ $(LDFLAGS)
+
+# Simple standalone test (no external dependencies)
+simple_js_validation: simple_js_validation.cpp
+	@echo "Building simple JavaScript validation demo..."
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS)
+
+# Minimal test that tries different object combinations
+minimal: simple_js_validation
+	@echo "Running simple validation test..."
+	./simple_js_validation
+
+# Simple working approach
+working-test: simple_js_validation
+	@echo "🚀 Running working JavaScript parsing demonstration..."
+	./simple_js_validation
+
+# Core static analyzer test (standalone)
+analyzer-test:
+	@echo "Building standalone static analyzer test..."
+	$(CXX) $(CXXFLAGS) -DSTATIC_SCOPE_ANALYZER_STANDALONE test_static_analyzer_only.cpp -o test_static_analyzer_only $(LDFLAGS)
+	./test_static_analyzer_only
+
+complete-pipeline-test:
+	@echo "Building comprehensive JavaScript parsing + analysis pipeline test..."
+	$(CXX) $(CXXFLAGS) test_complete_pipeline.cpp -o test_complete_pipeline $(LDFLAGS)
+	./test_complete_pipeline
+
+variable-ordering-test:
+	@echo "Building variable ordering and offset calculation test..."
+	$(CXX) $(CXXFLAGS) test_variable_ordering_optimization.cpp -o test_variable_ordering_optimization $(LDFLAGS)
+	./test_variable_ordering_optimization
+
+complete-optimized-pipeline-test:
+	@echo "Building complete optimized JavaScript pipeline test..."
+	$(CXX) $(CXXFLAGS) test_complete_optimized_pipeline.cpp -o test_complete_optimized_pipeline $(LDFLAGS)
+	./test_complete_optimized_pipeline
+
+# ES6 Block Scoping Test
+test_es6_block_scoping: test_es6_block_scoping.cpp static_scope_analyzer.o
+	@echo "Building ES6 block scoping optimization test..."
+	$(CXX) $(CXXFLAGS) test_es6_block_scoping.cpp static_scope_analyzer.o -o test_es6_block_scoping $(LDFLAGS)
+
+es6-block-scoping-test:
+	@echo "Running ES6 block scoping test..."
+	$(CXX) $(CXXFLAGS) test_es6_block_scoping.cpp static_scope_analyzer.o -o test_es6_block_scoping $(LDFLAGS)
+	./test_es6_block_scoping
+
+# JavaScript ES6 Block Scoping Real Code Test
+test_javascript_es6_block_scoping: test_javascript_es6_block_scoping.cpp static_scope_analyzer.o
+	@echo "Building JavaScript ES6 block scoping real code test..."
+	$(CXX) $(CXXFLAGS) test_javascript_es6_block_scoping.cpp static_scope_analyzer.o -o test_javascript_es6_block_scoping $(LDFLAGS)
+
+javascript-es6-block-scoping-test:
+	@echo "Running JavaScript ES6 block scoping real code test..."
+	$(CXX) $(CXXFLAGS) test_javascript_es6_block_scoping.cpp static_scope_analyzer.o -o test_javascript_es6_block_scoping $(LDFLAGS)
+	./test_javascript_es6_block_scoping
+
+# Complete JavaScript ES6 Analysis Test (standalone, no dependencies)
+test_complete_javascript_es6_analysis: test_complete_javascript_es6_analysis.cpp
+	@echo "Building complete JavaScript ES6 analysis test (standalone)..."
+	$(CXX) $(CXXFLAGS) test_complete_javascript_es6_analysis.cpp -o test_complete_javascript_es6_analysis
+
+complete-javascript-es6-analysis-test:
+	@echo "Running complete JavaScript ES6 analysis test..."
+	$(CXX) $(CXXFLAGS) test_complete_javascript_es6_analysis.cpp -o test_complete_javascript_es6_analysis
+	./test_complete_javascript_es6_analysis
+
+# Debug target to show what objects we have
+debug:
+	@echo "Available object files:"
+	@ls -la *.o | head -10
+	@echo "..."
+	@echo "Checking static_scope_analyzer dependencies:"
+	@nm -C static_scope_analyzer.o | grep "U " | head -5
+
+# Clean test executables
+clean:
+	rm -f $(TESTS)
+
+# Clean everything including UltraScript objects
+clean-all: clean
+	$(MAKE) -f Makefile clean

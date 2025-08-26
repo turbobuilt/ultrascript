@@ -10,30 +10,30 @@
 // ESCAPE ANALYZER IMPLEMENTATION
 // ============================================================================
 
-EscapeAnalyzer& EscapeAnalyzer::instance() {
-    static EscapeAnalyzer analyzer;
-    return analyzer;
+GCEscapeAnalyzer& GCEscapeAnalyzer::instance() {
+    static GCEscapeAnalyzer instance;
+    return instance;
 }
 
-void EscapeAnalyzer::enter_scope(size_t scope_id) {
+void GCEscapeAnalyzer::enter_scope(size_t scope_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     scope_stack_.push_back(scope_id);
 }
 
-void EscapeAnalyzer::exit_scope(size_t scope_id) {
+void GCEscapeAnalyzer::exit_scope(size_t scope_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!scope_stack_.empty() && scope_stack_.back() == scope_id) {
         scope_stack_.pop_back();
     }
 }
 
-void EscapeAnalyzer::register_variable(size_t variable_id, const std::string& name, size_t scope_id) {
+void GCEscapeAnalyzer::register_variable(size_t variable_id, const std::string& name, size_t scope_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     variable_names_[variable_id] = name;
     variable_scopes_[variable_id] = scope_id;
 }
 
-void EscapeAnalyzer::register_escape(size_t variable_id, EscapeType type, size_t escape_site) {
+void GCEscapeAnalyzer::register_escape(size_t variable_id, EscapeType type, size_t escape_site) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     auto name_it = variable_names_.find(variable_id);
@@ -51,7 +51,7 @@ void EscapeAnalyzer::register_escape(size_t variable_id, EscapeType type, size_t
     }
 }
 
-bool EscapeAnalyzer::does_variable_escape(size_t variable_id) const {
+bool GCEscapeAnalyzer::does_variable_escape(size_t variable_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return std::any_of(escape_info_.begin(), escape_info_.end(),
                       [variable_id](const EscapeInfo& info) {
@@ -59,7 +59,7 @@ bool EscapeAnalyzer::does_variable_escape(size_t variable_id) const {
                       });
 }
 
-void EscapeAnalyzer::clear() {
+void GCEscapeAnalyzer::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     scope_stack_.clear();
     variable_names_.clear();
@@ -101,7 +101,7 @@ size_t VariableTracker::enter_scope(const std::string& scope_name, bool is_funct
     current_scope_variables_.clear();
     
     // Notify escape analyzer
-    EscapeAnalyzer::instance().enter_scope(scope_id);
+    GCEscapeAnalyzer::instance().enter_scope(scope_id);
     
     std::cout << "[GC] Entered scope " << scope_id << " (" << scope_info.scope_name << ")" << std::endl;
     
@@ -126,7 +126,7 @@ void VariableTracker::exit_scope() {
         }
         
         // Notify escape analyzer
-        EscapeAnalyzer::instance().exit_scope(exiting_scope);
+        GCEscapeAnalyzer::instance().exit_scope(exiting_scope);
         
         std::cout << "[GC] Exited scope " << exiting_scope << ", returned to scope " << current_scope_id_ << std::endl;
     }
@@ -145,7 +145,7 @@ size_t VariableTracker::register_variable(const std::string& name, DataType type
     current_scope_variables_[name] = variable_id;
     
     // Notify escape analyzer
-    EscapeAnalyzer::instance().register_variable(variable_id, name, current_scope_id_);
+    GCEscapeAnalyzer::instance().register_variable(variable_id, name, current_scope_id_);
     
     std::cout << "[GC] Registered variable '" << name << "' (id=" << variable_id 
               << ") in scope " << current_scope_id_ << std::endl;
@@ -197,7 +197,7 @@ void VariableTracker::mark_variable_escape(size_t variable_id, EscapeType escape
         it->second.escape_types.push_back(escape_type);
         
         // Notify escape analyzer
-        EscapeAnalyzer::instance().register_escape(variable_id, escape_type, 0);
+        GCEscapeAnalyzer::instance().register_escape(variable_id, escape_type, 0);
     }
 }
 
@@ -252,7 +252,7 @@ void VariableTracker::clear() {
     variables_.clear();
     current_scope_variables_.clear();
     
-    EscapeAnalyzer::instance().clear();
+    GCEscapeAnalyzer::instance().clear();
 }
 
 void VariableTracker::dump_scope_tree() const {
@@ -919,7 +919,7 @@ void GCParserIntegration::finalize_escape_analysis() {
     std::cout << "[GC] Finalizing escape analysis..." << std::endl;
     
     auto& tracker = VariableTracker::instance();
-    auto& analyzer = EscapeAnalyzer::instance();
+    auto& analyzer = GCEscapeAnalyzer::instance();
     
     // Dump analysis results
     dump_analysis_results();
@@ -933,7 +933,7 @@ void GCParserIntegration::dump_analysis_results() {
     VariableTracker::instance().dump_scope_tree();
     VariableTracker::instance().dump_variables();
     
-    const auto& escape_info = EscapeAnalyzer::instance().get_escape_info();
+    const auto& escape_info = GCEscapeAnalyzer::instance().get_escape_info();
     
     std::cout << "\n=== ESCAPE ANALYSIS ===" << std::endl;
     std::cout << "Total escaping variables: " << escape_info.size() << std::endl;

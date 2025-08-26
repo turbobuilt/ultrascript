@@ -2,6 +2,8 @@
 
 #include "minimal_parser_gc.h"
 #include "codegen_forward.h"
+#include "escape_analyzer.h"
+#include "lexical_scope_address_tracker.h"
 #include <variant>
 #include <memory>
 #include <vector>
@@ -106,7 +108,7 @@ enum class TokenType {
     FREE, SHALLOW,  // Added for memory management
     LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET,
     SLICE_BRACKET,  // Added for [:] slice operator
-    SEMICOLON, COMMA, DOT, COLON, QUESTION,
+    SEMICOLON, COMMA, DOT, COLON, QUESTION, ARROW,
     ASSIGN, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, POWER,
     EQUAL, NOT_EQUAL, STRICT_EQUAL, LESS, GREATER, LESS_EQUAL, GREATER_EQUAL,
     AND, OR, NOT,
@@ -349,7 +351,12 @@ public:
     // HIGH-PERFORMANCE REGISTER-BASED SCOPE ACCESS METHODS
     int get_register_for_scope_level(const std::string& function_name, int scope_level) const;
     std::unordered_set<int> get_used_scope_registers(const std::string& function_name) const;
-    bool needs_stack_fallback(const std::string& function_name) const;
+    bool needs_stack_fallback_for_scopes(const std::string& function_name) const;
+    
+    // DEBUG AND DEVELOPMENT METHODS
+    void debug_print_all_variables() const;                                // Print all variables for debugging
+    void inherit_escaped_variables_from_parent(const TypeInference& parent_types);  // Copy escaped variables from parent
+    void import_escaped_variables_from_gc_system();                        // Import escaped variables from GC system
     
     // CONTEXT TRACKING FOR CODE GENERATION
     void push_function_context(const std::string& function_name);
@@ -363,6 +370,16 @@ public:
     std::string extract_expression_string(ExpressionNode* node);
     std::string token_type_to_string(TokenType token);
     bool is_numeric_literal(const std::string& expression);
+    
+    // LEXICAL SCOPE ADDRESS TRACKER INTEGRATION
+    // Methods to access LexicalScopeAddressTracker via compiler context
+    void set_compiler_context(class GoTSCompiler* compiler);  // Forward declaration
+    int determine_variable_scope_level(const std::string& var_name, const std::string& accessing_function) const;
+    void register_variable_declaration_in_function(const std::string& var_name, const std::string& declaring_function);
+    std::string generate_variable_access_asm_with_static_analysis(const std::string& var_name, const std::string& accessing_function) const;
+
+private:
+    class GoTSCompiler* compiler_context_ = nullptr;  // Reference to compiler for accessing LexicalScopeAddressTracker
 };
 
 struct ASTNode {
@@ -437,6 +454,28 @@ struct FunctionExpression : ExpressionNode {
     
     FunctionExpression() : name("") {}
     FunctionExpression(const std::string& n) : name(n) {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void compile_function_body(CodeGenerator& gen, TypeInference& types, const std::string& func_name);
+    
+    // NEW: For three-phase compilation system
+    void set_compilation_assigned_name(const std::string& assigned_name) {
+        compilation_assigned_name_ = assigned_name;
+    }
+};
+
+struct ArrowFunction : ExpressionNode {
+    std::vector<Variable> parameters;
+    DataType return_type = DataType::ANY;
+    std::vector<std::unique_ptr<ASTNode>> body;
+    bool is_single_expression = false;  // true for: x => x + 1, false for: x => { return x + 1; }
+    std::unique_ptr<ExpressionNode> expression;  // for single expression arrows
+    bool is_goroutine = false;
+    bool is_awaited = false;
+    
+    // NEW: For three-phase compilation system  
+    std::string compilation_assigned_name_;  // Name assigned during Phase 1
+    
+    ArrowFunction() {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
     void compile_function_body(CodeGenerator& gen, TypeInference& types, const std::string& func_name);
     
@@ -528,8 +567,17 @@ struct Assignment : ExpressionNode {
     std::unique_ptr<ExpressionNode> value;
     DataType declared_type = DataType::ANY;
     DataType declared_element_type = DataType::ANY;  // For [element_type] arrays
-    Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val)
-        : variable_name(name), value(std::move(val)) {}
+    
+    // ES6 declaration kind for proper block scoping
+    enum DeclarationKind {
+        VAR,    // Function-scoped, hoisted
+        LET,    // Block-scoped, not hoisted  
+        CONST   // Block-scoped, not hoisted, immutable
+    };
+    DeclarationKind declaration_kind = VAR;  // Default to var for compatibility
+    
+    Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val, DeclarationKind kind = VAR)
+        : variable_name(name), value(std::move(val)), declaration_kind(kind) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
@@ -584,6 +632,11 @@ struct ForLoop : ASTNode {
     std::unique_ptr<ExpressionNode> condition;
     std::unique_ptr<ASTNode> update;
     std::vector<std::unique_ptr<ASTNode>> body;
+    
+    // ES6 for-loop scoping information
+    Assignment::DeclarationKind init_declaration_kind = Assignment::VAR;  // Default to var
+    bool creates_block_scope = false;  // true for let/const loops
+    
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
@@ -603,6 +656,17 @@ struct ForInStatement : ASTNode {
     std::vector<std::unique_ptr<ASTNode>> body;
     ForInStatement(const std::string& key_name)
         : key_var_name(key_name) {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+};
+
+struct WhileLoop : ASTNode {
+    std::unique_ptr<ExpressionNode> condition;   // while condition
+    std::vector<std::unique_ptr<ASTNode>> body;  // loop body
+    
+    // ES6 while-loop scoping - while loops create block scope in ES6
+    bool creates_block_scope = true;  // while loops always create block scope for let/const
+    
+    WhileLoop(std::unique_ptr<ExpressionNode> cond) : condition(std::move(cond)) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
@@ -809,11 +873,19 @@ private:
     // GC Integration - track variable lifetimes and escapes during parsing
     std::unique_ptr<MinimalParserGCIntegration> gc_integration_;
     
+    // Lexical Scope Address System - shared escape detection and scope address generation
+    std::unique_ptr<class EscapeAnalyzer> escape_analyzer_;
+    std::unique_ptr<class LexicalScopeAddressTracker> lexical_scope_address_tracker_;
+    
+    // Track current scope variables during parsing for escape analysis
+    std::unordered_map<std::string, std::string> current_scope_variables_;
+    
     Token& current_token();
     Token& peek_token(int offset = 1);
     void advance();
     bool match(TokenType type);
     bool check(TokenType type);
+    bool is_at_end();
     
     std::unique_ptr<ExpressionNode> parse_expression();
     std::unique_ptr<ExpressionNode> parse_assignment_expression();
@@ -838,11 +910,16 @@ private:
     std::unique_ptr<ASTNode> parse_for_statement();
     std::unique_ptr<ASTNode> parse_for_each_statement();
     std::unique_ptr<ASTNode> parse_for_in_statement();
+    std::unique_ptr<ASTNode> parse_while_statement();
     std::unique_ptr<ASTNode> parse_switch_statement();
     std::unique_ptr<CaseClause> parse_case_clause();
     std::unique_ptr<ASTNode> parse_return_statement();
     std::unique_ptr<ASTNode> parse_break_statement();
     std::unique_ptr<ASTNode> parse_free_statement();
+    
+    // LEXICAL SCOPE ANALYSIS METHODS
+    std::vector<std::string> analyze_function_variable_captures(FunctionExpression* func_expr);
+    void find_variable_references_in_node(ASTNode* node, std::vector<std::string>& variables);
     std::unique_ptr<ASTNode> parse_expression_statement();
     std::unique_ptr<ASTNode> parse_class_declaration();
     std::unique_ptr<MethodDecl> parse_method_declaration(const std::string& class_name);
@@ -850,14 +927,20 @@ private:
     std::unique_ptr<OperatorOverloadDecl> parse_operator_overload_declaration(const std::string& class_name);
     std::unique_ptr<SliceExpression> parse_slice_expression();
     
+    // Arrow function parsing methods
+    std::unique_ptr<ArrowFunction> parse_arrow_function_from_identifier(const std::string& param_name);
+    std::unique_ptr<ArrowFunction> parse_arrow_function_from_params(const std::vector<Variable>& params);
+    
     DataType parse_type();
     
 public:
     Parser(std::vector<Token> toks) : tokens(std::move(toks)) {
         initialize_gc_integration();
+        initialize_lexical_scope_system();
     }
     Parser(std::vector<Token> toks, ErrorReporter* reporter) : tokens(std::move(toks)), error_reporter(reporter) {
         initialize_gc_integration();
+        initialize_lexical_scope_system();
     }
     ~Parser(); // Destructor declaration to handle unique_ptr with incomplete type
     std::vector<std::unique_ptr<ASTNode>> parse();
@@ -866,6 +949,21 @@ public:
     void initialize_gc_integration();
     void finalize_gc_analysis();
     MinimalParserGCIntegration* get_gc_integration() { return gc_integration_.get(); }
+    
+    // Lexical Scope Address System methods
+    void initialize_lexical_scope_system();
+    void finalize_lexical_scope_analysis();
+    class LexicalScopeAddressTracker* get_lexical_scope_address_tracker() { return lexical_scope_address_tracker_.get(); }
+    class EscapeAnalyzer* get_escape_analyzer() { return escape_analyzer_.get(); }
+    
+    // Current scope variable tracking for escape analysis
+    void add_variable_to_current_scope(const std::string& name, const std::string& type);
+    void set_current_scope_variables(const std::unordered_map<std::string, std::string>& variables);
+    const std::unordered_map<std::string, std::string>& get_current_scope_variables() const { return current_scope_variables_; }
+    
+    // Scope management for function bodies
+    void enter_function_scope();
+    void exit_function_scope(const std::unordered_map<std::string, std::string>& parent_scope);
 };
 
 // Module system structures
@@ -924,6 +1022,7 @@ private:
     std::unordered_map<std::string, Module> modules;     // Module cache
     Backend target_backend;
     std::string current_file_path;  // Track current file being compiled
+    Parser* current_parser;  // Reference to current parser for lexical scope access
     
 public:
     GoTSCompiler(Backend backend = Backend::X86_64);
@@ -933,6 +1032,12 @@ public:
     std::vector<uint8_t> get_machine_code();
     void execute();
     void set_backend(Backend backend);
+    
+    // Parse-only method for testing scope analysis
+    std::vector<std::unique_ptr<ASTNode>> parse_javascript(const std::string& source);
+    
+    // Parser access for lexical scope integration
+    Parser* get_current_parser() const { return current_parser; }
     
     // Module system
     std::string resolve_module_path(const std::string& module_path, const std::string& current_file = "");

@@ -1,4 +1,5 @@
 #include "minimal_parser_gc.h"
+#include "compiler.h"  // For DataType enum
 #include <iostream>
 
 
@@ -40,6 +41,7 @@ void MinimalParserGCIntegration::declare_variable(const std::string& name, DataT
     current.variable_ids[name] = variable_id;
     
     variable_scopes_[name].push_back(current.scope_id);
+    variable_types_[name] = type;  // Store the variable type
     
     std::cout << "[MinimalGC] Declared variable '" << name << "' in scope '" 
               << current.scope_name << "' (id=" << variable_id << ")" << std::endl;
@@ -133,6 +135,35 @@ void MinimalParserGCIntegration::propagate_escape_to_parents(const std::string& 
                     if (id_it != scope.variable_ids.end()) {
                         std::cout << "[MinimalGC] Marking variable '" << var_name 
                                   << "' (id=" << id_it->second << ") as escaped" << std::endl;
+                        
+                        // Store the escaped variable information
+                        EscapedVariableInfo info;
+                        info.name = var_name;
+                        info.variable_id = id_it->second;
+                        info.escape_reason = SimpleEscapeType::GOROUTINE;  // Default to goroutine for now
+                        
+                        // Get the variable type
+                        auto type_it = variable_types_.find(var_name);
+                        if (type_it != variable_types_.end()) {
+                            info.type = type_it->second;
+                        } else {
+                            info.type = DataType::ANY;  // Default fallback
+                        }
+                        
+                        // Avoid duplicates
+                        bool already_exists = false;
+                        for (const auto& existing : escaped_variables_) {
+                            if (existing.name == var_name) {
+                                already_exists = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!already_exists) {
+                            escaped_variables_.push_back(info);
+                            std::cout << "[MinimalGC] Added escaped variable '" << var_name 
+                                      << "' to collection" << std::endl;
+                        }
                     }
                     break;
                 }

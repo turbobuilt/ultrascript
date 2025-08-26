@@ -22,6 +22,14 @@ enum class SimpleEscapeType {
     GOROUTINE       
 };
 
+// Structure for escaped variable information
+struct EscapedVariableInfo {
+    std::string name;
+    DataType type;
+    size_t variable_id;
+    SimpleEscapeType escape_reason;
+};
+
 // Minimal parser GC integration without compiler dependencies
 class MinimalParserGCIntegration {
 private:
@@ -37,6 +45,8 @@ private:
     size_t next_scope_id_ = 1;
     size_t next_variable_id_ = 1;
     std::unordered_map<std::string, std::vector<size_t>> variable_scopes_;
+    std::vector<EscapedVariableInfo> escaped_variables_;  // Store escaped variables
+    std::unordered_map<std::string, DataType> variable_types_;  // Store variable types
     
 public:
     void enter_scope(const std::string& scope_name, bool is_function = false);
@@ -53,6 +63,9 @@ public:
     void mark_goroutine_capture(const std::vector<std::string>& captured_vars);
     
     void finalize_analysis();
+    
+    // Get escaped variables for code generation
+    const std::vector<EscapedVariableInfo>& get_escaped_variables() const { return escaped_variables_; }
     
 private:
     bool is_variable_in_scope(const std::string& name) const;
