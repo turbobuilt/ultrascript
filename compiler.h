@@ -3,7 +3,7 @@
 #include "minimal_parser_gc.h"
 #include "codegen_forward.h"
 #include "escape_analyzer.h"
-#include "lexical_scope_address_tracker.h"
+#include "simple_lexical_scope.h"  // NEW SIMPLE LEXICAL SCOPE SYSTEM
 #include <variant>
 #include <memory>
 #include <vector>
@@ -25,8 +25,8 @@ enum class TokenType;
 struct ASTNode;
 
 // Forward declaration for new lexical scope system
-class LexicalScopeIntegration;
-enum class TokenType;
+class ExpressionOptimizer;
+class SimpleLexicalScopeAnalyzer;  // Add forward declaration
 
 // ANSI color codes for syntax highlighting
 namespace Colors {
@@ -99,6 +99,7 @@ enum class TokenType {
     FUNCTION, GO, AWAIT, LET, VAR, CONST,
     IF, FOR, WHILE, RETURN,
     SWITCH, CASE, DEFAULT, BREAK,
+    TRY, CATCH, THROW, FINALLY,  // Added for exception handling
     IMPORT, EXPORT, FROM, AS, DEFAULT_EXPORT,
     TENSOR, NEW, ARRAY,
     CLASS, EXTENDS, SUPER, THIS, CONSTRUCTOR,
@@ -235,8 +236,7 @@ private:
     bool inside_callback = false;                                       // Track if we're analyzing callback functions
     bool inside_goroutine = false;                                      // Track if we're analyzing goroutine functions
     
-    // NEW LEXICAL SCOPE SYSTEM: Static analysis-based approach
-    std::unique_ptr<LexicalScopeIntegration> lexical_scope_integration_;
+    // Legacy lexical scope analysis methods removed - now handled by SimpleLexicalScopeAnalyzer
     std::string current_function_being_analyzed_;  // Track current function for analysis
     std::stack<std::string> function_context_stack_;  // Track nested function contexts
 
@@ -385,6 +385,28 @@ private:
 struct ASTNode {
     virtual ~ASTNode() = default;
     virtual void generate_code(CodeGenerator& gen, TypeInference& types) = 0;
+};
+
+// Simple lexical scope node to track variable declarations and accesses
+struct LexicalScopeNode : ASTNode {
+    int scope_depth;
+    std::unordered_set<std::string> declared_variables;
+    std::unordered_map<std::string, int> variable_access_depths; // var_name -> definition depth
+    
+    LexicalScopeNode(int depth) : scope_depth(depth) {}
+    
+    void declare_variable(const std::string& name) {
+        declared_variables.insert(name);
+    }
+    
+    void record_variable_access(const std::string& name, int definition_depth) {
+        variable_access_depths[name] = definition_depth;
+    }
+    
+    void generate_code(CodeGenerator& gen, TypeInference& types) override {
+        // LexicalScopeNode doesn't generate code directly
+        // It's used by the simple lexical scope analyzer for tracking
+    }
 };
 
 struct ExpressionNode : ASTNode {
@@ -690,9 +712,44 @@ struct FreeStatement : ASTNode {
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
+// Exception handling AST nodes
+struct ThrowStatement : ASTNode {
+    std::unique_ptr<ExpressionNode> value;
+    
+    ThrowStatement(std::unique_ptr<ExpressionNode> val) : value(std::move(val)) {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+};
+
+struct CatchClause : ASTNode {
+    std::string parameter;  // catch parameter name (e.g., "error" in catch(error))
+    std::vector<std::unique_ptr<ASTNode>> body;
+    
+    CatchClause(const std::string& param) : parameter(param) {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+};
+
+struct TryStatement : ASTNode {
+    std::vector<std::unique_ptr<ASTNode>> try_body;
+    std::unique_ptr<CatchClause> catch_clause;  // Optional
+    std::vector<std::unique_ptr<ASTNode>> finally_body;  // Optional
+    
+    TryStatement() {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+};
+
+// Block statement for standalone blocks { }
+struct BlockStatement : ASTNode {
+    std::vector<std::unique_ptr<ASTNode>> body;
+    bool creates_scope = true;  // Block statements always create new scope
+    
+    BlockStatement() {}
+    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+};
+
 struct CaseClause : ASTNode {
     std::unique_ptr<ExpressionNode> value;  // nullptr for default case
     std::vector<std::unique_ptr<ASTNode>> body;
+    std::unique_ptr<BlockStatement> block_body;  // Optional for case 0: { ... } syntax
     bool is_default = false;
     
     CaseClause(std::unique_ptr<ExpressionNode> val) : value(std::move(val)) {}
@@ -873,11 +930,10 @@ private:
     // GC Integration - track variable lifetimes and escapes during parsing
     std::unique_ptr<MinimalParserGCIntegration> gc_integration_;
     
-    // Lexical Scope Address System - shared escape detection and scope address generation
-    std::unique_ptr<class EscapeAnalyzer> escape_analyzer_;
-    std::unique_ptr<class LexicalScopeAddressTracker> lexical_scope_address_tracker_;
+    // NEW Simple Lexical Scope System - parse-time analysis
+    std::unique_ptr<class SimpleLexicalScopeAnalyzer> lexical_scope_analyzer_;
     
-    // Track current scope variables during parsing for escape analysis
+    // Track current scope variables during parsing for escape analysis (legacy, will be removed)
     std::unordered_map<std::string, std::string> current_scope_variables_;
     
     Token& current_token();
@@ -913,6 +969,10 @@ private:
     std::unique_ptr<ASTNode> parse_while_statement();
     std::unique_ptr<ASTNode> parse_switch_statement();
     std::unique_ptr<CaseClause> parse_case_clause();
+    std::unique_ptr<ASTNode> parse_try_statement();
+    std::unique_ptr<CatchClause> parse_catch_clause();
+    std::unique_ptr<ASTNode> parse_throw_statement();
+    std::unique_ptr<ASTNode> parse_block_statement();
     std::unique_ptr<ASTNode> parse_return_statement();
     std::unique_ptr<ASTNode> parse_break_statement();
     std::unique_ptr<ASTNode> parse_free_statement();
@@ -936,11 +996,11 @@ private:
 public:
     Parser(std::vector<Token> toks) : tokens(std::move(toks)) {
         initialize_gc_integration();
-        initialize_lexical_scope_system();
+        initialize_simple_lexical_scope_system();
     }
     Parser(std::vector<Token> toks, ErrorReporter* reporter) : tokens(std::move(toks)), error_reporter(reporter) {
         initialize_gc_integration();
-        initialize_lexical_scope_system();
+        initialize_simple_lexical_scope_system();
     }
     ~Parser(); // Destructor declaration to handle unique_ptr with incomplete type
     std::vector<std::unique_ptr<ASTNode>> parse();
@@ -950,11 +1010,15 @@ public:
     void finalize_gc_analysis();
     MinimalParserGCIntegration* get_gc_integration() { return gc_integration_.get(); }
     
-    // Lexical Scope Address System methods
-    void initialize_lexical_scope_system();
-    void finalize_lexical_scope_analysis();
-    class LexicalScopeAddressTracker* get_lexical_scope_address_tracker() { return lexical_scope_address_tracker_.get(); }
-    class EscapeAnalyzer* get_escape_analyzer() { return escape_analyzer_.get(); }
+    // NEW Simple Lexical Scope System methods
+    void initialize_simple_lexical_scope_system();
+    void finalize_simple_lexical_scope_analysis();
+    class SimpleLexicalScopeAnalyzer* get_lexical_scope_analyzer() { return lexical_scope_analyzer_.get(); }
+    
+    // Legacy methods (will be removed)
+    // Legacy method kept for compatibility but returns nullptr since old system is removed
+    void* get_lexical_scope_address_tracker() { return nullptr; }
+    class EscapeAnalyzer* get_escape_analyzer() { return nullptr; }
     
     // Current scope variable tracking for escape analysis
     void add_variable_to_current_scope(const std::string& name, const std::string& type);

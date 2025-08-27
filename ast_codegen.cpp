@@ -1,6 +1,7 @@
 #include "compiler.h"
 #include "x86_codegen_improved.h"  // For X86CodeGenImproved class
 #include "x86_codegen_v2.h"        // For X86CodeGenV2 class with scope register methods
+#include "simple_lexical_scope.h"  // NEW simple lexical scope system
 #include "runtime.h"
 #include "runtime_object.h"
 #include "compilation_context.h"
@@ -450,76 +451,53 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     // For now, let function names fall through to variable lookup
     // TODO: Implement proper function reference handling
     
-    // LEXICAL SCOPE SYSTEM: Check for captured variables FIRST (before regular variable lookup)
+    // NEW SIMPLE LEXICAL SCOPE SYSTEM: Check for variables from outer scopes
     auto* compiler = get_current_compiler();
     if (compiler && compiler->get_current_parser()) {
-        std::cout << "[SCOPE_DEBUG] Checking lexical scope for variable: " << name << std::endl;
+        std::cout << "[SCOPE_DEBUG] Checking simple lexical scope for variable: " << name << std::endl;
         
-        LexicalScopeAddressTracker* scope_tracker = 
-            compiler->get_current_parser()->get_lexical_scope_address_tracker();
+        SimpleLexicalScopeAnalyzer* scope_analyzer = 
+            compiler->get_current_parser()->get_lexical_scope_analyzer();
         
-        if (scope_tracker && scope_tracker->is_variable_captured(name)) {
-            std::cout << "[SCOPE_DEBUG] SUCCESS: Variable '" << name << "' found in lexical scope captures!" << std::endl;
+        if (scope_analyzer) {
+            int definition_depth = scope_analyzer->get_variable_definition_depth(name);
+            int current_depth = scope_analyzer->get_current_depth();
             
-            // Generate assembly code for scope address access
-            std::vector<std::string> asm_code = scope_tracker->generate_goroutine_variable_access_asm(name);
-            
-            std::cout << "[SCOPE_DEBUG] Generated " << asm_code.size() << " assembly instructions:" << std::endl;
-            for (size_t i = 0; i < asm_code.size(); ++i) {
-                std::cout << "[SCOPE_ASM_" << i << "] " << asm_code[i] << std::endl;
-            }
-            
-            // Emit the assembly code through the code generator
-            if (auto* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
-                std::cout << "[SCOPE_DEBUG] X86CodeGenV2 found, emitting assembly..." << std::endl;
+            if (definition_depth >= 0 && definition_depth < current_depth) {
+                std::cout << "[SCOPE_DEBUG] Variable '" << name << "' defined at depth " << definition_depth 
+                          << ", accessing from depth " << current_depth << std::endl;
                 
-                for (const std::string& instruction : asm_code) {
-                    std::cout << "[SCOPE_DEBUG] Emitting scope access ASM: " << instruction << std::endl;
-                }
+                // Get the appropriate register for this depth
+                std::string register_name = scope_analyzer->get_register_for_depth(definition_depth);
                 
-                // Find the variable info and emit the correct load instruction
-                bool emitted = false;
-                if (scope_tracker) {
-                    // Look through the goroutine scope info to find the variable
-                    const auto& scope_infos = scope_tracker->get_goroutine_scope_info();
-                    for (const auto& info : scope_infos) {
-                        for (const std::string& captured_var : info.captured_variables) {
-                            if (captured_var == name && info.parent_function) {
-                                const auto* scope_info = scope_tracker->get_scope_manager()->get_function_scope_info(info.parent_function);
-                                if (scope_info) {
-                                    const auto* var_info = scope_info->find_variable(name);
-                                    if (var_info) {
-                                        // Emit the correct load instruction: RAX = [r15 + offset]
-                                        std::cout << "[SCOPE_DEBUG] Emitting load: RAX = [r15 + " << var_info->offset << "]" << std::endl;
-                                        x86_gen->emit_mov_reg_reg_offset(0, 15, static_cast<int64_t>(var_info->offset)); // RAX = [r15 + offset]
-                                        result_type = DataType::ANY; // Inferred type
-                                        emitted = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        if (emitted) break;
+                std::cout << "[SCOPE_DEBUG] Using register: " << register_name << std::endl;
+                
+                // For now, generate a simple load instruction
+                // In a full implementation, this would calculate the proper offset
+                if (auto* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+                    if (register_name == "r12") {
+                        // Load from parent scope: RAX = [r12 + offset]
+                        x86_gen->emit_mov_reg_reg_offset(0, 12, 0); // RAX = [r12 + 0] (simplified)
+                    } else if (register_name == "r13") {
+                        // Load from grandparent scope: RAX = [r13 + offset]
+                        x86_gen->emit_mov_reg_reg_offset(0, 13, 0); // RAX = [r13 + 0] (simplified)
+                    } else if (register_name == "r14") {
+                        // Load from great-grandparent scope: RAX = [r14 + offset]
+                        x86_gen->emit_mov_reg_reg_offset(0, 14, 0); // RAX = [r14 + 0] (simplified)
+                    } else if (register_name.find("stack_") == 0) {  // Use find instead of starts_with
+                        // Load from stack
+                        x86_gen->emit_mov_reg_reg_offset(0, 6, -8); // RAX = [rbp - 8] (simplified)
                     }
-                }
-                
-                if (!emitted) {
-                    std::cout << "[SCOPE_DEBUG] ERROR: Could not find variable info for " << name << ", using placeholder" << std::endl;
-                    x86_gen->emit_mov_reg_imm(0, 0); // RAX = 0 (fallback)
+                    
                     result_type = DataType::ANY;
+                    return;
                 }
-                
-                std::cout << "[SCOPE_DEBUG] Variable '" << name << "' successfully loaded from lexical scope address (COMPILE-TIME OPTIMIZED)" << std::endl;
-                return; // Early return - bypass regular variable lookup
-            } else {
-                std::cout << "[SCOPE_DEBUG] ERROR: X86CodeGenV2 cast failed!" << std::endl;
             }
-        } else {
-            std::cout << "[SCOPE_DEBUG] Variable '" << name << "' is NOT captured in lexical scope, using regular lookup" << std::endl;
         }
     }
     
-    // Fall back to local variable lookup (only if not found in lexical scope)
+    
+    // Regular variable lookup for local variables
     DataType var_type = types.get_variable_type(name);
     
     // LEXICAL SCOPE SYSTEM: Mark variable usage for escape analysis
@@ -3088,78 +3066,24 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
     if (compiler && compiler->get_current_parser()) {
         std::cout << "[SCOPE_DEBUG] Assignment checking lexical scope for variable: " << variable_name << std::endl;
         
-        LexicalScopeAddressTracker* scope_tracker = 
-            compiler->get_current_parser()->get_lexical_scope_address_tracker();
+        // The new SimpleLexicalScopeAnalyzer handles scope tracking during parsing
+        // For now, use simple stack allocation for all assignments
+        std::cout << "[SCOPE_DEBUG] Using simplified assignment for variable '" << variable_name << "'" << std::endl;
         
-        if (scope_tracker && scope_tracker->is_variable_captured(variable_name)) {
-            std::cout << "[SCOPE_DEBUG] SUCCESS: Assignment to captured variable '" << variable_name << "' - using lexical scope!" << std::endl;
-            
-            // Generate the value first
-            if (value) {
-                value->generate_code(gen, types);
-            }
-            
-            // Instead of stack allocation, store to lexical scope address
-            std::vector<std::string> asm_code = scope_tracker->generate_goroutine_variable_assignment_asm(variable_name);
-            
-            std::cout << "[SCOPE_DEBUG] Generated " << asm_code.size() << " assembly instructions for assignment:" << std::endl;
-            for (size_t i = 0; i < asm_code.size(); ++i) {
-                std::cout << "[SCOPE_ASM_ASSIGN_" << i << "] " << asm_code[i] << std::endl;
-            }
-            
-            // Emit the assembly code through the code generator
-            if (auto* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
-                std::cout << "[SCOPE_DEBUG] X86CodeGenV2 found, emitting assignment assembly..." << std::endl;
-                
-                for (const std::string& instruction : asm_code) {
-                    std::cout << "[SCOPE_DEBUG] Emitting assignment ASM: " << instruction << std::endl;
-                }
-                
-                // Find the variable info and emit the correct store instruction
-                bool emitted = false;
-                if (scope_tracker) {
-                    // Look through the goroutine scope info to find the variable
-                    const auto& scope_infos = scope_tracker->get_goroutine_scope_info();
-                    for (const auto& info : scope_infos) {
-                        for (const std::string& captured_var : info.captured_variables) {
-                            if (captured_var == variable_name && info.parent_function) {
-                                const auto* scope_info = scope_tracker->get_scope_manager()->get_function_scope_info(info.parent_function);
-                                if (scope_info) {
-                                    const auto* var_info = scope_info->find_variable(variable_name);
-                                    if (var_info) {
-                                        // Emit the correct store instruction: [r15 + offset] = RAX
-                                        std::cout << "[SCOPE_DEBUG] Emitting store: [r15 + " << var_info->offset << "] = RAX" << std::endl;
-                                        x86_gen->emit_mov_reg_offset_reg(15, static_cast<int64_t>(var_info->offset), 0); // [r15 + offset] = RAX
-                                        emitted = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        if (emitted) break;
-                    }
-                }
-                
-                if (!emitted) {
-                    std::cout << "[SCOPE_DEBUG] ERROR: Could not find variable info for " << variable_name << ", skipping store" << std::endl;
-                }
-                
-                std::cout << "[SCOPE_DEBUG] Assignment: Value stored to lexical scope address (COMPILE-TIME OPTIMIZED)" << std::endl;
-                
-                // Update variable type in type system
-                types.mark_variable_used(variable_name);  // Mark variable as used for escape analysis
-                types.set_variable_type(variable_name, value ? value->result_type : DataType::ANY);
-                
-                return; // Early return - bypass regular stack assignment
-            } else {
-                std::cout << "[SCOPE_DEBUG] ERROR: Assignment X86CodeGenV2 cast failed!" << std::endl;
-            }
-        } else {
-            std::cout << "[SCOPE_DEBUG] Assignment: Variable '" << variable_name << "' is NOT captured in lexical scope, using regular stack assignment" << std::endl;
+        // Generate the value first
+        if (value) {
+            value->generate_code(gen, types);
         }
+        
+        // Standard stack-based assignment (new simplified system)
+        // Mark variable as used and update type system
+        types.mark_variable_used(variable_name);
+        types.set_variable_type(variable_name, value ? value->result_type : DataType::ANY);
     }
     
-    // LEXICAL SCOPE SYSTEM: Escape analysis integration (for non-captured variables)
+    // REGULAR ASSIGNMENT LOGIC: Stack-based variable assignment
+    
+    // Simplified assignment logic (old lexical scope system removed)
     types.mark_variable_used(variable_name);  // Mark variable as used for escape analysis
     
     if (value) {
@@ -5278,4 +5202,42 @@ void SliceExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     // Result (slice pointer) is now in RAX
     result_type = DataType::SLICE;
+}
+
+// Exception handling and block statement code generation stubs
+// TODO: Implement proper code generation for these constructs
+
+void TryStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+    // TODO: Implement try-catch-finally code generation
+    // For now, just generate the try body (ignoring catch/finally)
+    std::cout << "[WARNING] Try-catch-finally not fully implemented, executing try body only" << std::endl;
+    
+    for (auto& stmt : try_body) {
+        stmt->generate_code(gen, types);
+    }
+}
+
+void CatchClause::generate_code(CodeGenerator& gen, TypeInference& types) {
+    // TODO: Implement catch clause code generation
+    std::cout << "[WARNING] Catch clause code generation not implemented" << std::endl;
+    
+    for (auto& stmt : body) {
+        stmt->generate_code(gen, types);
+    }
+}
+
+void ThrowStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+    // TODO: Implement throw statement code generation
+    std::cout << "[WARNING] Throw statement not fully implemented" << std::endl;
+    
+    if (value) {
+        value->generate_code(gen, types);
+    }
+}
+
+void BlockStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+    // Generate code for block statements (standalone { })
+    for (auto& stmt : body) {
+        stmt->generate_code(gen, types);
+    }
 }

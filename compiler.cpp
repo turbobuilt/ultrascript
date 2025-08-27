@@ -235,43 +235,8 @@ void GoTSCompiler::compile(const std::string& source) {
         
         codegen->emit_prologue();
         
-        // LEXICAL SCOPE HEAP ALLOCATION: Check if main function needs heap allocation for escaped variables
-        LexicalScopeAddressTracker* lexical_scope_tracker = nullptr;
-        if (current_parser) {
-            lexical_scope_tracker = current_parser->get_lexical_scope_address_tracker();
-        }
-        if (lexical_scope_tracker) {
-            // Check if any variables are captured by goroutines (which means they escaped)
-            bool has_escaped_variables = false;
-            
-            // Try to check for common variable names that might escape
-            std::vector<std::string> potential_vars = {"x", "y", "z", "result", "data", "value"};
-            for (const std::string& var : potential_vars) {
-                if (lexical_scope_tracker->is_variable_captured(var)) {
-                    has_escaped_variables = true;
-                    std::cout << "[MAIN_SCOPE_DEBUG] Found escaped variable: " << var << std::endl;
-                    break;
-                }
-            }
-            
-            if (has_escaped_variables) {
-                std::cout << "[MAIN_SCOPE_DEBUG] Main function needs heap allocation for escaped variables" << std::endl;
-                
-                // Allocate 8 bytes for escaped variable(s) - inline assembly
-                auto* x86_codegen = dynamic_cast<X86CodeGenV2*>(codegen.get());
-                if (x86_codegen) {
-                    // Generate inline heap allocation (8 bytes for our test case)
-                    x86_codegen->emit_inline_heap_alloc(8, 15);  // result in r15 (register 15)
-                    
-                    std::cout << "[MAIN_SCOPE_DEBUG] Generated inline heap allocation - 8 bytes in r15" << std::endl;
-                    
-                    // TODO: Initialize escaped variables in the allocated memory
-                    // For now, the allocation is done - individual variable assignments will use the scope
-                }
-            } else {
-                std::cout << "[MAIN_SCOPE_DEBUG] Main function uses stack-only allocation (no escaped variables)" << std::endl;
-            }
-        }
+        // NEW SIMPLE LEXICAL SCOPE SYSTEM: Main function scope tracking handled during parsing
+        std::cout << "[MAIN_SCOPE_DEBUG] Using SimpleLexicalScopeAnalyzer for main function" << std::endl;
         
         // Process imports first (they are hoisted like in JavaScript/TypeScript)
         for (const auto& node : ast) {

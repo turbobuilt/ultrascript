@@ -1,0 +1,946 @@
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c compiler.cpp -o compiler.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c lexer.cpp -o lexer.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c parser.cpp -o parser.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c minimal_parser_gc.cpp -o minimal_parser_gc.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c gc_system.cpp -o gc_system.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c type_inference.cpp -o type_inference.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c x86_instruction_builder.cpp -o x86_instruction_builder.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c x86_pattern_builder.cpp -o x86_pattern_builder.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c x86_codegen_v2.cpp -o x86_codegen_v2.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c ast_codegen.cpp -o ast_codegen.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c compilation_context.cpp -o compilation_context.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c runtime.cpp -o runtime.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c runtime_syscalls.cpp -o runtime_syscalls.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c regex.cpp -o regex.o
+parser.cpp: In member function ‘std::unique_ptr<ExpressionNode> Parser::parse_call()’:
+parser.cpp:539:22: warning: unused variable ‘identifier’ [-Wunused-variable]
+  539 |                 auto identifier = dynamic_cast<Identifier*>(expr.get());
+      |                      ^~~~~~~~~~
+gc_system.cpp: In static member function ‘static void GCParserIntegration::on_function_call(const std::string&, const std::vector<std::__cxx11::basic_string<char> >&)’:
+gc_system.cpp:877:63: warning: unused parameter ‘function_name’ [-Wunused-parameter]
+  877 | void GCParserIntegration::on_function_call(const std::string& function_name, const std::vector<std::string>& args) {
+      |                                            ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+gc_system.cpp: In static member function ‘static void GCParserIntegration::on_object_assignment(const std::string&, const std::string&, const std::string&)’:
+gc_system.cpp:895:67: warning: unused parameter ‘object_name’ [-Wunused-parameter]
+  895 | void GCParserIntegration::on_object_assignment(const std::string& object_name, const std::string& property, const std::string& value_var) {
+      |                                                ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~
+gc_system.cpp:895:99: warning: unused parameter ‘property’ [-Wunused-parameter]
+  895 | void GCParserIntegration::on_object_assignment(const std::string& object_name, const std::string& property, const std::string& value_var) {
+      |                                                                                ~~~~~~~~~~~~~~~~~~~^~~~~~~~
+gc_system.cpp: In static member function ‘static void GCParserIntegration::finalize_escape_analysis()’:
+gc_system.cpp:921:11: warning: unused variable ‘tracker’ [-Wunused-variable]
+  921 |     auto& tracker = VariableTracker::instance();
+      |           ^~~~~~~
+gc_system.cpp:922:11: warning: unused variable ‘analyzer’ [-Wunused-variable]
+  922 |     auto& analyzer = GCEscapeAnalyzer::instance();
+      |           ^~~~~~~~
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_function_declaration()’:
+parser.cpp:1225:21: warning: redundant move in return statement [-Wredundant-move]
+ 1225 |     return std::move(func_decl);
+      |            ~~~~~~~~~^~~~~~~~~~~
+parser.cpp:1225:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_variable_declaration()’:
+parser.cpp:1293:21: warning: redundant move in return statement [-Wredundant-move]
+ 1293 |     return std::move(assignment);
+      |            ~~~~~~~~~^~~~~~~~~~~~
+parser.cpp:1293:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_if_statement()’:
+parser.cpp:1344:21: warning: redundant move in return statement [-Wredundant-move]
+ 1344 |     return std::move(if_stmt);
+      |            ~~~~~~~~~^~~~~~~~~
+parser.cpp:1344:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_for_statement()’:
+parser.cpp:1441:21: warning: redundant move in return statement [-Wredundant-move]
+ 1441 |     return std::move(for_loop);
+      |            ~~~~~~~~~^~~~~~~~~~
+parser.cpp:1441:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_while_statement()’:
+parser.cpp:1477:21: warning: redundant move in return statement [-Wredundant-move]
+ 1477 |     return std::move(while_loop);
+      |            ~~~~~~~~~^~~~~~~~~~~~
+parser.cpp:1477:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_for_each_statement()’:
+parser.cpp:1527:21: warning: redundant move in return statement [-Wredundant-move]
+ 1527 |     return std::move(for_each);
+      |            ~~~~~~~~~^~~~~~~~~~
+parser.cpp:1527:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_for_in_statement()’:
+parser.cpp:1583:21: warning: redundant move in return statement [-Wredundant-move]
+ 1583 |     return std::move(for_in);
+      |            ~~~~~~~~~^~~~~~~~
+parser.cpp:1583:21: note: remove ‘std::move’ call
+parser.cpp:1542:10: warning: variable ‘has_declaration’ set but not used [-Wunused-but-set-variable]
+ 1542 |     bool has_declaration = false;
+      |          ^~~~~~~~~~~~~~~
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_expression_statement()’:
+parser.cpp:1741:21: warning: redundant move in return statement [-Wredundant-move]
+ 1741 |     return std::move(expr);
+      |            ~~~~~~~~~^~~~~~
+parser.cpp:1741:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_class_declaration()’:
+parser.cpp:1911:21: warning: redundant move in return statement [-Wredundant-move]
+ 1911 |     return std::move(class_decl);
+      |            ~~~~~~~~~^~~~~~~~~~~~
+parser.cpp:1911:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_import_statement()’:
+parser.cpp:2138:21: warning: redundant move in return statement [-Wredundant-move]
+ 2138 |     return std::move(import_stmt);
+      |            ~~~~~~~~~^~~~~~~~~~~~~
+parser.cpp:2138:21: note: remove ‘std::move’ call
+parser.cpp: In member function ‘std::unique_ptr<ASTNode> Parser::parse_export_statement()’:
+parser.cpp:2204:21: warning: redundant move in return statement [-Wredundant-move]
+ 2204 |     return std::move(export_stmt);
+      |            ~~~~~~~~~^~~~~~~~~~~~~
+parser.cpp:2204:21: note: remove ‘std::move’ call
+runtime_syscalls.cpp: In function ‘void* __runtime_dns_resolveMx(const char*)’:
+runtime_syscalls.cpp:696:43: warning: unused parameter ‘hostname’ [-Wunused-parameter]
+  696 | void* __runtime_dns_resolveMx(const char* hostname) {
+      |                               ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_dns_resolveTxt(const char*)’:
+runtime_syscalls.cpp:702:44: warning: unused parameter ‘hostname’ [-Wunused-parameter]
+  702 | void* __runtime_dns_resolveTxt(const char* hostname) {
+      |                                ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_dns_resolveSrv(const char*)’:
+runtime_syscalls.cpp:707:44: warning: unused parameter ‘hostname’ [-Wunused-parameter]
+  707 | void* __runtime_dns_resolveSrv(const char* hostname) {
+      |                                ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_dns_resolveNs(const char*)’:
+runtime_syscalls.cpp:712:43: warning: unused parameter ‘hostname’ [-Wunused-parameter]
+  712 | void* __runtime_dns_resolveNs(const char* hostname) {
+      |                               ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_dns_resolveCname(const char*)’:
+runtime_syscalls.cpp:717:46: warning: unused parameter ‘hostname’ [-Wunused-parameter]
+  717 | void* __runtime_dns_resolveCname(const char* hostname) {
+      |                                  ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_http_request(const char*, const char*, void*, const void*, int64_t)’:
+runtime_syscalls.cpp:723:42: warning: unused parameter ‘method’ [-Wunused-parameter]
+  723 | void* __runtime_http_request(const char* method, const char* url, void* headers, const void* body, int64_t body_size) {
+      |                              ~~~~~~~~~~~~^~~~~~
+runtime_syscalls.cpp:723:62: warning: unused parameter ‘url’ [-Wunused-parameter]
+  723 | void* __runtime_http_request(const char* method, const char* url, void* headers, const void* body, int64_t body_size) {
+      |                                                  ~~~~~~~~~~~~^~~
+runtime_syscalls.cpp:723:73: warning: unused parameter ‘headers’ [-Wunused-parameter]
+  723 | void* __runtime_http_request(const char* method, const char* url, void* headers, const void* body, int64_t body_size) {
+      |                                                                   ~~~~~~^~~~~~~
+runtime_syscalls.cpp:723:94: warning: unused parameter ‘body’ [-Wunused-parameter]
+  723 | void* __runtime_http_request(const char* method, const char* url, void* headers, const void* body, int64_t body_size) {
+      |                                                                                  ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp:723:108: warning: unused parameter ‘body_size’ [-Wunused-parameter]
+  723 | void* __runtime_http_request(const char* method, const char* url, void* headers, const void* body, int64_t body_size) {
+      |                                                                                                    ~~~~~~~~^~~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_http_create_server(void*)’:
+runtime_syscalls.cpp:733:42: warning: unused parameter ‘handler’ [-Wunused-parameter]
+  733 | void* __runtime_http_create_server(void* handler) {
+      |                                    ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_http_server_listen(void*, int64_t, const char*)’:
+runtime_syscalls.cpp:739:41: warning: unused parameter ‘server’ [-Wunused-parameter]
+  739 | bool __runtime_http_server_listen(void* server, int64_t port, const char* host) {
+      |                                   ~~~~~~^~~~~~
+runtime_syscalls.cpp:739:57: warning: unused parameter ‘port’ [-Wunused-parameter]
+  739 | bool __runtime_http_server_listen(void* server, int64_t port, const char* host) {
+      |                                                 ~~~~~~~~^~~~
+runtime_syscalls.cpp:739:75: warning: unused parameter ‘host’ [-Wunused-parameter]
+  739 | bool __runtime_http_server_listen(void* server, int64_t port, const char* host) {
+      |                                                               ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_crypto_pbkdf2(const char*, const char*, int64_t, int64_t, const char*)’:
+runtime_syscalls.cpp:765:43: warning: unused parameter ‘password’ [-Wunused-parameter]
+  765 | void* __runtime_crypto_pbkdf2(const char* password, const char* salt, int64_t iterations, int64_t keylen, const char* digest) {
+      |                               ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp:765:65: warning: unused parameter ‘salt’ [-Wunused-parameter]
+  765 | void* __runtime_crypto_pbkdf2(const char* password, const char* salt, int64_t iterations, int64_t keylen, const char* digest) {
+      |                                                     ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp:765:79: warning: unused parameter ‘iterations’ [-Wunused-parameter]
+  765 | void* __runtime_crypto_pbkdf2(const char* password, const char* salt, int64_t iterations, int64_t keylen, const char* digest) {
+      |                                                                       ~~~~~~~~^~~~~~~~~~
+runtime_syscalls.cpp:765:119: warning: unused parameter ‘digest’ [-Wunused-parameter]
+  765 | void* __runtime_crypto_pbkdf2(const char* password, const char* salt, int64_t iterations, int64_t keylen, const char* digest) {
+      |                                                                                                           ~~~~~~~~~~~~^~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_crypto_create_hash(const char*)’:
+runtime_syscalls.cpp:771:48: warning: unused parameter ‘algorithm’ [-Wunused-parameter]
+  771 | void* __runtime_crypto_create_hash(const char* algorithm) {
+      |                                    ~~~~~~~~~~~~^~~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_crypto_create_hmac(const char*, const char*)’:
+runtime_syscalls.cpp:777:48: warning: unused parameter ‘algorithm’ [-Wunused-parameter]
+  777 | void* __runtime_crypto_create_hmac(const char* algorithm, const char* key) {
+      |                                    ~~~~~~~~~~~~^~~~~~~~~
+runtime_syscalls.cpp:777:71: warning: unused parameter ‘key’ [-Wunused-parameter]
+  777 | void* __runtime_crypto_create_hmac(const char* algorithm, const char* key) {
+      |                                                           ~~~~~~~~~~~~^~~
+runtime_syscalls.cpp: In function ‘void* __runtime_crypto_hash_update(void*, const void*, int64_t)’:
+runtime_syscalls.cpp:782:60: warning: unused parameter ‘data’ [-Wunused-parameter]
+  782 | void* __runtime_crypto_hash_update(void* hash, const void* data, int64_t size) {
+      |                                                ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp:782:74: warning: unused parameter ‘size’ [-Wunused-parameter]
+  782 | void* __runtime_crypto_hash_update(void* hash, const void* data, int64_t size) {
+      |                                                                  ~~~~~~~~^~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_crypto_hash_digest(void*, const char*)’:
+runtime_syscalls.cpp:787:42: warning: unused parameter ‘hash’ [-Wunused-parameter]
+  787 | void* __runtime_crypto_hash_digest(void* hash, const char* encoding) {
+      |                                    ~~~~~~^~~~
+runtime_syscalls.cpp:787:60: warning: unused parameter ‘encoding’ [-Wunused-parameter]
+  787 | void* __runtime_crypto_hash_digest(void* hash, const char* encoding) {
+      |                                                ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_crypto_sign(const char*, const void*, int64_t, const char*)’:
+runtime_syscalls.cpp:792:41: warning: unused parameter ‘algorithm’ [-Wunused-parameter]
+  792 | void* __runtime_crypto_sign(const char* algorithm, const void* data, int64_t size, const char* key) {
+      |                             ~~~~~~~~~~~~^~~~~~~~~
+runtime_syscalls.cpp:792:64: warning: unused parameter ‘data’ [-Wunused-parameter]
+  792 | void* __runtime_crypto_sign(const char* algorithm, const void* data, int64_t size, const char* key) {
+      |                                                    ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp:792:78: warning: unused parameter ‘size’ [-Wunused-parameter]
+  792 | void* __runtime_crypto_sign(const char* algorithm, const void* data, int64_t size, const char* key) {
+      |                                                                      ~~~~~~~~^~~~
+runtime_syscalls.cpp:792:96: warning: unused parameter ‘key’ [-Wunused-parameter]
+  792 | void* __runtime_crypto_sign(const char* algorithm, const void* data, int64_t size, const char* key) {
+      |                                                                                    ~~~~~~~~~~~~^~~
+runtime_syscalls.cpp: In function ‘void* __runtime_crypto_verify(const char*, const void*, int64_t, const char*, const void*, int64_t)’:
+runtime_syscalls.cpp:797:43: warning: unused parameter ‘algorithm’ [-Wunused-parameter]
+  797 | void* __runtime_crypto_verify(const char* algorithm, const void* data, int64_t size, const char* key, const void* signature, int64_t sig_size) {
+      |                               ~~~~~~~~~~~~^~~~~~~~~
+runtime_syscalls.cpp:797:66: warning: unused parameter ‘data’ [-Wunused-parameter]
+  797 | void* __runtime_crypto_verify(const char* algorithm, const void* data, int64_t size, const char* key, const void* signature, int64_t sig_size) {
+      |                                                      ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp:797:80: warning: unused parameter ‘size’ [-Wunused-parameter]
+  797 | void* __runtime_crypto_verify(const char* algorithm, const void* data, int64_t size, const char* key, const void* signature, int64_t sig_size) {
+      |                                                                        ~~~~~~~~^~~~
+runtime_syscalls.cpp:797:98: warning: unused parameter ‘key’ [-Wunused-parameter]
+  797 | void* __runtime_crypto_verify(const char* algorithm, const void* data, int64_t size, const char* key, const void* signature, int64_t sig_size) {
+      |                                                                                      ~~~~~~~~~~~~^~~
+runtime_syscalls.cpp:797:115: warning: unused parameter ‘signature’ [-Wunused-parameter]
+  797 | void* __runtime_crypto_verify(const char* algorithm, const void* data, int64_t size, const char* key, const void* signature, int64_t sig_size) {
+      |                                                                                                       ~~~~~~~~~~~~^~~~~~~~~
+runtime_syscalls.cpp:797:134: warning: unused parameter ‘sig_size’ [-Wunused-parameter]
+  797 | void* __runtime_crypto_verify(const char* algorithm, const void* data, int64_t size, const char* key, const void* signature, int64_t sig_size) {
+      |                                                                                                                              ~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_path_extname(const char*)’:
+runtime_syscalls.cpp:1028:17: warning: variable ‘last_sep’ set but not used [-Wunused-but-set-variable]
+ 1028 |     const char* last_sep = nullptr;
+      |                 ^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_path_resolve(void*)’:
+runtime_syscalls.cpp:1074:36: warning: unused parameter ‘paths’ [-Wunused-parameter]
+ 1074 | void* __runtime_path_resolve(void* paths) {
+      |                              ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_child_spawn(const char*, void*, void*)’:
+runtime_syscalls.cpp:1110:41: warning: unused parameter ‘command’ [-Wunused-parameter]
+ 1110 | void* __runtime_child_spawn(const char* command, void* args, void* options) {
+      |                             ~~~~~~~~~~~~^~~~~~~
+runtime_syscalls.cpp:1110:56: warning: unused parameter ‘args’ [-Wunused-parameter]
+ 1110 | void* __runtime_child_spawn(const char* command, void* args, void* options) {
+      |                                                  ~~~~~~^~~~
+runtime_syscalls.cpp:1110:68: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1110 | void* __runtime_child_spawn(const char* command, void* args, void* options) {
+      |                                                              ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_child_exec(const char*, void*)’:
+runtime_syscalls.cpp:1117:40: warning: unused parameter ‘command’ [-Wunused-parameter]
+ 1117 | void* __runtime_child_exec(const char* command, void* options) {
+      |                            ~~~~~~~~~~~~^~~~~~~
+runtime_syscalls.cpp:1117:55: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1117 | void* __runtime_child_exec(const char* command, void* options) {
+      |                                                 ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_url_parse(const char*, bool)’:
+runtime_syscalls.cpp:1253:49: warning: unused parameter ‘parse_query’ [-Wunused-parameter]
+ 1253 | void* __runtime_url_parse(const char* url, bool parse_query) {
+      |                                            ~~~~~^~~~~~~~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_util_is_date(void*)’:
+runtime_syscalls.cpp:1279:35: warning: unused parameter ‘value’ [-Wunused-parameter]
+ 1279 | bool __runtime_util_is_date(void* value) {
+      |                             ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_util_is_error(void*)’:
+runtime_syscalls.cpp:1284:36: warning: unused parameter ‘value’ [-Wunused-parameter]
+ 1284 | bool __runtime_util_is_error(void* value) {
+      |                              ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_util_is_function(void*)’:
+runtime_syscalls.cpp:1289:39: warning: unused parameter ‘value’ [-Wunused-parameter]
+ 1289 | bool __runtime_util_is_function(void* value) {
+      |                                 ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_util_is_number(void*)’:
+runtime_syscalls.cpp:1298:37: warning: unused parameter ‘value’ [-Wunused-parameter]
+ 1298 | bool __runtime_util_is_number(void* value) {
+      |                               ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_util_is_primitive(void*)’:
+runtime_syscalls.cpp:1308:40: warning: unused parameter ‘value’ [-Wunused-parameter]
+ 1308 | bool __runtime_util_is_primitive(void* value) {
+      |                                  ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_util_is_regexp(void*)’:
+runtime_syscalls.cpp:1313:37: warning: unused parameter ‘value’ [-Wunused-parameter]
+ 1313 | bool __runtime_util_is_regexp(void* value) {
+      |                               ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_util_is_string(void*)’:
+runtime_syscalls.cpp:1318:37: warning: unused parameter ‘value’ [-Wunused-parameter]
+ 1318 | bool __runtime_util_is_string(void* value) {
+      |                               ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_util_is_symbol(void*)’:
+runtime_syscalls.cpp:1323:37: warning: unused parameter ‘value’ [-Wunused-parameter]
+ 1323 | bool __runtime_util_is_symbol(void* value) {
+      |                               ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘void __runtime_perf_measure(const char*, const char*, const char*)’:
+runtime_syscalls.cpp:1348:41: warning: unused parameter ‘name’ [-Wunused-parameter]
+ 1348 | void __runtime_perf_measure(const char* name, const char* start_mark, const char* end_mark) {
+      |                             ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp:1348:59: warning: unused parameter ‘start_mark’ [-Wunused-parameter]
+ 1348 | void __runtime_perf_measure(const char* name, const char* start_mark, const char* end_mark) {
+      |                                               ~~~~~~~~~~~~^~~~~~~~~~
+runtime_syscalls.cpp:1348:83: warning: unused parameter ‘end_mark’ [-Wunused-parameter]
+ 1348 | void __runtime_perf_measure(const char* name, const char* start_mark, const char* end_mark) {
+      |                                                                       ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_perf_get_entries_by_name(const char*)’:
+runtime_syscalls.cpp:1358:54: warning: unused parameter ‘name’ [-Wunused-parameter]
+ 1358 | void* __runtime_perf_get_entries_by_name(const char* name) {
+      |                                          ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_perf_get_entries_by_type(const char*)’:
+runtime_syscalls.cpp:1363:54: warning: unused parameter ‘type’ [-Wunused-parameter]
+ 1363 | void* __runtime_perf_get_entries_by_type(const char* type) {
+      |                                          ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_tty_set_raw_mode(int64_t, bool)’:
+runtime_syscalls.cpp:1382:41: warning: unused parameter ‘fd’ [-Wunused-parameter]
+ 1382 | bool __runtime_tty_set_raw_mode(int64_t fd, bool enable) {
+      |                                 ~~~~~~~~^~
+runtime_syscalls.cpp:1382:50: warning: unused parameter ‘enable’ [-Wunused-parameter]
+ 1382 | bool __runtime_tty_set_raw_mode(int64_t fd, bool enable) {
+      |                                             ~~~~~^~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_readline_create_interface(void*, void*)’:
+runtime_syscalls.cpp:1388:49: warning: unused parameter ‘input’ [-Wunused-parameter]
+ 1388 | void* __runtime_readline_create_interface(void* input, void* output) {
+      |                                           ~~~~~~^~~~~
+runtime_syscalls.cpp:1388:62: warning: unused parameter ‘output’ [-Wunused-parameter]
+ 1388 | void* __runtime_readline_create_interface(void* input, void* output) {
+      |                                                        ~~~~~~^~~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_events_emit(void*, const char*, void*)’:
+runtime_syscalls.cpp:1442:20: warning: unused variable ‘listener’ [-Wunused-variable]
+ 1442 |         for (void* listener : it->second) {
+      |                    ^~~~~~~~
+runtime_syscalls.cpp:1433:68: warning: unused parameter ‘args’ [-Wunused-parameter]
+ 1433 | bool __runtime_events_emit(void* emitter, const char* event, void* args) {
+      |                                                              ~~~~~~^~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_stream_create_readable(void*)’:
+runtime_syscalls.cpp:1488:46: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1488 | void* __runtime_stream_create_readable(void* options) {
+      |                                        ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_stream_create_writable(void*)’:
+runtime_syscalls.cpp:1492:46: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1492 | void* __runtime_stream_create_writable(void* options) {
+      |                                        ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_stream_create_duplex(void*)’:
+runtime_syscalls.cpp:1496:44: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1496 | void* __runtime_stream_create_duplex(void* options) {
+      |                                      ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_stream_create_transform(void*)’:
+runtime_syscalls.cpp:1500:47: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1500 | void* __runtime_stream_create_transform(void* options) {
+      |                                         ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘bool __runtime_stream_pipe(void*, void*, void*)’:
+runtime_syscalls.cpp:1505:66: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1505 | bool __runtime_stream_pipe(void* readable, void* writable, void* options) {
+      |                                                            ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘int64_t __runtime_mem_size(void*)’:
+runtime_syscalls.cpp:1558:34: warning: unused parameter ‘ptr’ [-Wunused-parameter]
+ 1558 | int64_t __runtime_mem_size(void* ptr) {
+      |                            ~~~~~~^~~
+runtime_syscalls.cpp: In function ‘void __runtime_error_capture_stack_trace(void*)’:
+runtime_syscalls.cpp:1573:48: warning: unused parameter ‘error’ [-Wunused-parameter]
+ 1573 | void __runtime_error_capture_stack_trace(void* error) {
+      |                                          ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_zlib_deflate(void*, void*)’:
+runtime_syscalls.cpp:1578:50: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1578 | void* __runtime_zlib_deflate(void* buffer, void* options) {
+      |                                            ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_zlib_inflate(void*, void*)’:
+runtime_syscalls.cpp:1584:50: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1584 | void* __runtime_zlib_inflate(void* buffer, void* options) {
+      |                                            ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_zlib_gzip(void*, void*)’:
+runtime_syscalls.cpp:1589:47: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1589 | void* __runtime_zlib_gzip(void* buffer, void* options) {
+      |                                         ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_zlib_gunzip(void*, void*)’:
+runtime_syscalls.cpp:1594:49: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1594 | void* __runtime_zlib_gunzip(void* buffer, void* options) {
+      |                                           ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_vm_create_context(void*)’:
+runtime_syscalls.cpp:1600:41: warning: unused parameter ‘sandbox’ [-Wunused-parameter]
+ 1600 | void* __runtime_vm_create_context(void* sandbox) {
+      |                                   ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_vm_run_in_context(const char*, void*)’:
+runtime_syscalls.cpp:1605:59: warning: unused parameter ‘context’ [-Wunused-parameter]
+ 1605 | void* __runtime_vm_run_in_context(const char* code, void* context) {
+      |                                                     ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_vm_run_in_new_context(const char*, void*)’:
+runtime_syscalls.cpp:1610:63: warning: unused parameter ‘sandbox’ [-Wunused-parameter]
+ 1610 | void* __runtime_vm_run_in_new_context(const char* code, void* sandbox) {
+      |                                                         ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_go_spawn(void*, void*)’:
+runtime_syscalls.cpp:1700:32: warning: unused parameter ‘func’ [-Wunused-parameter]
+ 1700 | void* __runtime_go_spawn(void* func, void* args) {
+      |                          ~~~~~~^~~~
+runtime_syscalls.cpp:1700:44: warning: unused parameter ‘args’ [-Wunused-parameter]
+ 1700 | void* __runtime_go_spawn(void* func, void* args) {
+      |                                      ~~~~~~^~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_go_spawn_with_scope(void*, void*)’:
+runtime_syscalls.cpp:1705:43: warning: unused parameter ‘func’ [-Wunused-parameter]
+ 1705 | void* __runtime_go_spawn_with_scope(void* func, void* scope) {
+      |                                     ~~~~~~^~~~
+runtime_syscalls.cpp:1705:55: warning: unused parameter ‘scope’ [-Wunused-parameter]
+ 1705 | void* __runtime_go_spawn_with_scope(void* func, void* scope) {
+      |                                                 ~~~~~~^~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_module_load(const char*)’:
+runtime_syscalls.cpp:1716:41: warning: unused parameter ‘path’ [-Wunused-parameter]
+ 1716 | void* __runtime_module_load(const char* path) {
+      |                             ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_module_resolve(const char*, void*)’:
+runtime_syscalls.cpp:1721:59: warning: unused parameter ‘options’ [-Wunused-parameter]
+ 1721 | void* __runtime_module_resolve(const char* request, void* options) {
+      |                                                     ~~~~~~^~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_module_create_require(const char*)’:
+runtime_syscalls.cpp:1726:51: warning: unused parameter ‘filename’ [-Wunused-parameter]
+ 1726 | void* __runtime_module_create_require(const char* filename) {
+      |                                       ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_compile(const char*, const char*)’:
+runtime_syscalls.cpp:1732:37: warning: unused parameter ‘code’ [-Wunused-parameter]
+ 1732 | void* __runtime_compile(const char* code, const char* filename) {
+      |                         ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp:1732:55: warning: unused parameter ‘filename’ [-Wunused-parameter]
+ 1732 | void* __runtime_compile(const char* code, const char* filename) {
+      |                                           ~~~~~~~~~~~~^~~~~~~~
+runtime_syscalls.cpp: In function ‘void* __runtime_eval(const char*)’:
+runtime_syscalls.cpp:1737:34: warning: unused parameter ‘code’ [-Wunused-parameter]
+ 1737 | void* __runtime_eval(const char* code) {
+      |                      ~~~~~~~~~~~~^~~~
+runtime_syscalls.cpp: In function ‘void __runtime_jit_optimize(void*)’:
+runtime_syscalls.cpp:1747:35: warning: unused parameter ‘func’ [-Wunused-parameter]
+ 1747 | void __runtime_jit_optimize(void* func) {
+      |                             ~~~~~~^~~~
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c error_reporter.cpp -o error_reporter.o
+compiler.cpp: In member function ‘void GoTSCompiler::compile(const std::string&)’:
+compiler.cpp:98:29: warning: variable ‘type_id’ set but not used [-Wunused-but-set-variable]
+   98 |                     uint8_t type_id = 0; // Default to ANY type
+      |                             ^~~~~~~
+compiler.cpp:99:30: warning: variable ‘size’ set but not used [-Wunused-but-set-variable]
+   99 |                     uint32_t size = 8;   // Default to 8 bytes (pointer size)
+      |                              ^~~~
+compiler.cpp:97:34: warning: unused variable ‘field’ [-Wunused-variable]
+   97 |                 for (const auto& field : class_decl->fields) {
+      |                                  ^~~~~
+compiler.cpp: In member function ‘void GoTSCompiler::execute()’:
+compiler.cpp:570:37: warning: comparison of integer expressions of different signedness: ‘int’ and ‘std::vector<unsigned char>::size_type’ {aka ‘long unsigned int’} [-Wsign-compare]
+  570 |         for (int i = 0; i < 32 && i < updated_code.size(); i++) {
+      |                                   ~~^~~~~~~~~~~~~~~~~~~~~
+compiler.cpp: In member function ‘Module* GoTSCompiler::load_module(const std::string&)’:
+compiler.cpp:856:34: warning: unused variable ‘spec’ [-Wunused-variable]
+  856 |                 for (const auto& spec : export_stmt->specifiers) {
+      |                                  ^~~~
+compiler.cpp: In member function ‘void GoTSCompiler::handle_circular_import(const std::string&)’:
+compiler.cpp:1004:62: warning: unused parameter ‘module_path’ [-Wunused-parameter]
+ 1004 | void GoTSCompiler::handle_circular_import(const std::string& module_path) {
+      |                                           ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~
+compiler.cpp: In member function ‘void GoTSCompiler::execute_module_code(Module&)’:
+compiler.cpp:1030:22: warning: unused variable ‘stmt’ [-Wunused-variable]
+ 1030 |     for (const auto& stmt : module.ast) {
+      |                      ^~~~
+compiler.cpp: In member function ‘void GoTSCompiler::generate_specialized_inherited_methods(const ClassDecl&, CodeGenerator&, TypeInference&)’:
+compiler.cpp:1207:29: warning: unused variable ‘parent_method’ [-Wunused-variable]
+ 1207 |             const Function& parent_method = method_pair.second;
+      |                             ^~~~~~~~~~~~~
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c syntax_highlighter.cpp -o syntax_highlighter.o
+ast_codegen.cpp: In member function ‘virtual void RegexLiteral::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:293:17: warning: variable ‘flags_ptr’ set but not used [-Wunused-but-set-variable]
+  293 |     const char* flags_ptr;
+      |                 ^~~~~~~~~
+ast_codegen.cpp: In member function ‘virtual void BinaryOp::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:822:36: warning: enumeration value ‘IDENTIFIER’ not handled in switch [-Wswitch]
+  822 |                             switch (op) {
+      |                                    ^
+ast_codegen.cpp:822:36: warning: enumeration value ‘NUMBER’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘STRING’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘TEMPLATE_LITERAL’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘BOOLEAN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘REGEX’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘FUNCTION’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘GO’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘AWAIT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘LET’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘VAR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘CONST’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘IF’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘FOR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘WHILE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘RETURN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘SWITCH’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘CASE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘DEFAULT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘BREAK’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘TRY’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘CATCH’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘THROW’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘FINALLY’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘IMPORT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘EXPORT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘FROM’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘AS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘DEFAULT_EXPORT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘TENSOR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘NEW’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘ARRAY’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘CLASS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘EXTENDS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘SUPER’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘THIS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘CONSTRUCTOR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘PUBLIC’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘PRIVATE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘PROTECTED’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘STATIC’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘EACH’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘IN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘PIPE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘OPERATOR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘FREE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘SHALLOW’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘LPAREN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘RPAREN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘LBRACE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘RBRACE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘LBRACKET’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘RBRACKET’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘SLICE_BRACKET’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘SEMICOLON’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘COMMA’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘DOT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘COLON’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘QUESTION’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘ARROW’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘PLUS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘MINUS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘MULTIPLY’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘DIVIDE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘MODULO’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘POWER’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘EQUAL’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘NOT_EQUAL’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘STRICT_EQUAL’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘AND’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘OR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘NOT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘PLUS_ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘MINUS_ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘MULTIPLY_ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘DIVIDE_ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘INCREMENT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘DECREMENT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:822:36: warning: enumeration value ‘EOF_TOKEN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘IDENTIFIER’ not handled in switch [-Wswitch]
+  800 |                     switch (op) {
+      |                            ^
+ast_codegen.cpp:800:28: warning: enumeration value ‘NUMBER’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘STRING’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘TEMPLATE_LITERAL’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘BOOLEAN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘REGEX’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘FUNCTION’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘GO’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘AWAIT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘LET’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘VAR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘CONST’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘IF’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘FOR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘WHILE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘RETURN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘SWITCH’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘CASE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘DEFAULT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘BREAK’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘TRY’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘CATCH’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘THROW’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘FINALLY’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘IMPORT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘EXPORT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘FROM’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘AS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘DEFAULT_EXPORT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘TENSOR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘NEW’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘ARRAY’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘CLASS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘EXTENDS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘SUPER’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘THIS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘CONSTRUCTOR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘PUBLIC’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘PRIVATE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘PROTECTED’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘STATIC’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘EACH’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘IN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘PIPE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘OPERATOR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘FREE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘SHALLOW’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘LPAREN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘RPAREN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘LBRACE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘RBRACE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘LBRACKET’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘RBRACKET’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘SLICE_BRACKET’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘SEMICOLON’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘COMMA’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘DOT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘COLON’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘QUESTION’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘ARROW’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘PLUS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘MINUS’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘MULTIPLY’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘DIVIDE’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘MODULO’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘POWER’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘AND’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘OR’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘NOT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘PLUS_ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘MINUS_ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘MULTIPLY_ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘DIVIDE_ASSIGN’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘INCREMENT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘DECREMENT’ not handled in switch [-Wswitch]
+ast_codegen.cpp:800:28: warning: enumeration value ‘EOF_TOKEN’ not handled in switch [-Wswitch]
+ast_codegen.cpp: In member function ‘virtual void FunctionExpression::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:1800:75: warning: unused parameter ‘types’ [-Wunused-parameter]
+ 1800 | void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
+      |                                                            ~~~~~~~~~~~~~~~^~~~~
+ast_codegen.cpp: In member function ‘virtual void ArrowFunction::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:1901:70: warning: unused parameter ‘types’ [-Wunused-parameter]
+ 1901 | void ArrowFunction::generate_code(CodeGenerator& gen, TypeInference& types) {
+      |                                                       ~~~~~~~~~~~~~~~^~~~~
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c simple_main.cpp -o simple_main.o
+ast_codegen.cpp: In member function ‘virtual void ArrayAccess::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:2938:38: warning: variable ‘property_type’ set but not used [-Wunused-but-set-variable]
+ 2938 |                             DataType property_type = DataType::ANY;
+      |                                      ^~~~~~~~~~~~~
+regex.cpp: In member function ‘std::vector<char> CharacterClass::get_first_chars(int) const’:
+regex.cpp:76:46: warning: comparison of integer expressions of different signedness: ‘std::vector<char>::size_type’ {aka ‘long unsigned int’} and ‘int’ [-Wsign-compare]
+   76 |     for (int i = 0; i < 256 && result.size() < limit; ++i) {
+      |                                ~~~~~~~~~~~~~~^~~~~~~
+regex.cpp: In member function ‘std::unordered_set<NFAState*> NFA::epsilon_closure(NFAState*) const’:
+regex.cpp:132:9: warning: unused variable ‘state_id’ [-Wunused-variable]
+  132 |     int state_id = state->id;
+      |         ^~~~~~~~
+regex.cpp:136:10: warning: unused variable ‘is_final’ [-Wunused-variable]
+  136 |     bool is_final = state->is_final;
+      |          ^~~~~~~~
+regex.cpp: In member function ‘NFABuilder::NFAFragment NFABuilder::build_dot(const DotNode*)’:
+regex.cpp:581:62: warning: unused parameter ‘node’ [-Wunused-parameter]
+  581 | NFABuilder::NFAFragment NFABuilder::build_dot(const DotNode* node) {
+      |                                               ~~~~~~~~~~~~~~~^~~~
+regex.cpp: In member function ‘void DFABuilder::build()’:
+regex.cpp:735:12: warning: unused variable ‘closure_size’ [-Wunused-variable]
+  735 |     size_t closure_size = start_nfa_states.size();
+      |            ^~~~~~~~~~~~
+regex.cpp:760:9: warning: unused variable ‘iteration’ [-Wunused-variable]
+  760 |     int iteration = 0;
+      |         ^~~~~~~~~
+ast_codegen.cpp: In member function ‘virtual void ThisExpression::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:4402:71: warning: unused parameter ‘types’ [-Wunused-parameter]
+ 4402 | void ThisExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
+      |                                                        ~~~~~~~~~~~~~~~^~~~~
+regex.cpp: In member function ‘RegexMatch RegexMatcher::match_email_pattern(const std::string&, int)’:
+regex.cpp:970:24: warning: unused variable ‘domain_start’ [-Wunused-variable]
+  970 |                 size_t domain_start = i;
+      |                        ^~~~~~~~~~~~
+regex.cpp: In member function ‘RegexMatch RegexMatcher::match_ip_pattern(const std::string&, int)’:
+regex.cpp:1048:24: warning: unused variable ‘digit_start’ [-Wunused-variable]
+ 1048 |                 size_t digit_start = pos;
+      |                        ^~~~~~~~~~~
+ast_codegen.cpp: In member function ‘virtual void NewExpression::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:4409:70: warning: unused parameter ‘types’ [-Wunused-parameter]
+ 4409 | void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
+      |                                                       ~~~~~~~~~~~~~~~^~~~~
+ast_codegen.cpp: In member function ‘virtual void ClassDecl::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:5009:46: warning: unused parameter ‘gen’ [-Wunused-parameter]
+ 5009 | void ClassDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
+      |                               ~~~~~~~~~~~~~~~^~~
+ast_codegen.cpp:5009:66: warning: unused parameter ‘types’ [-Wunused-parameter]
+ 5009 | void ClassDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
+      |                                                   ~~~~~~~~~~~~~~~^~~~~
+ast_codegen.cpp: In member function ‘virtual void ImportStatement::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:5141:42: warning: unused variable ‘func_decl’ [-Wunused-variable]
+ 5141 |                                 if (auto func_decl = dynamic_cast<FunctionDecl*>(export_stmt->declaration.get())) {
+      |                                          ^~~~~~~~~
+ast_codegen.cpp: In member function ‘virtual void SliceExpression::generate_code(CodeGenerator&, TypeInference&)’:
+ast_codegen.cpp:5264:72: warning: unused parameter ‘types’ [-Wunused-parameter]
+ 5264 | void SliceExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
+      |                                                         ~~~~~~~~~~~~~~~^~~~~
+x86_codegen_v2.cpp: In member function ‘virtual void X86CodeGenV2::emit_ref_count_decrement(int, int)’:
+x86_codegen_v2.cpp:951:65: warning: unused parameter ‘result_reg’ [-Wunused-parameter]
+  951 | void X86CodeGenV2::emit_ref_count_decrement(int object_reg, int result_reg) {
+      |                                                             ~~~~^~~~~~~~~~
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c goroutine_system_v2.cpp -o goroutine_system_v2.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c function_compilation_manager.cpp -o function_compilation_manager.o
+error_reporter.cpp: In member function ‘std::string ErrorReporter::format_error_context(const std::string&, int, int, const std::string&, char) const’:
+error_reporter.cpp:24:118: warning: unused parameter ‘line_content’ [-Wunused-parameter]
+   24 | std::string ErrorReporter::format_error_context(const std::string& message, int line, int column, const std::string& line_content, char problematic_char) const {
+      |                                                                                                   ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+goroutine_system_v2.cpp: In member function ‘void StackManager::setup_guard_page(void*, size_t)’:
+goroutine_system_v2.cpp:95:43: warning: unused parameter ‘stack_base’ [-Wunused-parameter]
+   95 | void StackManager::setup_guard_page(void* stack_base, size_t size) {
+      |                                     ~~~~~~^~~~~~~~~~
+goroutine_system_v2.cpp:95:62: warning: unused parameter ‘size’ [-Wunused-parameter]
+   95 | void StackManager::setup_guard_page(void* stack_base, size_t size) {
+      |                                                       ~~~~~~~^~~~
+goroutine_system_v2.cpp: In function ‘void stack_overflow_handler(int, siginfo_t*, void*)’:
+goroutine_system_v2.cpp:126:33: warning: unused parameter ‘sig’ [-Wunused-parameter]
+  126 | void stack_overflow_handler(int sig, siginfo_t* info, void* context) {
+      |                             ~~~~^~~
+goroutine_system_v2.cpp:126:61: warning: unused parameter ‘context’ [-Wunused-parameter]
+  126 | void stack_overflow_handler(int sig, siginfo_t* info, void* context) {
+      |                                                       ~~~~~~^~~~~~~
+goroutine_system_v2.cpp: In function ‘bool is_stack_overflow(std::shared_ptr<Goroutine>, void*)’:
+goroutine_system_v2.cpp:147:12: warning: unused variable ‘stack_size’ [-Wunused-variable]
+  147 |     size_t stack_size = goroutine->get_stack_size();
+      |            ^~~~~~~~~~
+In file included from goroutine_system_v2.cpp:1:
+goroutine_system_v2.h: In constructor ‘Goroutine::Goroutine(int64_t, std::function<void()>)’:
+goroutine_system_v2.h:212:27: warning: ‘Goroutine::main_function_’ will be initialized after [-Wreorder]
+  212 |     std::function<void()> main_function_;
+      |                           ^~~~~~~~~~~~~~
+goroutine_system_v2.h:195:12: warning:   ‘size_t Goroutine::current_stack_size_’ [-Wreorder]
+  195 |     size_t current_stack_size_;
+      |            ^~~~~~~~~~~~~~~~~~~
+goroutine_system_v2.cpp:191:1: warning:   when initialized here [-Wreorder]
+  191 | Goroutine::Goroutine(int64_t id, std::function<void()> function)
+      | ^~~~~~~~~
+goroutine_system_v2.cpp: In member function ‘int64_t Goroutine::add_timer(int64_t, void*, bool)’:
+goroutine_system_v2.cpp:320:54: warning: unused parameter ‘callback’ [-Wunused-parameter]
+  320 | int64_t Goroutine::add_timer(int64_t delay_ms, void* callback, bool is_interval) {
+      |                                                ~~~~~~^~~~~~~~
+goroutine_system_v2.cpp: In member function ‘void Goroutine::set_promise_all_results(const std::vector<void*>&)’:
+goroutine_system_v2.cpp:328:67: warning: unused parameter ‘results’ [-Wunused-parameter]
+  328 | void Goroutine::set_promise_all_results(const std::vector<void*>& results) {
+      |                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+goroutine_system_v2.cpp: In member function ‘void FFIThread::continue_execution(std::shared_ptr<Goroutine>)’:
+goroutine_system_v2.cpp:377:63: warning: unused parameter ‘goroutine’ [-Wunused-parameter]
+  377 | void FFIThread::continue_execution(std::shared_ptr<Goroutine> goroutine) {
+      |                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~
+goroutine_system_v2.cpp: In member function ‘Continuation ThreadWorker::execute_goroutine(std::shared_ptr<Goroutine>)’:
+goroutine_system_v2.cpp:570:10: warning: unused variable ‘expected’ [-Wunused-variable]
+  570 |     bool expected = false;
+      |          ^~~~~~~~
+goroutine_system_v2.cpp: In member function ‘void AsyncManager::handle_promise_all_completion(int64_t, int, void*)’:
+goroutine_system_v2.cpp:897:58: warning: unused parameter ‘op_id’ [-Wunused-parameter]
+  897 | void AsyncManager::handle_promise_all_completion(int64_t op_id, int result_index, void* result) {
+      |                                                  ~~~~~~~~^~~~~
+goroutine_system_v2.cpp:897:69: warning: unused parameter ‘result_index’ [-Wunused-parameter]
+  897 | void AsyncManager::handle_promise_all_completion(int64_t op_id, int result_index, void* result) {
+      |                                                                 ~~~~^~~~~~~~~~~~
+goroutine_system_v2.cpp:897:89: warning: unused parameter ‘result’ [-Wunused-parameter]
+  897 | void AsyncManager::handle_promise_all_completion(int64_t op_id, int result_index, void* result) {
+      |                                                                                   ~~~~~~^~~~~~
+goroutine_system_v2.cpp: In member function ‘void EventDrivenScheduler::shutdown()’:
+goroutine_system_v2.cpp:961:49: warning: comparison of integer expressions of different signedness: ‘int’ and ‘std::vector<std::unique_ptr<ThreadWorker> >::size_type’ {aka ‘long unsigned int’} [-Wsign-compare]
+  961 |         for (int i = 0; i < current_active && i < thread_workers_.size(); ++i) {
+      |                                               ~~^~~~~~~~~~~~~~~~~~~~~~~~
+goroutine_system_v2.cpp:969:49: warning: comparison of integer expressions of different signedness: ‘int’ and ‘std::vector<std::thread>::size_type’ {aka ‘long unsigned int’} [-Wsign-compare]
+  969 |         for (int i = 0; i < current_active && i < worker_threads_.size(); ++i) {
+      |                                               ~~^~~~~~~~~~~~~~~~~~~~~~~~
+goroutine_system_v2.cpp: In member function ‘void EventDrivenScheduler::wait_for_completion()’:
+goroutine_system_v2.cpp:1014:47: warning: comparison of integer expressions of different signedness: ‘int’ and ‘std::vector<std::unique_ptr<ThreadWorker> >::size_type’ {aka ‘long unsigned int’} [-Wsign-compare]
+ 1014 |         for (int i = 0; i < active_count && i < thread_workers_.size(); ++i) {
+      |                                             ~~^~~~~~~~~~~~~~~~~~~~~~~~
+goroutine_system_v2.cpp: In member function ‘void EventDrivenScheduler::notify_thread_available(int)’:
+goroutine_system_v2.cpp:1181:56: warning: unused parameter ‘thread_id’ [-Wunused-parameter]
+ 1181 | void EventDrivenScheduler::notify_thread_available(int thread_id) {
+      |                                                    ~~~~^~~~~~~~~
+goroutine_system_v2.cpp: In lambda function:
+goroutine_system_v2.cpp:1560:66: warning: unused variable ‘result’ [-Wunused-variable]
+ 1560 |                                                          int64_t result = func();
+      |                                                                  ^~~~~~
+goroutine_system_v2.cpp: In function ‘void* __goroutine_spawn_func_ptr(void*, void*)’:
+goroutine_system_v2.cpp:1584:67: warning: unused parameter ‘arg’ [-Wunused-parameter]
+ 1584 | extern "C" void* __goroutine_spawn_func_ptr(void* func_ptr, void* arg) {
+      |                                                             ~~~~~~^~~
+goroutine_system_v2.cpp: In function ‘void* __goroutine_spawn_func_ptr_with_scope(void*, void*, void*)’:
+goroutine_system_v2.cpp:1602:23: warning: unused variable ‘context’ [-Wunused-variable]
+ 1602 |     GoroutineContext* context = new GoroutineContext{func_ptr, parent_scope_addr, arg};
+      |                       ^~~~~~~
+ast_codegen.cpp: At global scope:
+ast_codegen.cpp:32:66: warning: ‘std::vector<std::pair<std::__cxx11::basic_string<char>, FunctionExpression*> >& get_deferred_functions()’ defined but not used [-Wunused-function]
+   32 | static std::vector<std::pair<std::string, FunctionExpression*>>& get_deferred_functions() {
+      |                                                                  ^~~~~~~~~~~~~~~~~~~~~~
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c lock_system.cpp -o lock_system.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c lock_jit_integration.cpp -o lock_jit_integration.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c runtime_http_server.cpp -o runtime_http_server.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c runtime_http_client.cpp -o runtime_http_client.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c console_log_overhaul.cpp -o console_log_overhaul.o
+function_compilation_manager.cpp: In member function ‘void FunctionCompilationManager::discover_functions(const std::vector<std::unique_ptr<ASTNode> >&)’:
+function_compilation_manager.cpp:31:22: warning: unused variable ‘order’ [-Wunused-variable]
+   31 |     for (const auto& order : compilation_order_) {
+      |                      ^~~~~
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c ffi_syscalls.cpp -o ffi_syscalls.o
+function_compilation_manager.cpp: In member function ‘std::string FunctionCompilationManager::register_function(std::shared_ptr<FunctionExpression>, const std::string&)’:
+function_compilation_manager.cpp:157:14: warning: unused variable ‘assigned_id’ [-Wunused-variable]
+  157 |     uint16_t assigned_id = func_info->function_id;
+      |              ^~~~~~~~~~~
+function_compilation_manager.cpp: In member function ‘void FunctionCompilationManager::assign_function_addresses(void*, size_t)’:
+function_compilation_manager.cpp:212:92: warning: unused parameter ‘memory_size’ [-Wunused-parameter]
+  212 | void FunctionCompilationManager::assign_function_addresses(void* executable_memory, size_t memory_size) {
+      |                                                                                     ~~~~~~~^~~~~~~~~~~
+function_compilation_manager.cpp: In member function ‘void FunctionCompilationManager::register_function_in_runtime()’:
+function_compilation_manager.cpp:239:28: warning: unused variable ‘func_name’ [-Wunused-variable]
+  239 |         const std::string& func_name = pair.first;
+      |                            ^~~~~~~~~
+function_compilation_manager.cpp: In member function ‘void FunctionCompilationManager::compile_function_body(CodeGenerator&, TypeInference&, FunctionInfo*)’:
+function_compilation_manager.cpp:309:91: warning: unused parameter ‘types’ [-Wunused-parameter]
+  309 | void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, TypeInference& types, FunctionInfo* func_info) {
+      |                                                                            ~~~~~~~~~~~~~~~^~~~~
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c free_runtime.cpp -o free_runtime.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c dynamic_properties.cpp -o dynamic_properties.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c static_scope_analyzer.cpp -o static_scope_analyzer.o
+ffi_syscalls.cpp: In function ‘void ffi_set_calling_convention(int64_t)’:
+ffi_syscalls.cpp:353:41: warning: unused parameter ‘convention’ [-Wunused-parameter]
+  353 | void ffi_set_calling_convention(int64_t convention) {
+      |                                 ~~~~~~~~^~~~~~~~~~
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c escape_analyzer.cpp -o escape_analyzer.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c lexical_scope_layout.cpp -o lexical_scope_layout.o
+g++ -std=c++17 -O0 -Wall -Wextra -pthread -c lexical_scope_address_tracker.cpp -o lexical_scope_address_tracker.o
+lock_jit_integration.cpp: In static member function ‘static bool LockJITCompiler::is_lock_operation(const std::string&, const std::string&)’:
+lock_jit_integration.cpp:14:60: warning: unused parameter ‘object_name’ [-Wunused-parameter]
+   14 | bool LockJITCompiler::is_lock_operation(const std::string& object_name, const std::string& method_name) {
+      |                                         ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~
+lock_jit_integration.cpp: In static member function ‘static int LockJITCompiler::allocate_lock_register(CodeGenerator&)’:
+lock_jit_integration.cpp:86:60: warning: unused parameter ‘gen’ [-Wunused-parameter]
+   86 | int LockJITCompiler::allocate_lock_register(CodeGenerator& gen) {
+      |                                             ~~~~~~~~~~~~~~~^~~
+lock_jit_integration.cpp: In static member function ‘static void LockJITCompiler::deallocate_lock_register(CodeGenerator&, int)’:
+lock_jit_integration.cpp:93:63: warning: unused parameter ‘gen’ [-Wunused-parameter]
+   93 | void LockJITCompiler::deallocate_lock_register(CodeGenerator& gen, int reg) {
+      |                                                ~~~~~~~~~~~~~~~^~~
+lock_jit_integration.cpp:93:72: warning: unused parameter ‘reg’ [-Wunused-parameter]
+   93 | void LockJITCompiler::deallocate_lock_register(CodeGenerator& gen, int reg) {
+      |                                                                    ~~~~^~~
+lock_jit_integration.cpp: In member function ‘virtual void LockCreation::generate_code(CodeGenerator&, TypeInference&)’:
+lock_jit_integration.cpp:147:69: warning: unused parameter ‘types’ [-Wunused-parameter]
+  147 | void LockCreation::generate_code(CodeGenerator& gen, TypeInference& types) {
+      |                                                      ~~~~~~~~~~~~~~~^~~~~
+lock_jit_integration.cpp: In static member function ‘static bool LockPatternOptimizer::optimize_lock_guard_pattern(CodeGenerator&, TypeInference&)’:
+lock_jit_integration.cpp:196:91: warning: unused parameter ‘types’ [-Wunused-parameter]
+  196 | bool LockPatternOptimizer::optimize_lock_guard_pattern(CodeGenerator& gen, TypeInference& types) {
+      |                                                                            ~~~~~~~~~~~~~~~^~~~~
+lock_jit_integration.cpp: In static member function ‘static bool LockPatternOptimizer::optimize_critical_section_pattern(CodeGenerator&, TypeInference&)’:
+lock_jit_integration.cpp:207:97: warning: unused parameter ‘types’ [-Wunused-parameter]
+  207 | bool LockPatternOptimizer::optimize_critical_section_pattern(CodeGenerator& gen, TypeInference& types) {
+      |                                                                                  ~~~~~~~~~~~~~~~^~~~~
+lock_jit_integration.cpp: In static member function ‘static bool LockPatternOptimizer::optimize_producer_consumer_pattern(CodeGenerator&, TypeInference&)’:
+lock_jit_integration.cpp:219:98: warning: unused parameter ‘types’ [-Wunused-parameter]
+  219 | bool LockPatternOptimizer::optimize_producer_consumer_pattern(CodeGenerator& gen, TypeInference& types) {
+      |                                                                                   ~~~~~~~~~~~~~~~^~~~~
+lock_jit_integration.cpp: In function ‘bool LockOptimizations::eliminate_redundant_locks(CodeGenerator&)’:
+lock_jit_integration.cpp:328:51: warning: unused parameter ‘gen’ [-Wunused-parameter]
+  328 |     bool eliminate_redundant_locks(CodeGenerator& gen) {
+      |                                    ~~~~~~~~~~~~~~~^~~
+lock_jit_integration.cpp: In function ‘bool LockOptimizations::combine_lock_operations(CodeGenerator&)’:
+lock_jit_integration.cpp:334:49: warning: unused parameter ‘gen’ [-Wunused-parameter]
+  334 |     bool combine_lock_operations(CodeGenerator& gen) {
+      |                                  ~~~~~~~~~~~~~~~^~~
+lock_jit_integration.cpp: In function ‘bool LockOptimizations::convert_to_lockfree(CodeGenerator&)’:
+lock_jit_integration.cpp:340:45: warning: unused parameter ‘gen’ [-Wunused-parameter]
+  340 |     bool convert_to_lockfree(CodeGenerator& gen) {
+      |                              ~~~~~~~~~~~~~~~^~~
+g++ -c context_switch.s -o context_switch.o
+lock_jit_integration.cpp: In function ‘bool LockOptimizations::optimize_lock_ordering(CodeGenerator&)’:
+lock_jit_integration.cpp:346:48: warning: unused parameter ‘gen’ [-Wunused-parameter]
+  346 |     bool optimize_lock_ordering(CodeGenerator& gen) {
+      |                                 ~~~~~~~~~~~~~~~^~~
+runtime_http_client.cpp: In function ‘void* __runtime_http_request_advanced(const char*, const char*, void*, const char*)’:
+runtime_http_client.cpp:187:82: warning: unused parameter ‘headers_ptr’ [-Wunused-parameter]
+  187 | void* __runtime_http_request_advanced(const char* method, const char* url, void* headers_ptr, const char* body) {
+      |                                                                            ~~~~~~^~~~~~~~~~~
+lexical_scope_layout.cpp: In member function ‘void LexicalScopeManager::analyze_scope_dependencies(FunctionExpression*, FunctionExpression*)’:
+lexical_scope_layout.cpp:350:107: warning: unused parameter ‘child_func’ [-Wunused-parameter]
+  350 | void LexicalScopeManager::analyze_scope_dependencies(FunctionExpression* parent_func, FunctionExpression* child_func) {
+      |                                                                                       ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+lexical_scope_layout.cpp: In member function ‘std::string LexicalScopeManager::generate_scope_address_passing_asm(FunctionExpression*, FunctionExpression*) const’:
+lexical_scope_layout.cpp:366:88: warning: unused parameter ‘child_func’ [-Wunused-parameter]
+  366 |                                                                    FunctionExpression* child_func) const {
+      |                                                                    ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~
+lexical_scope_layout.cpp: In member function ‘std::string LexicalScopeManager::generate_callback_scope_capture_asm(FunctionExpression*, const std::vector<int>&) const’:
+lexical_scope_layout.cpp:415:90: warning: unused parameter ‘callback_func’ [-Wunused-parameter]
+  415 | std::string LexicalScopeManager::generate_callback_scope_capture_asm(FunctionExpression* callback_func,
+      |                                                                      ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+lexical_scope_address_tracker.cpp: In member function ‘void LexicalScopeAddressTracker::set_current_function_scope(FunctionExpression*, const std::unordered_set<std::__cxx11::basic_string<char> >&)’:
+lexical_scope_address_tracker.cpp:85:24: warning: unused variable ‘scope_info’ [-Wunused-variable]
+   85 |     FunctionScopeInfo* scope_info = scope_manager_->create_function_scope_info(func);
+      |                        ^~~~~~~~~~
+lexical_scope_address_tracker.cpp: In member function ‘std::vector<int> LexicalScopeAddressTracker::analyze_goroutine_scope_requirements(const std::vector<std::__cxx11::basic_string<char> >&, FunctionExpression*) const’:
+lexical_scope_address_tracker.cpp:221:102: warning: unused parameter ‘parent_function’ [-Wunused-parameter]
+  221 |                                                                                  FunctionExpression* parent_function) const {
+      |                                                                                  ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::add_variable_to_scope(const std::string&, int, DataType)’:
+static_scope_analyzer.cpp:362:100: warning: unused parameter ‘type’ [-Wunused-parameter]
+  362 | void StaticScopeAnalyzer::add_variable_to_scope(const std::string& name, int scope_level, DataType type) {
+      |                                                                                           ~~~~~~~~~^~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::find_goroutine_captures(ASTNode*, std::unordered_set<std::__cxx11::basic_string<char> >&)’:
+static_scope_analyzer.cpp:724:60: warning: unused parameter ‘node’ [-Wunused-parameter]
+  724 | void StaticScopeAnalyzer::find_goroutine_captures(ASTNode* node, std::unordered_set<std::string>& captured_vars) {
+      |                                                   ~~~~~~~~~^~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::find_callback_captures(ASTNode*, std::unordered_set<std::__cxx11::basic_string<char> >&)’:
+static_scope_analyzer.cpp:736:59: warning: unused parameter ‘node’ [-Wunused-parameter]
+  736 | void StaticScopeAnalyzer::find_callback_captures(ASTNode* node, std::unordered_set<std::string>& captured_vars) {
+      |                                                  ~~~~~~~~~^~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::calculate_memory_layouts(const std::string&)’:
+static_scope_analyzer.cpp:866:13: warning: unused variable ‘stack_offset’ [-Wunused-variable]
+  866 |     int64_t stack_offset = -8;  // Start at -8 from RBP
+      |             ^~~~~~~~~~~~
+static_scope_analyzer.cpp: In member function ‘std::vector<int> LexicalScopeIntegration::get_required_parent_scope_levels(const std::string&) const’:
+static_scope_analyzer.cpp:953:95: warning: unused parameter ‘function_name’ [-Wunused-parameter]
+  953 | std::vector<int> LexicalScopeIntegration::get_required_parent_scope_levels(const std::string& function_name) const {
+      |                                                                            ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+static_scope_analyzer.cpp: In member function ‘size_t LexicalScopeIntegration::get_heap_scope_size(const std::string&) const’:
+static_scope_analyzer.cpp:958:72: warning: unused parameter ‘function_name’ [-Wunused-parameter]
+  958 | size_t LexicalScopeIntegration::get_heap_scope_size(const std::string& function_name) const {
+      |                                                     ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::analyze_variable_access_patterns(const std::string&, ASTNode*)’:
+static_scope_analyzer.cpp:1260:103: warning: unused parameter ‘function_node’ [-Wunused-parameter]
+ 1260 | void StaticScopeAnalyzer::analyze_variable_access_patterns(const std::string& function_name, ASTNode* function_node) {
+      |                                                                                              ~~~~~~~~~^~~~~~~~~~~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::calculate_access_frequencies(const std::string&, ASTNode*)’:
+static_scope_analyzer.cpp:1290:75: warning: unused parameter ‘function_name’ [-Wunused-parameter]
+ 1290 | void StaticScopeAnalyzer::calculate_access_frequencies(const std::string& function_name, ASTNode* function_node) {
+      |                                                        ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+static_scope_analyzer.cpp:1290:99: warning: unused parameter ‘function_node’ [-Wunused-parameter]
+ 1290 | void StaticScopeAnalyzer::calculate_access_frequencies(const std::string& function_name, ASTNode* function_node) {
+      |                                                                                          ~~~~~~~~~^~~~~~~~~~~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::identify_co_accessed_variables(const std::string&, ASTNode*)’:
+static_scope_analyzer.cpp:1295:101: warning: unused parameter ‘function_node’ [-Wunused-parameter]
+ 1295 | void StaticScopeAnalyzer::identify_co_accessed_variables(const std::string& function_name, ASTNode* function_node) {
+      |                                                                                            ~~~~~~~~~^~~~~~~~~~~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::optimize_variable_ordering_by_frequency(const std::string&, int)’:
+static_scope_analyzer.cpp:1325:86: warning: unused parameter ‘function_name’ [-Wunused-parameter]
+ 1325 | void StaticScopeAnalyzer::optimize_variable_ordering_by_frequency(const std::string& function_name, int scope_level) {
+      |                                                                   ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+static_scope_analyzer.cpp:1325:105: warning: unused parameter ‘scope_level’ [-Wunused-parameter]
+ 1325 | void StaticScopeAnalyzer::optimize_variable_ordering_by_frequency(const std::string& function_name, int scope_level) {
+      |                                                                                                     ~~~~^~~~~~~~~~~
+static_scope_analyzer.cpp: In member function ‘void StaticScopeAnalyzer::optimize_variable_ordering_by_locality(const std::string&, int)’:
+static_scope_analyzer.cpp:1329:85: warning: unused parameter ‘function_name’ [-Wunused-parameter]
+ 1329 | void StaticScopeAnalyzer::optimize_variable_ordering_by_locality(const std::string& function_name, int scope_level) {
+      |                                                                  ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+static_scope_analyzer.cpp:1329:104: warning: unused parameter ‘scope_level’ [-Wunused-parameter]
+ 1329 | void StaticScopeAnalyzer::optimize_variable_ordering_by_locality(const std::string& function_name, int scope_level) {
+      |                                                                                                    ~~~~^~~~~~~~~~~
+console_log_overhaul.cpp: In static member function ‘static void TypeAwareConsoleLog::generate_typed_argument_code(CodeGenerator&, TypeInference&, ExpressionNode*, bool)’:
+console_log_overhaul.cpp:62:10: warning: unused parameter ‘is_first_argument’ [-Wunused-parameter]
+   62 |     bool is_first_argument
+      |     ~~~~~^~~~~~~~~~~~~~~~~
+console_log_overhaul.cpp: In static member function ‘static void TypeAwareConsoleLog::generate_any_type_code(CodeGenerator&, TypeInference&, ExpressionNode*)’:
+console_log_overhaul.cpp:118:20: warning: unused parameter ‘types’ [-Wunused-parameter]
+  118 |     TypeInference& types,
+      |     ~~~~~~~~~~~~~~~^~~~~
+console_log_overhaul.cpp:119:21: warning: unused parameter ‘argument’ [-Wunused-parameter]
+  119 |     ExpressionNode* argument
+      |     ~~~~~~~~~~~~~~~~^~~~~~~~
+g++ compiler.o lexer.o parser.o minimal_parser_gc.o gc_system.o type_inference.o x86_instruction_builder.o x86_pattern_builder.o x86_codegen_v2.o ast_codegen.o compilation_context.o runtime.o runtime_syscalls.o regex.o error_reporter.o syntax_highlighter.o simple_main.o goroutine_system_v2.o function_compilation_manager.o lock_system.o lock_jit_integration.o runtime_http_server.o runtime_http_client.o console_log_overhaul.o ffi_syscalls.o free_runtime.o dynamic_properties.o static_scope_analyzer.o escape_analyzer.o lexical_scope_layout.o lexical_scope_address_tracker.o context_switch.o -o ultraScript -pthread -ldl
+/usr/bin/ld: warning: context_switch.o: missing .note.GNU-stack section implies executable stack
+/usr/bin/ld: NOTE: This behaviour is deprecated and will be removed in a future version of the linker

@@ -1,0 +1,44 @@
+/usr/bin/ld: function_compilation_manager.o: warning: relocation against `_ZTI12X86CodeGenV2' in read-only section `.text'
+/usr/bin/ld: ast_codegen.o: in function `Identifier::generate_code(CodeGenerator&, TypeInference&)':
+ast_codegen.cpp:(.text+0x2470): undefined reference to `typeinfo for X86CodeGenV2'
+/usr/bin/ld: ast_codegen.cpp:(.text+0x2f39): undefined reference to `typeinfo for X86CodeGenV2'
+/usr/bin/ld: ast_codegen.cpp:(.text+0x2f85): undefined reference to `X86CodeGenV2::emit_variable_load_from_scope_register(int, int, long)'
+/usr/bin/ld: ast_codegen.o: in function `FunctionCall::generate_code(CodeGenerator&, TypeInference&)':
+ast_codegen.cpp:(.text+0x6251): undefined reference to `TypeAwareConsoleLog::generate_console_log_code(CodeGenerator&, TypeInference&, std::vector<ExpressionNode*, std::allocator<ExpressionNode*> > const&)'
+/usr/bin/ld: ast_codegen.o: in function `MethodCall::generate_code(CodeGenerator&, TypeInference&)':
+ast_codegen.cpp:(.text+0x722a): undefined reference to `TypeAwareConsoleLog::generate_console_log_code(CodeGenerator&, TypeInference&, std::vector<ExpressionNode*, std::allocator<ExpressionNode*> > const&)'
+/usr/bin/ld: ast_codegen.o: in function `FunctionExpression::compile_function_body(CodeGenerator&, TypeInference&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)':
+ast_codegen.cpp:(.text+0xd077): undefined reference to `typeinfo for X86CodeGenV2'
+/usr/bin/ld: ast_codegen.cpp:(.text+0xd0e6): undefined reference to `X86CodeGenV2::emit_inline_heap_alloc(unsigned long, int)'
+/usr/bin/ld: ast_codegen.o: in function `__lookup_function_by_id':
+ast_codegen.cpp:(.text+0xd867): undefined reference to `__lookup_function_fast'
+/usr/bin/ld: ast_codegen.o: in function `ensure_lookup_function_by_id_registered()':
+ast_codegen.cpp:(.text+0xd936): undefined reference to `__register_function_fast'
+/usr/bin/ld: ast_codegen.o: in function `Assignment::generate_code(CodeGenerator&, TypeInference&)':
+ast_codegen.cpp:(.text+0x1518e): undefined reference to `typeinfo for X86CodeGenV2'
+/usr/bin/ld: compiler.o: in function `GoTSCompiler::set_backend(Backend)':
+compiler.cpp:(.text+0x2c9): undefined reference to `create_x86_codegen()'
+/usr/bin/ld: compiler.o: in function `GoTSCompiler::compile(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)':
+compiler.cpp:(.text+0x194c): undefined reference to `typeinfo for X86CodeGenV2'
+/usr/bin/ld: compiler.cpp:(.text+0x198c): undefined reference to `X86CodeGenV2::emit_inline_heap_alloc(unsigned long, int)'
+/usr/bin/ld: compiler.cpp:(.text+0x1da7): undefined reference to `typeinfo for X86CodeGenV2'
+/usr/bin/ld: compiler.cpp:(.text+0x1ddd): undefined reference to `X86CodeGenV2::validate_code_generation() const'
+/usr/bin/ld: compiler.o: in function `GoTSCompiler::execute()':
+compiler.cpp:(.text+0x3778): undefined reference to `__set_executable_memory'
+/usr/bin/ld: compiler.cpp:(.text+0x377d): undefined reference to `__runtime_init'
+/usr/bin/ld: compiler.cpp:(.text+0x3b79): undefined reference to `__register_function_fast'
+/usr/bin/ld: compiler.cpp:(.text+0x4112): undefined reference to `g_console_mutex'
+/usr/bin/ld: compiler.cpp:(.text+0x4143): undefined reference to `g_console_mutex'
+/usr/bin/ld: compiler.cpp:(.text+0x415f): undefined reference to `__runtime_wait_for_main_goroutine'
+/usr/bin/ld: compiler.cpp:(.text+0x4164): undefined reference to `__runtime_cleanup'
+/usr/bin/ld: function_compilation_manager.o: in function `FunctionCompilationManager::register_function(std::shared_ptr<FunctionExpression>, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)':
+function_compilation_manager.cpp:(.text+0xc83): undefined reference to `__register_function_fast'
+/usr/bin/ld: function_compilation_manager.o: in function `FunctionCompilationManager::assign_function_addresses(void*, unsigned long)':
+function_compilation_manager.cpp:(.text+0x1183): undefined reference to `g_function_table'
+/usr/bin/ld: function_compilation_manager.o: in function `FunctionCompilationManager::register_function_in_runtime()':
+function_compilation_manager.cpp:(.text+0x1274): undefined reference to `__register_function_fast'
+/usr/bin/ld: function_compilation_manager.o: in function `FunctionCompilationManager::compile_function_body(CodeGenerator&, TypeInference&, FunctionInfo*)':
+function_compilation_manager.cpp:(.text+0x1bd0): undefined reference to `typeinfo for X86CodeGenV2'
+/usr/bin/ld: function_compilation_manager.cpp:(.text+0x1c3f): undefined reference to `X86CodeGenV2::emit_inline_heap_alloc(unsigned long, int)'
+/usr/bin/ld: warning: creating DT_TEXTREL in a PIE
+collect2: error: ld returned 1 exit status

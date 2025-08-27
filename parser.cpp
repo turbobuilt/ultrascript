@@ -1,5 +1,6 @@
 #include "compiler.h"
 #include "minimal_parser_gc.h" // Use minimal GC instead of parser_gc_integration.h
+#include "simple_lexical_scope.h" // NEW simple lexical scope system
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
@@ -16,41 +17,31 @@ void Parser::finalize_gc_analysis() {
     }
 }
 
-void Parser::initialize_lexical_scope_system() {
-    escape_analyzer_ = std::make_unique<EscapeAnalyzer>();
-    lexical_scope_address_tracker_ = std::make_unique<LexicalScopeAddressTracker>();
-    
-    // Register the lexical scope address tracker as a consumer of escape events
-    escape_analyzer_->register_consumer(lexical_scope_address_tracker_.get());
-    
-    std::cout << "[Parser] Initialized lexical scope address system" << std::endl;
+void Parser::initialize_simple_lexical_scope_system() {
+    lexical_scope_analyzer_ = std::make_unique<SimpleLexicalScopeAnalyzer>();
+    std::cout << "[Parser] Initialized simple lexical scope system" << std::endl;
 }
 
-void Parser::finalize_lexical_scope_analysis() {
-    if (lexical_scope_address_tracker_) {
-        lexical_scope_address_tracker_->print_scope_address_analysis();
+void Parser::finalize_simple_lexical_scope_analysis() {
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->print_debug_info();
     }
-    std::cout << "[Parser] Finalized lexical scope analysis" << std::endl;
+    std::cout << "[Parser] Finalized simple lexical scope analysis" << std::endl;
 }
 
 void Parser::add_variable_to_current_scope(const std::string& name, const std::string& type) {
     current_scope_variables_[name] = type;
     std::cout << "[Parser] Added variable to current scope: " << name << " : " << type << std::endl;
     
-    // Also notify the escape analyzer
-    if (escape_analyzer_) {
-        escape_analyzer_->add_variable_to_scope(name, type);
+    // NEW: Notify the simple lexical scope analyzer
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->declare_variable(name, type);
     }
 }
 
 void Parser::set_current_scope_variables(const std::unordered_map<std::string, std::string>& variables) {
     current_scope_variables_ = variables;
     std::cout << "[Parser] Set current scope with " << variables.size() << " variables" << std::endl;
-    
-    // Also notify the escape analyzer
-    if (escape_analyzer_) {
-        escape_analyzer_->set_current_scope_variables(variables);
-    }
 }
 
 // Scope management for function bodies
@@ -683,7 +674,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
     
     if (match(TokenType::IDENTIFIER)) {
-        return std::make_unique<Identifier>(tokens[pos - 1].value);
+        std::string var_name = tokens[pos - 1].value;
+        
+        // NEW: Track variable access in lexical scope
+        if (lexical_scope_analyzer_) {
+            lexical_scope_analyzer_->access_variable(var_name);
+        }
+        
+        return std::make_unique<Identifier>(var_name);
     }
     
     if (match(TokenType::LBRACKET)) {
@@ -768,11 +766,48 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
     
     if (match(TokenType::LPAREN)) {
-        auto expr = parse_expression();
-        if (!match(TokenType::RPAREN)) {
-            throw std::runtime_error("Expected ')' after expression");
+        // Check if this might be arrow function parameters: (param1, param2) => body
+        size_t saved_pos = pos;
+        std::vector<Variable> potential_params;
+        bool is_arrow_params = true;
+        
+        // Try to parse as parameter list
+        if (!check(TokenType::RPAREN)) {
+            do {
+                if (check(TokenType::IDENTIFIER)) {
+                    Variable param;
+                    param.name = current_token().value;
+                    param.type = DataType::ANY;
+                    potential_params.push_back(param);
+                    advance();
+                    
+                    // Optional type annotation (for future)
+                    if (match(TokenType::COLON)) {
+                        // Skip type for now
+                        if (check(TokenType::IDENTIFIER)) {
+                            advance();
+                        }
+                    }
+                } else {
+                    is_arrow_params = false;
+                    break;
+                }
+            } while (match(TokenType::COMMA));
         }
-        return expr;
+        
+        // Check if followed by ) and then =>
+        if (is_arrow_params && match(TokenType::RPAREN) && check(TokenType::ARROW)) {
+            // This is arrow function parameters: (param1, param2) => body
+            return parse_arrow_function_from_params(potential_params);
+        } else {
+            // Reset position and parse as regular parenthesized expression
+            pos = saved_pos;
+            auto expr = parse_expression();
+            if (!match(TokenType::RPAREN)) {
+                throw std::runtime_error("Expected ')' after expression");
+            }
+            return expr;
+        }
     }
     
     if (match(TokenType::GO)) {
@@ -909,20 +944,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         // LEXICAL SCOPE MANAGEMENT: Restore parent scope and perform escape analysis
         exit_function_scope(parent_scope);
         
-        // NEW LEXICAL SCOPE SYSTEM: Analyze function for variable captures AFTER parsing
-        // Now we can distinguish between local variables (in function) and parent scope variables
-        if (escape_analyzer_ && !func_expr->body.empty()) {
-            std::cout << "[Parser] Starting escape analysis for function expression" << std::endl;
-            std::cout << "[Parser] Parent scope has " << parent_scope.size() << " variables available" << std::endl;
-            
-            // Set the PARENT scope variables in the escape analyzer (not local variables!)
-            escape_analyzer_->set_current_scope_variables(parent_scope);
-            
-            // Analyze each statement in the function body for variable escapes from parent scope
-            for (auto& stmt : func_expr->body) {
-                escape_analyzer_->analyze_function_for_escapes(func_expr.get(), stmt.get());
-            }
-        }
+        // The new simple lexical scope system handles analysis during parsing
+        // No post-processing needed
         
         return func_expr;
     }
@@ -1064,6 +1087,18 @@ std::unique_ptr<ASTNode> Parser::parse_statement() {
         return parse_switch_statement();
     }
     
+    if (check(TokenType::TRY)) {
+        return parse_try_statement();
+    }
+    
+    if (check(TokenType::THROW)) {
+        return parse_throw_statement();
+    }
+    
+    if (check(TokenType::LBRACE)) {
+        return parse_block_statement();
+    }
+    
     if (check(TokenType::RETURN)) {
         return parse_return_statement();
     }
@@ -1096,6 +1131,11 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
         gc_integration_->enter_scope(func_name, true);
     }
     
+    // NEW: Enter lexical scope for function
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+    }
+    
     if (!match(TokenType::LPAREN)) {
         throw std::runtime_error("Expected '(' after function name");
     }
@@ -1118,6 +1158,12 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
             // GC Integration: Track parameter declaration
             if (gc_integration_) {
                 gc_integration_->declare_variable(param_name, param.type);
+            }
+            
+            // NEW: Track parameter in lexical scope
+            std::string type_str = "param";
+            if (lexical_scope_analyzer_) {
+                lexical_scope_analyzer_->declare_variable(param_name, type_str);
             }
             
             func_decl->parameters.push_back(param);
@@ -1144,30 +1190,11 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
         throw std::runtime_error("Expected '}' to end function body");
     }
     
-    // NEW LEXICAL SCOPE SYSTEM: Analyze nested function for variable captures
-    if (escape_analyzer_ && !func_decl->body.empty()) {
-        std::cout << "[Parser] Starting escape analysis for nested function: " << func_name << std::endl;
-        std::cout << "[Parser] Current scope has " << current_scope_variables_.size() << " variables available" << std::endl;
-        
-        // Set the parent function context in the lexical scope address tracker
-        if (lexical_scope_address_tracker_) {
-            // TODO: Get current parent function - for now use nullptr
-            // This would need to track the current function being parsed
-            lexical_scope_address_tracker_->set_current_parent_function(nullptr);
-        }
-        
-        // Set the current scope variables in the escape analyzer
-        escape_analyzer_->set_current_scope_variables(current_scope_variables_);
-        
-        // Analyze each statement in the function body for variable escapes
-        for (auto& stmt : func_decl->body) {
-            // Convert FunctionDecl to FunctionExpression temporarily for analysis
-            auto temp_func_expr = std::make_unique<FunctionExpression>();
-            temp_func_expr->name = func_name;
-            escape_analyzer_->analyze_function_for_escapes(temp_func_expr.get(), stmt.get());
-        }
+    // NEW: Exit lexical scope for function
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->exit_scope();
     }
-
+    
     // GC Integration: Exit function scope
     if (gc_integration_) {
         gc_integration_->exit_scope();
@@ -1196,13 +1223,22 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
         gc_integration_->declare_variable(var_name, type);
     }
     
+    // NEW: Get declaration type string for lexical scope system
+    std::string decl_type_str = "var";
+    switch (decl_type) {
+        case TokenType::LET: decl_type_str = "let"; break;
+        case TokenType::CONST: decl_type_str = "const"; break;
+        case TokenType::VAR: 
+        default: decl_type_str = "var"; break;
+    }
+    
     // Lexical Scope System: Add variable to current scope for escape analysis
     std::string type_str = "auto"; // Convert DataType to string
     if (type == DataType::INT32) type_str = "int";
     else if (type == DataType::FLOAT64) type_str = "float64";
     else if (type == DataType::STRING) type_str = "string";
     else if (type == DataType::BOOLEAN) type_str = "bool";
-    add_variable_to_current_scope(var_name, type_str);
+    add_variable_to_current_scope(var_name, decl_type_str); // Use declaration type instead of data type
     
     std::unique_ptr<ExpressionNode> value = nullptr;
     if (match(TokenType::ASSIGN)) {
@@ -1657,10 +1693,26 @@ std::unique_ptr<CaseClause> Parser::parse_case_clause() {
         throw std::runtime_error("Expected 'case' or 'default' in switch statement");
     }
     
-    // Parse case body (statements until next case/default/end of switch)
-    while (!check(TokenType::CASE) && !check(TokenType::DEFAULT) && 
-           !check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
-        case_clause->body.push_back(parse_statement());
+    // Check for optional block syntax: case 0: { ... }
+    if (check(TokenType::LBRACE)) {
+        auto block = std::make_unique<BlockStatement>();
+        advance(); // consume '{'
+        
+        while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+            block->body.push_back(parse_statement());
+        }
+        
+        if (!match(TokenType::RBRACE)) {
+            throw std::runtime_error("Expected '}' after case block");
+        }
+        
+        case_clause->block_body = std::move(block);
+    } else {
+        // Parse case body (statements until next case/default/end of switch)
+        while (!check(TokenType::CASE) && !check(TokenType::DEFAULT) && 
+               !check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+            case_clause->body.push_back(parse_statement());
+        }
     }
     
     return case_clause;
@@ -2374,4 +2426,149 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_params(const st
     }
     
     return arrow_func;
+}
+
+// Try-Catch-Throw-Finally Statement Parsing
+
+std::unique_ptr<ASTNode> Parser::parse_try_statement() {
+    if (!match(TokenType::TRY)) {
+        throw std::runtime_error("Expected 'try'");
+    }
+    
+    auto try_stmt = std::make_unique<TryStatement>();
+    
+    // Parse try block
+    if (!match(TokenType::LBRACE)) {
+        throw std::runtime_error("Expected '{' after 'try'");
+    }
+    
+    // Parse try body
+    while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+        try_stmt->try_body.push_back(parse_statement());
+    }
+    
+    if (!match(TokenType::RBRACE)) {
+        throw std::runtime_error("Expected '}' after try body");
+    }
+    
+    // Parse optional catch clause
+    if (check(TokenType::CATCH)) {
+        try_stmt->catch_clause = parse_catch_clause();
+    }
+    
+    // Parse optional finally clause
+    if (check(TokenType::FINALLY)) {
+        advance(); // consume 'finally'
+        
+        if (!match(TokenType::LBRACE)) {
+            throw std::runtime_error("Expected '{' after 'finally'");
+        }
+        
+        while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+            try_stmt->finally_body.push_back(parse_statement());
+        }
+        
+        if (!match(TokenType::RBRACE)) {
+            throw std::runtime_error("Expected '}' after finally body");
+        }
+    }
+    
+    // Ensure we have at least a catch or finally clause
+    if (!try_stmt->catch_clause && try_stmt->finally_body.empty()) {
+        throw std::runtime_error("Try statement must have either catch or finally clause");
+    }
+    
+    return try_stmt;
+}
+
+std::unique_ptr<CatchClause> Parser::parse_catch_clause() {
+    if (!match(TokenType::CATCH)) {
+        throw std::runtime_error("Expected 'catch'");
+    }
+    
+    // Parse catch parameter: catch(error)
+    if (!match(TokenType::LPAREN)) {
+        throw std::runtime_error("Expected '(' after 'catch'");
+    }
+    
+    if (!match(TokenType::IDENTIFIER)) {
+        throw std::runtime_error("Expected parameter name in catch clause");
+    }
+    
+    std::string param_name = tokens[pos - 1].value;
+    
+    if (!match(TokenType::RPAREN)) {
+        throw std::runtime_error("Expected ')' after catch parameter");
+    }
+    
+    auto catch_clause = std::make_unique<CatchClause>(param_name);
+    
+    // Parse catch body
+    if (!match(TokenType::LBRACE)) {
+        throw std::runtime_error("Expected '{' after catch clause");
+    }
+    
+    while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+        catch_clause->body.push_back(parse_statement());
+    }
+    
+    if (!match(TokenType::RBRACE)) {
+        throw std::runtime_error("Expected '}' after catch body");
+    }
+    
+    return catch_clause;
+}
+
+std::unique_ptr<ASTNode> Parser::parse_throw_statement() {
+    if (!match(TokenType::THROW)) {
+        throw std::runtime_error("Expected 'throw'");
+    }
+    
+    // Parse the expression to throw
+    auto value = parse_expression();
+    
+    // Optional semicolon
+    if (match(TokenType::SEMICOLON)) {
+        // Semicolon consumed
+    }
+    
+    return std::make_unique<ThrowStatement>(std::move(value));
+}
+
+std::unique_ptr<ASTNode> Parser::parse_block_statement() {
+    if (!match(TokenType::LBRACE)) {
+        throw std::runtime_error("Expected '{' for block statement");
+    }
+    
+    auto block = std::make_unique<BlockStatement>();
+    
+    // GC Integration: Enter block scope for let/const variables
+    if (gc_integration_) {
+        gc_integration_->enter_scope("block", false);
+    }
+    
+    // NEW: Enter lexical scope for block
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+    }
+    
+    while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
+        block->body.push_back(parse_statement());
+    }
+    
+    if (!match(TokenType::RBRACE)) {
+        throw std::runtime_error("Expected '}' after block body");
+    }
+    
+    // NEW: Exit lexical scope for block
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->exit_scope();
+    }
+    
+    // GC Integration: Exit block scope
+    if (gc_integration_) {
+        gc_integration_->exit_scope();
+    }
+    
+    return block;
 }
