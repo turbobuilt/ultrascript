@@ -140,6 +140,21 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
             
             expr.release();
             auto assignment = std::make_unique<Assignment>(var_name, std::move(value));
+            
+            // Set lexical scope depth information and direct scope pointers
+            if (lexical_scope_analyzer_) {
+                assignment->definition_depth = lexical_scope_analyzer_->get_variable_definition_depth(var_name);
+                assignment->assignment_depth = lexical_scope_analyzer_->get_current_depth();
+                
+                // NEW: Set direct scope pointers for fast access
+                assignment->definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
+                assignment->assignment_scope = lexical_scope_analyzer_->get_current_scope_node();
+                
+                std::cout << "[Parser] Assignment '" << var_name 
+                          << "' def_scope=" << assignment->definition_scope
+                          << ", assign_scope=" << assignment->assignment_scope << std::endl;
+            }
+            
             return assignment;
         } else if (property_access) {
             std::string obj_name = property_access->object_name;
@@ -674,12 +689,28 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (match(TokenType::IDENTIFIER)) {
         std::string var_name = tokens[pos - 1].value;
         
-        // NEW: Track variable access in lexical scope
+        // NEW: Track variable access in lexical scope and get depth information
+        int definition_depth = -1;
+        int access_depth = -1;
+        LexicalScopeNode* definition_scope = nullptr;
+        LexicalScopeNode* access_scope = nullptr;
+        
         if (lexical_scope_analyzer_) {
             lexical_scope_analyzer_->access_variable(var_name);
+            definition_depth = lexical_scope_analyzer_->get_variable_definition_depth(var_name);
+            access_depth = lexical_scope_analyzer_->get_current_depth();
+            
+            // NEW: Get direct pointers to the actual scope nodes
+            definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
+            access_scope = lexical_scope_analyzer_->get_current_scope_node();
+            
+            std::cout << "[Parser] Creating Identifier '" << var_name 
+                      << "' with def_scope=" << definition_scope 
+                      << ", access_scope=" << access_scope << std::endl;
         }
         
-        return std::make_unique<Identifier>(var_name);
+        return std::make_unique<Identifier>(var_name, definition_scope, access_scope, 
+                                          definition_depth, access_depth);
     }
     
     if (match(TokenType::LBRACKET)) {
@@ -1269,6 +1300,20 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
     assignment->declared_type = type;
     assignment->declared_element_type = last_parsed_array_element_type;
     
+    // Set lexical scope depth information and direct scope pointers
+    if (lexical_scope_analyzer_) {
+        assignment->definition_depth = lexical_scope_analyzer_->get_variable_definition_depth(var_name);
+        assignment->assignment_depth = lexical_scope_analyzer_->get_current_depth();
+        
+        // NEW: Set direct scope pointers for fast access
+        assignment->definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
+        assignment->assignment_scope = lexical_scope_analyzer_->get_current_scope_node();
+        
+        std::cout << "[Parser] Variable declaration '" << var_name 
+                  << "' def_scope=" << assignment->definition_scope
+                  << ", assign_scope=" << assignment->assignment_scope << std::endl;
+    }
+    
     // Set the declaration kind based on the parsed token type
     switch (decl_type) {
         case TokenType::VAR: 
@@ -1426,6 +1471,20 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
             
             auto assignment = std::make_unique<Assignment>(var_name, std::move(value), assignment_kind);
             assignment->declared_type = type;
+            
+            // Set lexical scope depth information and direct scope pointers
+            if (lexical_scope_analyzer_) {
+                assignment->definition_depth = lexical_scope_analyzer_->get_variable_definition_depth(var_name);
+                assignment->assignment_depth = lexical_scope_analyzer_->get_current_depth();
+                
+                // NEW: Set direct scope pointers for fast access
+                assignment->definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
+                assignment->assignment_scope = lexical_scope_analyzer_->get_current_scope_node();
+                
+                std::cout << "[Parser] For-loop declaration '" << var_name 
+                          << "' def_scope=" << assignment->definition_scope
+                          << ", assign_scope=" << assignment->assignment_scope << std::endl;
+            }
             
             // Set the declaration kind on the ForLoop for scope analysis
             for_loop->init_declaration_kind = assignment_kind;

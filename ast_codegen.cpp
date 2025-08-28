@@ -450,30 +450,38 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     // For now, let function names fall through to variable lookup
     // TODO: Implement proper function reference handling
     
-    // NEW SIMPLE LEXICAL SCOPE SYSTEM: Check for variables from outer scopes
-    auto* compiler = get_current_compiler();
-    if (compiler && compiler->get_current_parser()) {
-        std::cout << "[SCOPE_DEBUG] Checking simple lexical scope for variable: " << name << std::endl;
-        
-        SimpleLexicalScopeAnalyzer* scope_analyzer = 
-            compiler->get_current_parser()->get_lexical_scope_analyzer();
-        
-        if (scope_analyzer) {
-            int definition_depth = scope_analyzer->get_variable_definition_depth(name);
-            int current_depth = scope_analyzer->get_current_depth();
+    // NEW LEXICAL SCOPE SYSTEM: Use direct scope pointers for fast access when available
+    if (definition_scope != nullptr && access_scope != nullptr) {
+        if (definition_scope != access_scope) {
+            std::cout << "[SCOPE_DEBUG] Variable '" << name << "' cross-scope access detected" << std::endl;
+            std::cout << "[SCOPE_DEBUG]   Defined in scope at depth " << definition_scope->scope_depth 
+                      << " (ptr: " << definition_scope << ")" << std::endl;
+            std::cout << "[SCOPE_DEBUG]   Accessed from scope at depth " << access_scope->scope_depth 
+                      << " (ptr: " << access_scope << ")" << std::endl;
             
-            if (definition_depth >= 0 && definition_depth < current_depth) {
-                std::cout << "[SCOPE_DEBUG] Variable '" << name << "' defined at depth " << definition_depth 
-                          << ", accessing from depth " << current_depth << std::endl;
-                
-                // Backend-agnostic: just record that this is a cross-scope variable access
-                // Actual register/stack allocation will be handled by backend-specific code later
-                std::cout << "[SCOPE_DEBUG] Cross-scope variable access detected (backend will handle allocation)" << std::endl;
-                
-                // For now, fall through to regular variable handling
-                // The backend can query the scope analyzer's priority_sorted_parent_scopes for optimization
+            // Can now directly access variable_offsets and other scope information
+            auto offset_it = definition_scope->variable_offsets.find(name);
+            if (offset_it != definition_scope->variable_offsets.end()) {
+                std::cout << "[SCOPE_DEBUG] Variable '" << name << "' has offset " 
+                          << offset_it->second << " in definition scope" << std::endl;
             }
+            
+            // Backend can use direct scope pointers for optimization
+            std::cout << "[SCOPE_DEBUG] Direct scope pointer access available (backend optimization enabled)" << std::endl;
+        } else {
+            std::cout << "[SCOPE_DEBUG] Variable '" << name << "' local access within same scope" << std::endl;
         }
+    }
+    // Fallback: Use stored depth information if scope pointers not available
+    else if (definition_depth >= 0 && access_depth >= 0 && definition_depth < access_depth) {
+        std::cout << "[SCOPE_DEBUG] Variable '" << name << "' defined at depth " << definition_depth 
+                  << ", accessing from depth " << access_depth << " (using depth fallback)" << std::endl;
+        
+        // Backend-agnostic: record that this is a cross-scope variable access
+        std::cout << "[SCOPE_DEBUG] Cross-scope variable access detected (backend will handle allocation)" << std::endl;
+    } else if (definition_depth >= 0 && access_depth >= 0) {
+        std::cout << "[SCOPE_DEBUG] Variable '" << name << "' local access: def_depth=" << definition_depth 
+                  << ", access_depth=" << access_depth << " (using depth fallback)" << std::endl;
     }
     
     

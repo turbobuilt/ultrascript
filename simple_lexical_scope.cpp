@@ -8,10 +8,19 @@
 // Called when entering a new lexical scope (function, block, etc.)
 void SimpleLexicalScopeAnalyzer::enter_scope() {
     current_depth_++;
-    auto scope = std::make_unique<LexicalScopeInfo>(current_depth_);
-    scope_stack_.push_back(std::move(scope));
     
-    std::cout << "[SimpleLexicalScope] Entered scope at depth " << current_depth_ << std::endl;
+    // NEW: Create LexicalScopeNode immediately so pointers are always available
+    auto lexical_scope_node = std::make_unique<LexicalScopeNode>(current_depth_);
+    
+    // Register the scope node for direct access right away
+    LexicalScopeNode* scope_node_ptr = lexical_scope_node.get();
+    depth_to_scope_node_[current_depth_] = scope_node_ptr;
+    
+    // Add to scope stack for processing during parsing
+    scope_stack_.push_back(std::move(lexical_scope_node));
+    
+    std::cout << "[SimpleLexicalScope] Entered scope at depth " << current_depth_ 
+              << " (pointer immediately available: " << scope_node_ptr << ")" << std::endl;
 }
 
 // Called when exiting a lexical scope - returns LexicalScopeNode with all scope info
@@ -21,36 +30,22 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
         return nullptr;
     }
     
-    LexicalScopeInfo& current_scope = *scope_stack_.back();
+    // Get the current LexicalScopeNode (already created when entering scope)
+    std::unique_ptr<LexicalScopeNode> current_scope_node = std::move(scope_stack_.back());
+    scope_stack_.pop_back();
     
     std::cout << "[SimpleLexicalScope] Exiting scope at depth " << current_depth_ 
-              << " with " << current_scope.declared_variables.size() << " declared variables" << std::endl;
-    
-    // Create a LexicalScopeNode with all the scope information
-    auto lexical_scope_node = std::make_unique<LexicalScopeNode>(current_scope.depth);
-    
-    // Copy declared variables
-    lexical_scope_node->declared_variables = current_scope.declared_variables;
-    
-    // Copy self dependencies
-    for (const auto& dep : current_scope.self_dependencies) {
-        lexical_scope_node->add_self_dependency(dep.variable_name, dep.definition_depth, dep.access_count);
-    }
-    
-    // Copy descendant dependencies  
-    for (const auto& dep : current_scope.descendant_dependencies) {
-        lexical_scope_node->add_descendant_dependency(dep.variable_name, dep.definition_depth, dep.access_count);
-    }
+              << " with " << current_scope_node->declared_variables.size() << " declared variables" << std::endl;
     
     // Propagate dependencies to parent scope when this scope closes
-    if (scope_stack_.size() > 1) {  // If there's a parent scope
-        auto& parent_scope = *scope_stack_[scope_stack_.size() - 2];
+    if (!scope_stack_.empty()) {  // If there's a parent scope
+        LexicalScopeNode* parent_scope = scope_stack_.back().get();
         
         // Add all self_dependencies to parent's descendant_dependencies
-        for (const auto& dep : current_scope.self_dependencies) {
+        for (const auto& dep : current_scope_node->self_dependencies) {
             // Check if this dependency already exists in parent's descendant_dependencies
             bool found = false;
-            for (auto& parent_dep : parent_scope.descendant_dependencies) {
+            for (auto& parent_dep : parent_scope->descendant_dependencies) {
                 if (parent_dep.variable_name == dep.variable_name && 
                     parent_dep.definition_depth == dep.definition_depth) {
                     parent_dep.access_count += dep.access_count;
@@ -60,15 +55,15 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
             }
             
             if (!found) {
-                parent_scope.descendant_dependencies.push_back(dep);
+                parent_scope->descendant_dependencies.push_back(dep);
             }
         }
         
         // Add all descendant_dependencies to parent's descendant_dependencies
-        for (const auto& dep : current_scope.descendant_dependencies) {
+        for (const auto& dep : current_scope_node->descendant_dependencies) {
             // Check if this dependency already exists in parent's descendant_dependencies
             bool found = false;
-            for (auto& parent_dep : parent_scope.descendant_dependencies) {
+            for (auto& parent_dep : parent_scope->descendant_dependencies) {
                 if (parent_dep.variable_name == dep.variable_name && 
                     parent_dep.definition_depth == dep.definition_depth) {
                     parent_dep.access_count += dep.access_count;
@@ -78,12 +73,12 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
             }
             
             if (!found) {
-                parent_scope.descendant_dependencies.push_back(dep);
+                parent_scope->descendant_dependencies.push_back(dep);
             }
         }
         
-        std::cout << "[SimpleLexicalScope] Propagated " << current_scope.self_dependencies.size() 
-                  << " self dependencies and " << current_scope.descendant_dependencies.size() 
+        std::cout << "[SimpleLexicalScope] Propagated " << current_scope_node->self_dependencies.size() 
+                  << " self dependencies and " << current_scope_node->descendant_dependencies.size() 
                   << " descendant dependencies to parent scope" << std::endl;
     }
     
@@ -92,7 +87,7 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     
     // First, sort SELF dependencies by access count per depth
     std::unordered_map<int, int> self_depth_access_counts;
-    for (const auto& dep : current_scope.self_dependencies) {
+    for (const auto& dep : current_scope_node->self_dependencies) {
         self_depth_access_counts[dep.definition_depth] += dep.access_count;
     }
     
@@ -108,47 +103,44 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
         });
     
     // Add SELF depths first (these get r12+8 style access)
-    current_scope.priority_sorted_parent_scopes.clear();
-    current_scope.priority_sorted_parent_scopes.reserve(
-        self_depth_counts.size() + current_scope.descendant_dependencies.size());
+    current_scope_node->priority_sorted_parent_scopes.clear();
+    current_scope_node->priority_sorted_parent_scopes.reserve(
+        self_depth_counts.size() + current_scope_node->descendant_dependencies.size());
     
     std::unordered_set<int> self_depths;
     for (const auto& pair : self_depth_counts) {
-        current_scope.priority_sorted_parent_scopes.push_back(pair.first);
+        current_scope_node->priority_sorted_parent_scopes.push_back(pair.first);
         self_depths.insert(pair.first);
     }
     
     // Then add descendant depths that are NOT already in SELF (just for propagation)
-    for (const auto& dep : current_scope.descendant_dependencies) {
+    for (const auto& dep : current_scope_node->descendant_dependencies) {
         if (self_depths.find(dep.definition_depth) == self_depths.end()) {
             // This depth is not in SELF dependencies, so add it (if not already added)
             bool already_added = false;
-            for (int existing_depth : current_scope.priority_sorted_parent_scopes) {
+            for (int existing_depth : current_scope_node->priority_sorted_parent_scopes) {
                 if (existing_depth == dep.definition_depth) {
                     already_added = true;
                     break;
                 }
             }
             if (!already_added) {
-                current_scope.priority_sorted_parent_scopes.push_back(dep.definition_depth);
+                current_scope_node->priority_sorted_parent_scopes.push_back(dep.definition_depth);
             }
         }
     }
-    
-    // Set priority-sorted scopes in the LexicalScopeNode
-    lexical_scope_node->set_priority_sorted_scopes(current_scope.priority_sorted_parent_scopes);
     
     // NEW: Perform optimal variable packing for this scope
     std::unordered_map<std::string, size_t> variable_offsets;
     std::vector<std::string> packed_order;
     size_t total_frame_size = 0;
     
-    pack_scope_variables(current_scope.declared_variables, variable_offsets, packed_order, total_frame_size);
+    pack_scope_variables(current_scope_node->declared_variables, variable_offsets, packed_order, total_frame_size);
     
     // Store packing results in the lexical scope node
-    lexical_scope_node->variable_offsets = variable_offsets;
-    lexical_scope_node->packed_variable_order = packed_order;
-    lexical_scope_node->total_scope_frame_size = total_frame_size;
+    current_scope_node->variable_offsets = variable_offsets;
+    current_scope_node->packed_variable_order = packed_order;
+    current_scope_node->total_scope_frame_size = total_frame_size;
     
     std::cout << "[SimpleLexicalScope] Variable packing completed: " << total_frame_size << " bytes total" << std::endl;
     for (const auto& var : packed_order) {
@@ -156,10 +148,14 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     }
     
     std::cout << "[SimpleLexicalScope] Priority-sorted parent scopes: ";
-    for (int depth : current_scope.priority_sorted_parent_scopes) {
+    for (int depth : current_scope_node->priority_sorted_parent_scopes) {
         std::cout << depth << " ";
     }
     std::cout << std::endl;
+    
+    // NOTE: Scope node was already registered in depth_to_scope_node_ when entering scope
+    std::cout << "[SimpleLexicalScope] Scope node at depth " << current_scope_node->scope_depth 
+              << " remains registered for direct access (pointer: " << current_scope_node.get() << ")" << std::endl;
     
     // Clean up variable declarations at this depth
     cleanup_declarations_at_depth(current_depth_);
@@ -168,7 +164,7 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     scope_stack_.pop_back();
     current_depth_--;
     
-    return lexical_scope_node;
+    return current_scope_node;
 }
 
 // Called when a variable is declared (new version with DataType)
@@ -444,4 +440,24 @@ void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<s
     }
     
     total_size = current_offset;
+}
+
+// NEW: Get direct pointer to scope node for a given depth
+LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_scope_node_for_depth(int depth) const {
+    auto it = depth_to_scope_node_.find(depth);
+    return (it != depth_to_scope_node_.end()) ? it->second : nullptr;
+}
+
+// NEW: Get direct pointer to scope node where a variable was defined
+LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_definition_scope_for_variable(const std::string& name) const {
+    int def_depth = get_variable_definition_depth(name);
+    if (def_depth == -1) {
+        return nullptr;  // Variable not found
+    }
+    return get_scope_node_for_depth(def_depth);
+}
+
+// NEW: Get direct pointer to the current scope node
+LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_current_scope_node() const {
+    return get_scope_node_for_depth(current_depth_);
 }

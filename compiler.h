@@ -454,7 +454,22 @@ struct RegexLiteral : ExpressionNode {
 
 struct Identifier : ExpressionNode {
     std::string name;
-    Identifier(const std::string& n) : name(n) {}
+    int definition_depth;     // Lexical scope depth where variable was defined (legacy)
+    int access_depth;         // Lexical scope depth where variable is being accessed (legacy)
+    
+    // NEW: Direct pointers to lexical scope nodes for fast access
+    LexicalScopeNode* definition_scope = nullptr;    // Scope where variable was defined
+    LexicalScopeNode* access_scope = nullptr;        // Scope where variable is being accessed
+    
+    Identifier(const std::string& n, int def_depth = -1, int acc_depth = -1) 
+        : name(n), definition_depth(def_depth), access_depth(acc_depth) {}
+        
+    // Enhanced constructor with direct scope pointers
+    Identifier(const std::string& n, LexicalScopeNode* def_scope, LexicalScopeNode* acc_scope,
+               int def_depth = -1, int acc_depth = -1) 
+        : name(n), definition_depth(def_depth), access_depth(acc_depth),
+          definition_scope(def_scope), access_scope(acc_scope) {}
+    
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
@@ -615,6 +630,12 @@ struct Assignment : ExpressionNode {
     std::unique_ptr<ExpressionNode> value;
     DataType declared_type = DataType::ANY;
     DataType declared_element_type = DataType::ANY;  // For [element_type] arrays
+    int definition_depth = -1;     // Lexical scope depth where variable was defined (legacy)
+    int assignment_depth = -1;     // Lexical scope depth where assignment occurs (legacy)
+    
+    // NEW: Direct pointers to lexical scope nodes for fast access
+    LexicalScopeNode* definition_scope = nullptr;    // Scope where variable was defined
+    LexicalScopeNode* assignment_scope = nullptr;    // Scope where assignment occurs
     
     // ES6 declaration kind for proper block scoping
     enum DeclarationKind {

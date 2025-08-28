@@ -37,20 +37,6 @@ struct ScopeDependency {
         : variable_name(name), definition_depth(depth) {}
 };
 
-// Information about a lexical scope
-struct LexicalScopeInfo {
-    int depth;                                           // Absolute depth of this scope
-    std::unordered_set<std::string> declared_variables; // Variables declared in THIS scope
-    std::vector<ScopeDependency> self_dependencies;     // Variables accessed in this scope from outer scopes
-    std::vector<ScopeDependency> descendant_dependencies; // Variables needed by all descendant scopes
-    
-    // Priority-sorted scope levels (backend-agnostic, computed after analysis)
-    std::vector<int> priority_sorted_parent_scopes;     // Scope levels/depths in order of access frequency
-    
-    LexicalScopeInfo() : depth(0) {}  // Default constructor
-    LexicalScopeInfo(int d) : depth(d) {}
-};
-
 // Forward declaration
 class LexicalScopeNode;
 
@@ -60,8 +46,11 @@ private:
     // Core data structure: variable_name -> list of declarations at different depths
     std::unordered_map<std::string, std::vector<VariableDeclarationInfo>> variable_declarations_;
     
-    // Stack of active lexical scopes during parsing
-    std::vector<std::unique_ptr<LexicalScopeInfo>> scope_stack_;
+    // Stack of active lexical scope NODES during parsing (immediate creation)
+    std::vector<std::unique_ptr<LexicalScopeNode>> scope_stack_;
+    
+    // NEW: Map from depth to actual LexicalScopeNode objects for direct access
+    std::unordered_map<int, LexicalScopeNode*> depth_to_scope_node_;
     
     int current_depth_ = 0;      // Current absolute depth
     
@@ -88,6 +77,15 @@ public:
     // Get the absolute depth where a variable was last declared
     int get_variable_definition_depth(const std::string& name) const;
     
+    // NEW: Get direct pointer to scope node for a given depth (always available now)
+    LexicalScopeNode* get_scope_node_for_depth(int depth) const;
+    
+    // NEW: Get direct pointer to scope node where a variable was defined (always available)
+    LexicalScopeNode* get_definition_scope_for_variable(const std::string& name) const;
+    
+    // NEW: Get direct pointer to the current scope node (always available)
+    LexicalScopeNode* get_current_scope_node() const;
+    
     // Debug: Print current state
     void print_debug_info() const;
     
@@ -103,6 +101,3 @@ private:
                              std::vector<std::string>& packed_order,
                              size_t& total_size) const;
 };
-
-// Forward declaration - LexicalScopeNode is defined in compiler.h
-class LexicalScopeNode;
