@@ -373,7 +373,43 @@ private:
     class GoTSCompiler* compiler_context_ = nullptr;  // Reference to compiler for accessing LexicalScopeAddressTracker
 };
 
+// Forward declaration for scope context
+struct ScopeContext {
+    // Current scope information from SimpleLexicalScopeAnalyzer
+    LexicalScopeNode* current_scope = nullptr;
+    
+    // Scope register management
+    // r15 always points to current scope
+    // r12, r13, r14 point to parent scopes in order of frequency
+    std::unordered_map<int, int> scope_depth_to_register;  // depth -> register (12,13,14)
+    std::vector<int> available_scope_registers = {12, 13, 14};
+    
+    // Stack management for deep nesting (when more than 3 parent scopes)
+    std::vector<int> stack_stored_scopes;  // scope depths stored on stack
+    
+    // Current function context for variable resolution
+    std::string current_function_name;
+    
+    // Reference to the lexical scope analyzer for variable lookup
+    SimpleLexicalScopeAnalyzer* scope_analyzer = nullptr;
+    
+    // Type information extracted from parse phase
+    std::unordered_map<std::string, DataType> variable_types;
+    std::unordered_map<std::string, DataType> variable_array_element_types;
+    std::unordered_map<std::string, std::string> variable_class_names;
+    
+    // Assignment context tracking (similar to old TypeInference)
+    DataType current_assignment_target_type = DataType::ANY;
+    DataType current_assignment_array_element_type = DataType::ANY;
+    DataType current_element_type_context = DataType::ANY;
+    DataType current_property_assignment_type = DataType::ANY;
+    
+    // Current class context for 'this' handling
+    std::string current_class_name;
+};
+
 struct ASTNode {
+    DataType result_type = DataType::ANY;  // Type of value this node produces
     virtual ~ASTNode() = default;
     virtual void generate_code(CodeGenerator& gen, TypeInference& types) = 0;
 };
@@ -437,12 +473,14 @@ struct NumberLiteral : ExpressionNode {
     double value;
     NumberLiteral(double v) : value(v) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
 };
 
 struct StringLiteral : ExpressionNode {
     std::string value;
     StringLiteral(const std::string& v) : value(v) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
 };
 
 struct RegexLiteral : ExpressionNode {
@@ -471,6 +509,7 @@ struct Identifier : ExpressionNode {
           definition_scope(def_scope), access_scope(acc_scope) {}
     
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
 };
 
 struct BinaryOp : ExpressionNode {
@@ -648,6 +687,7 @@ struct Assignment : ExpressionNode {
     Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val, DeclarationKind kind = VAR)
         : variable_name(name), value(std::move(val)), declaration_kind(kind) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
 };
 
 struct PropertyAssignment : ExpressionNode {
@@ -1226,6 +1266,11 @@ public:
 // Global function for setting compiler context during AST generation
 void set_current_compiler(GoTSCompiler* compiler);
 GoTSCompiler* get_current_compiler();
+
+// Scope context initialization for new lexical scope system
+void initialize_scope_context(SimpleLexicalScopeAnalyzer* analyzer);
+void set_current_scope(LexicalScopeNode* scope);
+LexicalScopeNode* get_current_scope();
 
 // Function to compile all deferred function expressions
 void compile_deferred_function_expressions(CodeGenerator& gen, TypeInference& types);

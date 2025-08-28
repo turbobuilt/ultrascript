@@ -47,15 +47,22 @@ private:
     std::unordered_map<std::string, std::vector<VariableDeclarationInfo>> variable_declarations_;
     
     // Stack of active lexical scope NODES during parsing (immediate creation)
-    std::vector<std::unique_ptr<LexicalScopeNode>> scope_stack_;
+    std::vector<std::shared_ptr<LexicalScopeNode>> scope_stack_;
     
     // NEW: Map from depth to actual LexicalScopeNode objects for direct access
     std::unordered_map<int, LexicalScopeNode*> depth_to_scope_node_;
     
+    // Storage for completed scope nodes to keep them alive
+    std::vector<std::shared_ptr<LexicalScopeNode>> completed_scopes_;
+    
     int current_depth_ = 0;      // Current absolute depth
     
 public:
-    SimpleLexicalScopeAnalyzer() = default;
+    SimpleLexicalScopeAnalyzer() {
+        std::cout << "[SimpleLexicalScope] CONSTRUCTOR: initializing with current_depth_ = " << current_depth_ << std::endl;
+        current_depth_ = 0;  // Make sure it's 0
+        std::cout << "[SimpleLexicalScope] CONSTRUCTOR: after explicit set, current_depth_ = " << current_depth_ << std::endl;
+    }
     ~SimpleLexicalScopeAnalyzer() = default;
     
     // Called when entering a new lexical scope (function, block, etc.)

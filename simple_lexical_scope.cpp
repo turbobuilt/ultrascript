@@ -7,17 +7,19 @@
 
 // Called when entering a new lexical scope (function, block, etc.)
 void SimpleLexicalScopeAnalyzer::enter_scope() {
+    std::cout << "[SimpleLexicalScope] ENTER_SCOPE CALL: current_depth_ before increment: " << current_depth_ << std::endl;
+    std::cout << "[SimpleLexicalScope] ENTER_SCOPE CALL: scope_stack_.size() = " << scope_stack_.size() << std::endl;
     current_depth_++;
     
     // NEW: Create LexicalScopeNode immediately so pointers are always available
-    auto lexical_scope_node = std::make_unique<LexicalScopeNode>(current_depth_);
+    auto lexical_scope_node = std::make_shared<LexicalScopeNode>(current_depth_);
     
     // Register the scope node for direct access right away
     LexicalScopeNode* scope_node_ptr = lexical_scope_node.get();
     depth_to_scope_node_[current_depth_] = scope_node_ptr;
     
     // Add to scope stack for processing during parsing
-    scope_stack_.push_back(std::move(lexical_scope_node));
+    scope_stack_.push_back(lexical_scope_node);
     
     std::cout << "[SimpleLexicalScope] Entered scope at depth " << current_depth_ 
               << " (pointer immediately available: " << scope_node_ptr << ")" << std::endl;
@@ -31,7 +33,7 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     }
     
     // Get the current LexicalScopeNode (already created when entering scope)
-    std::unique_ptr<LexicalScopeNode> current_scope_node = std::move(scope_stack_.back());
+    std::shared_ptr<LexicalScopeNode> current_scope_node = scope_stack_.back();
     scope_stack_.pop_back();
     
     std::cout << "[SimpleLexicalScope] Exiting scope at depth " << current_depth_ 
@@ -156,15 +158,25 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     // NOTE: Scope node was already registered in depth_to_scope_node_ when entering scope
     std::cout << "[SimpleLexicalScope] Scope node at depth " << current_scope_node->scope_depth 
               << " remains registered for direct access (pointer: " << current_scope_node.get() << ")" << std::endl;
-    
+
     // Clean up variable declarations at this depth
-    cleanup_declarations_at_depth(current_depth_);
-    
-    // Remove this scope from the stack
-    scope_stack_.pop_back();
+    // IMPORTANT: Don't clean up global scope (depth 2) declarations as they're needed for code generation
+    if (current_depth_ != 2) {
+        cleanup_declarations_at_depth(current_depth_);
+    } else {
+        std::cout << "[SimpleLexicalScope] Preserving global scope declarations for code generation" << std::endl;
+        // For global scope, keep the shared_ptr in completed_scopes_ to ensure it stays alive
+        // The parser won't store the global scope anywhere, so we need to keep it alive ourselves
+        completed_scopes_.push_back(current_scope_node);
+        std::cout << "[SimpleLexicalScope] Stored global scope shared_ptr for code generation lifecycle" << std::endl;
+    }
+
+    // Decrement depth since we're exiting this scope
     current_depth_--;
-    
-    return current_scope_node;
+
+    // Return a unique_ptr copy for AST storage
+    auto result = std::make_unique<LexicalScopeNode>(*current_scope_node);
+    return result;
 }
 
 // Called when a variable is declared (new version with DataType)

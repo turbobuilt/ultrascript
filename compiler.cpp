@@ -72,6 +72,9 @@ void GoTSCompiler::compile(const std::string& source) {
         
         std::cout << "AST nodes: " << ast.size() << std::endl;
         
+        // Initialize scope context for new AST code generation system
+        initialize_scope_context(parser.get_lexical_scope_analyzer());
+        
         codegen->clear();
         
         // Runtime functions will be registered during runtime initialization
@@ -237,6 +240,17 @@ void GoTSCompiler::compile(const std::string& source) {
         
         // NEW SIMPLE LEXICAL SCOPE SYSTEM: Main function scope tracking handled during parsing
         std::cout << "[MAIN_SCOPE_DEBUG] Using SimpleLexicalScopeAnalyzer for main function" << std::endl;
+        
+        // Set the global scope as current for main function code generation
+        LexicalScopeNode* global_scope = parser.get_lexical_scope_analyzer()->get_scope_node_for_depth(1);
+        if (global_scope) {
+            set_current_scope(global_scope);
+            std::cout << "[MAIN_SCOPE_DEBUG] Set global scope (depth 1) as current scope for main function" << std::endl;
+            std::cout << "[MAIN_SCOPE_DEBUG] Global scope address: " << (void*)global_scope << std::endl;
+            std::cout << "[MAIN_SCOPE_DEBUG] Global scope has " << global_scope->variable_offsets.size() << " packed variables" << std::endl;
+        } else {
+            std::cerr << "[ERROR] No global scope found for main function code generation" << std::endl;
+        }
         
         // Process imports first (they are hoisted like in JavaScript/TypeScript)
         for (const auto& node : ast) {
