@@ -160,8 +160,8 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
               << " remains registered for direct access (pointer: " << current_scope_node.get() << ")" << std::endl;
 
     // Clean up variable declarations at this depth
-    // IMPORTANT: Don't clean up global scope (depth 2) declarations as they're needed for code generation
-    if (current_depth_ != 2) {
+    // IMPORTANT: Don't clean up global scope (depth 1) declarations as they're needed for code generation
+    if (current_depth_ != 1) {
         cleanup_declarations_at_depth(current_depth_);
     } else {
         std::cout << "[SimpleLexicalScope] Preserving global scope declarations for code generation" << std::endl;
