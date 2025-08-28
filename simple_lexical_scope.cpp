@@ -15,7 +15,7 @@ void SimpleLexicalScopeAnalyzer::enter_scope() {
     auto lexical_scope_node = std::make_shared<LexicalScopeNode>(current_depth_);
     
     // Register the scope node for direct access right away
-    depth_to_scope_node_[current_depth_] = lexical_scope_node;  // Store weak_ptr
+    depth_to_scope_node_[current_depth_] = lexical_scope_node.get();  // Store raw pointer
     
     // Add to scope stack for processing during parsing
     scope_stack_.push_back(lexical_scope_node);
@@ -454,36 +454,23 @@ void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<s
 }
 
 // NEW: Get direct pointer to scope node for a given depth
-std::weak_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::get_scope_node_for_depth(int depth) const {
+LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_scope_node_for_depth(int depth) const {
     auto it = depth_to_scope_node_.find(depth);
-    return (it != depth_to_scope_node_.end()) ? it->second : std::weak_ptr<LexicalScopeNode>();
+    return (it != depth_to_scope_node_.end()) ? it->second : nullptr;
 }
 
-// NEW: Get weak_ptr to scope node where a variable was defined
-std::weak_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::get_definition_scope_for_variable(const std::string& name) const {
+// NEW: Get raw pointer to scope node where a variable was defined
+LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_definition_scope_for_variable(const std::string& name) const {
     int def_depth = get_variable_definition_depth(name);
     if (def_depth == -1) {
-        return std::weak_ptr<LexicalScopeNode>();  // Variable not found
+        return nullptr;  // Variable not found
     }
     return get_scope_node_for_depth(def_depth);
 }
 
-// NEW: Get weak_ptr to the current scope node
-std::weak_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::get_current_scope_node() const {
+// NEW: Get raw pointer to the current scope node
+LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_current_scope_node() const {
     return get_scope_node_for_depth(current_depth_);
 }
 
-// NEW: Extract all scopes as shared_ptr for compiler to hold during codegen
-std::vector<std::shared_ptr<LexicalScopeNode>> SimpleLexicalScopeAnalyzer::extract_all_scopes() {
-    std::vector<std::shared_ptr<LexicalScopeNode>> result;
-    
-    // Get all scopes from the stack and completed scopes
-    for (const auto& scope : scope_stack_) {
-        result.push_back(scope);
-    }
-    for (const auto& scope : completed_scopes_) {
-        result.push_back(scope);
-    }
-    
-    return result;
-}
+

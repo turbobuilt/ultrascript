@@ -165,8 +165,7 @@ void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
     }
     
     // Find the scope where this variable is defined
-    auto def_scope_weak = g_scope_context.scope_analyzer->get_definition_scope_for_variable(var_name);
-    auto def_scope = def_scope_weak.lock();
+    auto def_scope = g_scope_context.scope_analyzer->get_definition_scope_for_variable(var_name);
     if (!def_scope) {
         throw std::runtime_error("Variable not found in any scope: " + var_name);
     }
@@ -178,7 +177,7 @@ void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
     }
     size_t var_offset = offset_it->second;
     
-    if (def_scope.get() == g_scope_context.current_scope) {
+    if (def_scope == g_scope_context.current_scope) {
         // Variable is in current scope - use r15 + offset
         gen.emit_mov_reg_reg_offset(0, 15, var_offset); // rax = [r15 + offset]
         std::cout << "[SCOPE_CODEGEN] Loaded local variable '" << var_name << "' from r15+" << var_offset << std::endl;
@@ -223,9 +222,8 @@ void emit_variable_store(CodeGenerator& gen, const std::string& var_name) {
     } else {
         // This might be a reassignment to a parent scope variable
         std::cout << "[SCOPE_DEBUG] Variable '" << var_name << "' not in current scope, checking parent scopes" << std::endl;
-        auto def_scope_weak = g_scope_context.scope_analyzer->get_definition_scope_for_variable(var_name);
-        auto def_scope = def_scope_weak.lock();
-        std::cout << "[SCOPE_DEBUG] get_definition_scope_for_variable returned: " << (def_scope ? def_scope.get() : nullptr) << std::endl;
+        auto def_scope = g_scope_context.scope_analyzer->get_definition_scope_for_variable(var_name);
+        std::cout << "[SCOPE_DEBUG] get_definition_scope_for_variable returned: " << def_scope << std::endl;
         if (!def_scope) {
             throw std::runtime_error("Variable assignment to undefined variable: " + var_name);
         } else {

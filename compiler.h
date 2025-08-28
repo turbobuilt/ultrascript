@@ -495,15 +495,15 @@ struct Identifier : ExpressionNode {
     int definition_depth;     // Lexical scope depth where variable was defined (legacy)
     int access_depth;         // Lexical scope depth where variable is being accessed (legacy)
     
-    // NEW: weak_ptr to lexical scope nodes for safe access
-    std::weak_ptr<LexicalScopeNode> definition_scope;    // Scope where variable was defined
-    std::weak_ptr<LexicalScopeNode> access_scope;        // Scope where variable is being accessed
+    // NEW: raw pointers to lexical scope nodes for safe access
+    LexicalScopeNode* definition_scope;    // Scope where variable was defined
+    LexicalScopeNode* access_scope;        // Scope where variable is being accessed
     
     Identifier(const std::string& n, int def_depth = -1, int acc_depth = -1) 
-        : name(n), definition_depth(def_depth), access_depth(acc_depth) {}
+        : name(n), definition_depth(def_depth), access_depth(acc_depth), definition_scope(nullptr), access_scope(nullptr) {}
         
-    // Enhanced constructor with weak_ptr to scope nodes
-    Identifier(const std::string& n, std::weak_ptr<LexicalScopeNode> def_scope, std::weak_ptr<LexicalScopeNode> acc_scope,
+    // Enhanced constructor with raw pointers to scope nodes
+    Identifier(const std::string& n, LexicalScopeNode* def_scope, LexicalScopeNode* acc_scope,
                int def_depth = -1, int acc_depth = -1) 
         : name(n), definition_depth(def_depth), access_depth(acc_depth),
           definition_scope(def_scope), access_scope(acc_scope) {}
@@ -672,9 +672,9 @@ struct Assignment : ExpressionNode {
     int definition_depth = -1;     // Lexical scope depth where variable was defined (legacy)
     int assignment_depth = -1;     // Lexical scope depth where assignment occurs (legacy)
     
-    // NEW: weak_ptr to lexical scope nodes for safe access
-    std::weak_ptr<LexicalScopeNode> definition_scope;    // Scope where variable was defined
-    std::weak_ptr<LexicalScopeNode> assignment_scope;    // Scope where assignment occurs
+    // NEW: raw pointers to lexical scope nodes for safe access
+    LexicalScopeNode* definition_scope;    // Scope where variable was defined
+    LexicalScopeNode* assignment_scope;    // Scope where assignment occurs
     
     // ES6 declaration kind for proper block scoping
     enum DeclarationKind {
@@ -685,7 +685,7 @@ struct Assignment : ExpressionNode {
     DeclarationKind declaration_kind = VAR;  // Default to var for compatibility
     
     Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val, DeclarationKind kind = VAR)
-        : variable_name(name), value(std::move(val)), declaration_kind(kind) {}
+        : variable_name(name), value(std::move(val)), declaration_kind(kind), definition_scope(nullptr), assignment_scope(nullptr) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
     void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
 };
