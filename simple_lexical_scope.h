@@ -63,7 +63,14 @@ public:
         current_depth_ = 0;  // Make sure it's 0
         std::cout << "[SimpleLexicalScope] CONSTRUCTOR: after explicit set, current_depth_ = " << current_depth_ << std::endl;
     }
-    ~SimpleLexicalScopeAnalyzer() = default;
+    ~SimpleLexicalScopeAnalyzer() {
+        std::cout << "[SimpleLexicalScope] DESTRUCTOR: Clearing " << completed_scopes_.size() << " completed scopes" << std::endl;
+        // Explicitly clear all shared_ptr references to ensure proper cleanup
+        completed_scopes_.clear();
+        scope_stack_.clear();
+        depth_to_scope_node_.clear();
+        std::cout << "[SimpleLexicalScope] DESTRUCTOR: Cleanup completed" << std::endl;
+    }
     
     // Called when entering a new lexical scope (function, block, etc.)
     void enter_scope();

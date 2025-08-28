@@ -98,7 +98,8 @@ public:
         }
         
         // Find the scope where this variable is defined
-        LexicalScopeNode* def_scope = scope_analyzer->get_definition_scope_for_variable(var_name);
+        auto def_scope_weak = scope_analyzer->get_definition_scope_for_variable(var_name);
+        auto def_scope = def_scope_weak.lock();
         if (!def_scope) {
             throw std::runtime_error("Variable not found in any scope: " + var_name);
         }
@@ -147,7 +148,8 @@ public:
             std::cout << "[NEW_CODEGEN] Stored to local variable '" << var_name << "' at r15+" << var_offset << std::endl;
         } else {
             // This might be a reassignment to a parent scope variable
-            LexicalScopeNode* def_scope = scope_analyzer->get_definition_scope_for_variable(var_name);
+            auto def_scope_weak = scope_analyzer->get_definition_scope_for_variable(var_name);
+            auto def_scope = def_scope_weak.lock();
             if (!def_scope) {
                 // New variable - add to current scope
                 // This would need integration with the scope analyzer

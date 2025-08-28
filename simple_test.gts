@@ -1,1 +1,1 @@
-let d = new Dog() console.log("test finished")
+let x = 42; console.log(x);

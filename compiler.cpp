@@ -291,6 +291,11 @@ void GoTSCompiler::compile(const std::string& source) {
         std::cout << "Code generation completed. Machine code size: " 
                   << codegen->get_code().size() << " bytes" << std::endl;
         
+        // CRITICAL: Explicitly clear AST before parser destruction to avoid cleanup issues
+        std::cout << "DEBUG: Explicitly clearing AST (" << ast.size() << " nodes) before parser destruction" << std::endl;
+        ast.clear();  // This destroys all AST nodes BEFORE parser goes out of scope
+        std::cout << "DEBUG: AST cleared successfully" << std::endl;
+        
     } catch (const std::exception& e) {
         std::cerr << "Compilation error: " << e.what() << std::endl;
         throw;

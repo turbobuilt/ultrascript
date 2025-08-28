@@ -418,190 +418,195 @@ void X86CodeGenV2::emit_call(const std::string& label) {
 
 void* X86CodeGenV2::get_runtime_function_address(const std::string& function_name) {
     // HIGH-PERFORMANCE DIRECT FUNCTION POINTER LOOKUP
-    // These are resolved to actual function addresses at compile time for ZERO overhead
-    static std::unordered_map<std::string, void*> runtime_functions = {
+    // Lazily initialized to avoid static initialization order issues
+    static std::unique_ptr<std::unordered_map<std::string, void*>> runtime_functions;
+    
+    if (!runtime_functions) {
+        runtime_functions = std::make_unique<std::unordered_map<std::string, void*>>();
+        auto& rf = *runtime_functions;
+        
         // Core runtime functions
-        {"__dynamic_value_create_from_double", reinterpret_cast<void*>(__dynamic_value_create_from_double)},
-        {"__dynamic_value_create_from_int64", reinterpret_cast<void*>(__dynamic_value_create_from_int64)},
-        {"__dynamic_value_create_from_uint64", reinterpret_cast<void*>(__dynamic_value_create_from_uint64)},
-        {"__dynamic_value_create_from_bool", reinterpret_cast<void*>(__dynamic_value_create_from_bool)},
-        {"__dynamic_value_create_from_string", reinterpret_cast<void*>(__dynamic_value_create_from_string)},
-        {"__dynamic_value_create_from_object", reinterpret_cast<void*>(__dynamic_value_create_from_object)},
-        {"__dynamic_value_create_from_array", reinterpret_cast<void*>(__dynamic_value_create_from_array)},
-        {"__get_executable_memory_base", reinterpret_cast<void*>(__get_executable_memory_base)},
-        {"__goroutine_spawn_func_ptr", reinterpret_cast<void*>(__goroutine_spawn_func_ptr)},
-        {"__goroutine_spawn_func_ptr_with_scope", reinterpret_cast<void*>(__goroutine_spawn_func_ptr_with_scope)},
-        {"__goroutine_spawn_and_wait_direct", reinterpret_cast<void*>(__goroutine_spawn_and_wait_direct)},
-        {"__goroutine_spawn_and_wait_fast", reinterpret_cast<void*>(__goroutine_spawn_and_wait_fast)},
-        {"__goroutine_spawn_direct", reinterpret_cast<void*>(__goroutine_spawn_direct)},
-        {"__string_intern", reinterpret_cast<void*>(__string_intern)},
+        rf["__dynamic_value_create_from_double"] = reinterpret_cast<void*>(__dynamic_value_create_from_double);
+        rf["__dynamic_value_create_from_int64"] = reinterpret_cast<void*>(__dynamic_value_create_from_int64);
+        rf["__dynamic_value_create_from_uint64"] = reinterpret_cast<void*>(__dynamic_value_create_from_uint64);
+        rf["__dynamic_value_create_from_bool"] = reinterpret_cast<void*>(__dynamic_value_create_from_bool);
+        rf["__dynamic_value_create_from_string"] = reinterpret_cast<void*>(__dynamic_value_create_from_string);
+        rf["__dynamic_value_create_from_object"] = reinterpret_cast<void*>(__dynamic_value_create_from_object);
+        rf["__dynamic_value_create_from_array"] = reinterpret_cast<void*>(__dynamic_value_create_from_array);
+        rf["__get_executable_memory_base"] = reinterpret_cast<void*>(__get_executable_memory_base);
+        rf["__goroutine_spawn_func_ptr"] = reinterpret_cast<void*>(__goroutine_spawn_func_ptr);
+        rf["__goroutine_spawn_func_ptr_with_scope"] = reinterpret_cast<void*>(__goroutine_spawn_func_ptr_with_scope);
+        rf["__goroutine_spawn_and_wait_direct"] = reinterpret_cast<void*>(__goroutine_spawn_and_wait_direct);
+        (*runtime_functions)["__goroutine_spawn_and_wait_fast"] = reinterpret_cast<void*>(__goroutine_spawn_and_wait_fast);
+        (*runtime_functions)["__goroutine_spawn_direct"] = reinterpret_cast<void*>(__goroutine_spawn_direct);
+        (*runtime_functions)["__string_intern"] = reinterpret_cast<void*>(__string_intern);
         
         // Console.log runtime functions for maximum performance
-        {"__console_log_int8", reinterpret_cast<void*>(__console_log_int8)},
-        {"__console_log_int16", reinterpret_cast<void*>(__console_log_int16)},
-        {"__console_log_int32", reinterpret_cast<void*>(__console_log_int32)},
-        {"__console_log_int64", reinterpret_cast<void*>(__console_log_int64)},
-        {"__console_log_uint8", reinterpret_cast<void*>(__console_log_uint8)},
-        {"__console_log_uint16", reinterpret_cast<void*>(__console_log_uint16)},
-        {"__console_log_uint32", reinterpret_cast<void*>(__console_log_uint32)},
-        {"__console_log_uint64", reinterpret_cast<void*>(__console_log_uint64)},
-        {"__console_log_float32", reinterpret_cast<void*>(__console_log_float32)},
-        {"__console_log_float64", reinterpret_cast<void*>(__console_log_float64)},
-        {"__console_log_boolean", reinterpret_cast<void*>(__console_log_boolean)},
-        {"__console_log_string_ptr", reinterpret_cast<void*>(__console_log_string_ptr)},
-        {"__console_log_array_ptr", reinterpret_cast<void*>(__console_log_array_ptr)},
-        {"__console_log_object_ptr", reinterpret_cast<void*>(__console_log_object_ptr)},
-        {"__console_log_function_ptr", reinterpret_cast<void*>(__console_log_function_ptr)},
-        {"__console_log_space_separator", reinterpret_cast<void*>(__console_log_space_separator)},
-        {"__console_log_final_newline", reinterpret_cast<void*>(__console_log_final_newline)},
-        {"__console_log_any_value_inspect", reinterpret_cast<void*>(__console_log_any_value_inspect)},
-        {"__console_time", reinterpret_cast<void*>(__console_time)},
-        {"__console_timeEnd", reinterpret_cast<void*>(__console_timeEnd)},
+        (*runtime_functions)["__console_log_int8"] = reinterpret_cast<void*>(__console_log_int8);
+        (*runtime_functions)["__console_log_int16"] = reinterpret_cast<void*>(__console_log_int16);
+        (*runtime_functions)["__console_log_int32"] = reinterpret_cast<void*>(__console_log_int32);
+        (*runtime_functions)["__console_log_int64"] = reinterpret_cast<void*>(__console_log_int64);
+        (*runtime_functions)["__console_log_uint8"] = reinterpret_cast<void*>(__console_log_uint8);
+        (*runtime_functions)["__console_log_uint16"] = reinterpret_cast<void*>(__console_log_uint16);
+        (*runtime_functions)["__console_log_uint32"] = reinterpret_cast<void*>(__console_log_uint32);
+        (*runtime_functions)["__console_log_uint64"] = reinterpret_cast<void*>(__console_log_uint64);
+        (*runtime_functions)["__console_log_float32"] = reinterpret_cast<void*>(__console_log_float32);
+        (*runtime_functions)["__console_log_float64"] = reinterpret_cast<void*>(__console_log_float64);
+        (*runtime_functions)["__console_log_boolean"] = reinterpret_cast<void*>(__console_log_boolean);
+        (*runtime_functions)["__console_log_string_ptr"] = reinterpret_cast<void*>(__console_log_string_ptr);
+        (*runtime_functions)["__console_log_array_ptr"] = reinterpret_cast<void*>(__console_log_array_ptr);
+        (*runtime_functions)["__console_log_object_ptr"] = reinterpret_cast<void*>(__console_log_object_ptr);
+        (*runtime_functions)["__console_log_function_ptr"] = reinterpret_cast<void*>(__console_log_function_ptr);
+        (*runtime_functions)["__console_log_space_separator"] = reinterpret_cast<void*>(__console_log_space_separator);
+        (*runtime_functions)["__console_log_final_newline"] = reinterpret_cast<void*>(__console_log_final_newline);
+        (*runtime_functions)["__console_log_any_value_inspect"] = reinterpret_cast<void*>(__console_log_any_value_inspect);
+        (*runtime_functions)["__console_time"] = reinterpret_cast<void*>(__console_time);
+        (*runtime_functions)["__console_timeEnd"] = reinterpret_cast<void*>(__console_timeEnd);
         
         // String functions
-        {"__string_concat", reinterpret_cast<void*>(__string_concat)},
-        {"__string_match", reinterpret_cast<void*>(__string_match)},
-        {"__string_create_with_length", reinterpret_cast<void*>(__string_create_with_length)},
-        {"__string_equals", reinterpret_cast<void*>(__string_equals)},
-        {"__string_compare", reinterpret_cast<void*>(__string_compare)},
-        {"__dynamic_value_extract_string", reinterpret_cast<void*>(__dynamic_value_extract_string)},
-        {"__dynamic_value_extract_int64", reinterpret_cast<void*>(__dynamic_value_extract_int64)},
-        {"__dynamic_value_extract_float64", reinterpret_cast<void*>(__dynamic_value_extract_float64)},
+        (*runtime_functions)["__string_concat"] = reinterpret_cast<void*>(__string_concat);
+        (*runtime_functions)["__string_match"] = reinterpret_cast<void*>(__string_match);
+        (*runtime_functions)["__string_create_with_length"] = reinterpret_cast<void*>(__string_create_with_length);
+        (*runtime_functions)["__string_equals"] = reinterpret_cast<void*>(__string_equals);
+        (*runtime_functions)["__string_compare"] = reinterpret_cast<void*>(__string_compare);
+        (*runtime_functions)["__dynamic_value_extract_string"] = reinterpret_cast<void*>(__dynamic_value_extract_string);
+        (*runtime_functions)["__dynamic_value_extract_int64"] = reinterpret_cast<void*>(__dynamic_value_extract_int64);
+        (*runtime_functions)["__dynamic_value_extract_float64"] = reinterpret_cast<void*>(__dynamic_value_extract_float64);
         
         // Standard C library functions
-        {"strlen", reinterpret_cast<void*>(strlen)},
+        (*runtime_functions)["strlen"] = reinterpret_cast<void*>(strlen);
         
         // Array functions (legacy - use type-aware versions below)
-        {"__array_create", reinterpret_cast<void*>(__array_create)},
-        {"__array_push", reinterpret_cast<void*>(__array_push)},
-        {"__array_pop", reinterpret_cast<void*>(__array_pop)},
-        {"__array_size", reinterpret_cast<void*>(__array_size)},
-        {"__array_access", reinterpret_cast<void*>(__array_access)},
+        (*runtime_functions)["__array_create"] = reinterpret_cast<void*>(__array_create);
+        (*runtime_functions)["__array_push"] = reinterpret_cast<void*>(__array_push);
+        (*runtime_functions)["__array_pop"] = reinterpret_cast<void*>(__array_pop);
+        (*runtime_functions)["__array_size"] = reinterpret_cast<void*>(__array_size);
+        (*runtime_functions)["__array_access"] = reinterpret_cast<void*>(__array_access);
         
         // Typed array access functions for maximum performance
-        {"__array_access_int64", reinterpret_cast<void*>(__array_access_int64)},
-        {"__array_access_float64", reinterpret_cast<void*>(__array_access_float64)},
+        (*runtime_functions)["__array_access_int64"] = reinterpret_cast<void*>(__array_access_int64);
+        (*runtime_functions)["__array_access_float64"] = reinterpret_cast<void*>(__array_access_float64);
         
-        {"__array_access_int32", reinterpret_cast<void*>(__array_access_int32)},
-        {"__array_access_float32", reinterpret_cast<void*>(__array_access_float32)},
+        (*runtime_functions)["__array_access_int32"] = reinterpret_cast<void*>(__array_access_int32);
+        (*runtime_functions)["__array_access_float32"] = reinterpret_cast<void*>(__array_access_float32);
         
         // Class property lookup for optimized bracket access
-        {"__class_property_lookup", reinterpret_cast<void*>(__class_property_lookup)},
+        (*runtime_functions)["__class_property_lookup"] = reinterpret_cast<void*>(__class_property_lookup);
         
         // Dynamic property functions
-        {"__dynamic_property_set", reinterpret_cast<void*>(__dynamic_property_set)},
-        {"__dynamic_property_get", reinterpret_cast<void*>(__dynamic_property_get)},
-        {"__dynamic_property_has", reinterpret_cast<void*>(__dynamic_property_has)},
-        {"__dynamic_property_delete", reinterpret_cast<void*>(__dynamic_property_delete)},
-        {"__dynamic_property_keys", reinterpret_cast<void*>(__dynamic_property_keys)},
-        {"__dynamic_value_create_any", reinterpret_cast<void*>(__dynamic_value_create_any)},
+        (*runtime_functions)["__dynamic_property_set"] = reinterpret_cast<void*>(__dynamic_property_set);
+        (*runtime_functions)["__dynamic_property_get"] = reinterpret_cast<void*>(__dynamic_property_get);
+        (*runtime_functions)["__dynamic_property_has"] = reinterpret_cast<void*>(__dynamic_property_has);
+        (*runtime_functions)["__dynamic_property_delete"] = reinterpret_cast<void*>(__dynamic_property_delete);
+        (*runtime_functions)["__dynamic_property_keys"] = reinterpret_cast<void*>(__dynamic_property_keys);
+        (*runtime_functions)["__dynamic_value_create_any"] = reinterpret_cast<void*>(__dynamic_value_create_any);
         
         // For-in loop support functions
-        {"__get_class_property_count", reinterpret_cast<void*>(__get_class_property_count)},
-        {"__get_class_property_name", reinterpret_cast<void*>(__get_class_property_name)},
-        {"__debug_reached_static_loop_body", reinterpret_cast<void*>(__debug_reached_static_loop_body)},
-        {"__debug_reached_static_loop_body_with_values", reinterpret_cast<void*>(__debug_reached_static_loop_body_with_values)},
-        {"__debug_about_to_call_property_name", reinterpret_cast<void*>(__debug_about_to_call_property_name)},
-        {"__debug_loop_compare", reinterpret_cast<void*>(__debug_loop_compare)},
-        {"__get_dynamic_map", reinterpret_cast<void*>(__get_dynamic_map)},
-        {"__get_dynamic_property_count", reinterpret_cast<void*>(__get_dynamic_property_count)},
-        {"__get_dynamic_property_name", reinterpret_cast<void*>(__get_dynamic_property_name)},
+        (*runtime_functions)["__get_class_property_count"] = reinterpret_cast<void*>(__get_class_property_count);
+        (*runtime_functions)["__get_class_property_name"] = reinterpret_cast<void*>(__get_class_property_name);
+        (*runtime_functions)["__debug_reached_static_loop_body"] = reinterpret_cast<void*>(__debug_reached_static_loop_body);
+        (*runtime_functions)["__debug_reached_static_loop_body_with_values"] = reinterpret_cast<void*>(__debug_reached_static_loop_body_with_values);
+        (*runtime_functions)["__debug_about_to_call_property_name"] = reinterpret_cast<void*>(__debug_about_to_call_property_name);
+        (*runtime_functions)["__debug_loop_compare"] = reinterpret_cast<void*>(__debug_loop_compare);
+        (*runtime_functions)["__get_dynamic_map"] = reinterpret_cast<void*>(__get_dynamic_map);
+        (*runtime_functions)["__get_dynamic_property_count"] = reinterpret_cast<void*>(__get_dynamic_property_count);
+        (*runtime_functions)["__get_dynamic_property_name"] = reinterpret_cast<void*>(__get_dynamic_property_name);
         
         // Reference counting functions
-        {"__object_add_ref", reinterpret_cast<void*>(__object_add_ref)},
-        {"__object_release", reinterpret_cast<void*>(__object_release)},
-        {"__object_destruct", reinterpret_cast<void*>(__object_destruct)},
-        {"__object_free_direct", reinterpret_cast<void*>(__object_free_direct)},
-        {"__object_get_ref_count", reinterpret_cast<void*>(__object_get_ref_count)},
+        (*runtime_functions)["__object_add_ref"] = reinterpret_cast<void*>(__object_add_ref);
+        (*runtime_functions)["__object_release"] = reinterpret_cast<void*>(__object_release);
+        (*runtime_functions)["__object_destruct"] = reinterpret_cast<void*>(__object_destruct);
+        (*runtime_functions)["__object_free_direct"] = reinterpret_cast<void*>(__object_free_direct);
+        (*runtime_functions)["__object_get_ref_count"] = reinterpret_cast<void*>(__object_get_ref_count);
         
         // Stack debugging functions
-        {"__debug_stack_store", reinterpret_cast<void*>(__debug_stack_store)},
-        {"__debug_stack_load", reinterpret_cast<void*>(__debug_stack_load)},
+        (*runtime_functions)["__debug_stack_store"] = reinterpret_cast<void*>(__debug_stack_store);
+        (*runtime_functions)["__debug_stack_load"] = reinterpret_cast<void*>(__debug_stack_load);
         
         // Advanced dynamic value reference counting functions
-        {"__dynamic_value_release_if_object", reinterpret_cast<void*>(__dynamic_value_release_if_object)},
-        {"__dynamic_value_copy_with_refcount", reinterpret_cast<void*>(__dynamic_value_copy_with_refcount)},
-        {"__dynamic_value_extract_object_with_refcount", reinterpret_cast<void*>(__dynamic_value_extract_object_with_refcount)},
+        (*runtime_functions)["__dynamic_value_release_if_object"] = reinterpret_cast<void*>(__dynamic_value_release_if_object);
+        (*runtime_functions)["__dynamic_value_copy_with_refcount"] = reinterpret_cast<void*>(__dynamic_value_copy_with_refcount);
+        (*runtime_functions)["__dynamic_value_extract_object_with_refcount"] = reinterpret_cast<void*>(__dynamic_value_extract_object_with_refcount);
         
         // Type-aware array creation functions  
-        {"__array_create_dynamic", reinterpret_cast<void*>(__array_create_dynamic)},
-        {"__array_create_int64", reinterpret_cast<void*>(__array_create_int64)},
-        {"__array_create_float64", reinterpret_cast<void*>(__array_create_float64)},
-        {"__array_create_int32", reinterpret_cast<void*>(__array_create_int32)},
-        {"__array_create_float32", reinterpret_cast<void*>(__array_create_float32)},
+        (*runtime_functions)["__array_create_dynamic"] = reinterpret_cast<void*>(__array_create_dynamic);
+        (*runtime_functions)["__array_create_int64"] = reinterpret_cast<void*>(__array_create_int64);
+        (*runtime_functions)["__array_create_float64"] = reinterpret_cast<void*>(__array_create_float64);
+        (*runtime_functions)["__array_create_int32"] = reinterpret_cast<void*>(__array_create_int32);
+        (*runtime_functions)["__array_create_float32"] = reinterpret_cast<void*>(__array_create_float32);
         
         // Type-aware array push functions
-        {"__array_push_dynamic", reinterpret_cast<void*>(__array_push_dynamic)},
-        {"__array_push_int64_typed", reinterpret_cast<void*>(__array_push_int64_typed)},
-        {"__array_push_float64_typed", reinterpret_cast<void*>(__array_push_float64_typed)},
-        {"__array_push_int32_typed", reinterpret_cast<void*>(__array_push_int32_typed)},
-        {"__array_push_float32_typed", reinterpret_cast<void*>(__array_push_float32_typed)},
+        (*runtime_functions)["__array_push_dynamic"] = reinterpret_cast<void*>(__array_push_dynamic);
+        (*runtime_functions)["__array_push_int64_typed"] = reinterpret_cast<void*>(__array_push_int64_typed);
+        (*runtime_functions)["__array_push_float64_typed"] = reinterpret_cast<void*>(__array_push_float64_typed);
+        (*runtime_functions)["__array_push_int32_typed"] = reinterpret_cast<void*>(__array_push_int32_typed);
+        (*runtime_functions)["__array_push_float32_typed"] = reinterpret_cast<void*>(__array_push_float32_typed);
         
         // Array factory functions
-        {"__array_zeros_typed", reinterpret_cast<void*>(__array_zeros_typed)},
-        {"__array_ones_dynamic", reinterpret_cast<void*>(__array_ones_dynamic)},
-        {"__array_ones_int64", reinterpret_cast<void*>(__array_ones_int64)},
-        {"__array_ones_float64", reinterpret_cast<void*>(__array_ones_float64)},
-        {"__array_ones_int32", reinterpret_cast<void*>(__array_ones_int32)},
-        {"__array_ones_float32", reinterpret_cast<void*>(__array_ones_float32)},
+        (*runtime_functions)["__array_zeros_typed"] = reinterpret_cast<void*>(__array_zeros_typed);
+        (*runtime_functions)["__array_ones_dynamic"] = reinterpret_cast<void*>(__array_ones_dynamic);
+        (*runtime_functions)["__array_ones_int64"] = reinterpret_cast<void*>(__array_ones_int64);
+        (*runtime_functions)["__array_ones_float64"] = reinterpret_cast<void*>(__array_ones_float64);
+        (*runtime_functions)["__array_ones_int32"] = reinterpret_cast<void*>(__array_ones_int32);
+        (*runtime_functions)["__array_ones_float32"] = reinterpret_cast<void*>(__array_ones_float32);
         
         // Object functions
-        {"__object_create", reinterpret_cast<void*>(__object_create)},
+        (*runtime_functions)["__object_create"] = reinterpret_cast<void*>(__object_create);
         // Property access functions removed - will be reimplemented according to new architecture
         
         // JIT Object system functions
-        {"__jit_object_create", reinterpret_cast<void*>(__jit_object_create)},
-        {"__jit_object_create_sized", reinterpret_cast<void*>(__jit_object_create_sized)},
+        (*runtime_functions)["__jit_object_create"] = reinterpret_cast<void*>(__jit_object_create);
+        (*runtime_functions)["__jit_object_create_sized"] = reinterpret_cast<void*>(__jit_object_create_sized);
         
         // Promise functions
-        {"__promise_all", reinterpret_cast<void*>(__promise_all)},
-        {"__promise_await", reinterpret_cast<void*>(__promise_await)},
+        (*runtime_functions)["__promise_all"] = reinterpret_cast<void*>(__promise_all);
+        (*runtime_functions)["__promise_await"] = reinterpret_cast<void*>(__promise_await);
         
         // Regex functions
-        {"__register_regex_pattern", reinterpret_cast<void*>(__register_regex_pattern)},
-        {"__regex_create_by_id", reinterpret_cast<void*>(__regex_create_by_id)},
+        (*runtime_functions)["__register_regex_pattern"] = reinterpret_cast<void*>(__register_regex_pattern);
+        (*runtime_functions)["__regex_create_by_id"] = reinterpret_cast<void*>(__regex_create_by_id);
         
         // Runtime syscalls for time
-        {"__runtime_time_now_millis", reinterpret_cast<void*>(__runtime_time_now_millis)},
+        (*runtime_functions)["__runtime_time_now_millis"] = reinterpret_cast<void*>(__runtime_time_now_millis);
         
         // Goroutine functions (dynamic name patterns need special handling)
         // All console.log functions resolved to direct pointers for ZERO overhead
         
         // Free runtime functions for ultra-fast memory management
-        {"__free_class_instance_shallow", reinterpret_cast<void*>(__free_class_instance_shallow)},
-        {"__free_class_instance_deep", reinterpret_cast<void*>(__free_class_instance_deep)},
-        {"__free_array_shallow", reinterpret_cast<void*>(__free_array_shallow)},
-        {"__free_array_deep", reinterpret_cast<void*>(__free_array_deep)},
-        {"__free_string", reinterpret_cast<void*>(__free_string)},
-        {"__free_dynamic_value", reinterpret_cast<void*>(__free_dynamic_value)},
-        {"__debug_log_primitive_free_ignored", reinterpret_cast<void*>(__debug_log_primitive_free_ignored)},
-        {"__throw_deep_free_not_implemented", reinterpret_cast<void*>(__throw_deep_free_not_implemented)},
+        (*runtime_functions)["__free_class_instance_shallow"] = reinterpret_cast<void*>(__free_class_instance_shallow);
+        (*runtime_functions)["__free_class_instance_deep"] = reinterpret_cast<void*>(__free_class_instance_deep);
+        (*runtime_functions)["__free_array_shallow"] = reinterpret_cast<void*>(__free_array_shallow);
+        (*runtime_functions)["__free_array_deep"] = reinterpret_cast<void*>(__free_array_deep);
+        (*runtime_functions)["__free_string"] = reinterpret_cast<void*>(__free_string);
+        (*runtime_functions)["__free_dynamic_value"] = reinterpret_cast<void*>(__free_dynamic_value);
+        (*runtime_functions)["__debug_log_primitive_free_ignored"] = reinterpret_cast<void*>(__debug_log_primitive_free_ignored);
+        (*runtime_functions)["__throw_deep_free_not_implemented"] = reinterpret_cast<void*>(__throw_deep_free_not_implemented);
         
         // Debug and introspection functions
-        {"__debug_get_ref_count", reinterpret_cast<void*>(__debug_get_ref_count)},
-        {"__object_get_memory_address", reinterpret_cast<void*>(__object_get_memory_address)},
-        {"__runtime_get_ref_count", reinterpret_cast<void*>(__runtime_get_ref_count)},
+        (*runtime_functions)["__debug_get_ref_count"] = reinterpret_cast<void*>(__debug_get_ref_count);
+        (*runtime_functions)["__object_get_memory_address"] = reinterpret_cast<void*>(__object_get_memory_address);
+        (*runtime_functions)["__runtime_get_ref_count"] = reinterpret_cast<void*>(__runtime_get_ref_count);
         
         // Goroutine System V2 functions
-        {"__gots_set_timeout", reinterpret_cast<void*>(__gots_set_timeout_v2)},
-        {"__gots_set_interval", reinterpret_cast<void*>(__gots_set_interval_v2)},
-        {"__gots_clear_timeout", reinterpret_cast<void*>(__gots_clear_timeout_v2)},
-        {"__gots_clear_interval", reinterpret_cast<void*>(__gots_clear_interval_v2)},
-        {"__gots_add_async_handle", reinterpret_cast<void*>(__gots_add_async_handle_v2)},
-        {"__gots_complete_async_handle", reinterpret_cast<void*>(__gots_complete_async_handle_v2)},
-        {"__gots_cancel_async_handle", reinterpret_cast<void*>(__gots_cancel_async_handle_v2)},
-        {"__runtime_spawn_main_goroutine", reinterpret_cast<void*>(__runtime_spawn_main_goroutine_v2)},
-        {"__runtime_wait_for_main_goroutine", reinterpret_cast<void*>(__runtime_wait_for_main_goroutine_v2)},
-        {"__runtime_spawn_goroutine", reinterpret_cast<void*>(__runtime_spawn_goroutine_v2)},
+        (*runtime_functions)["__gots_set_timeout"] = reinterpret_cast<void*>(__gots_set_timeout_v2);
+        (*runtime_functions)["__gots_set_interval"] = reinterpret_cast<void*>(__gots_set_interval_v2);
+        (*runtime_functions)["__gots_clear_timeout"] = reinterpret_cast<void*>(__gots_clear_timeout_v2);
+        (*runtime_functions)["__gots_clear_interval"] = reinterpret_cast<void*>(__gots_clear_interval_v2);
+        (*runtime_functions)["__gots_add_async_handle"] = reinterpret_cast<void*>(__gots_add_async_handle_v2);
+        (*runtime_functions)["__gots_complete_async_handle"] = reinterpret_cast<void*>(__gots_complete_async_handle_v2);
+        (*runtime_functions)["__gots_cancel_async_handle"] = reinterpret_cast<void*>(__gots_cancel_async_handle_v2);
+        (*runtime_functions)["__runtime_spawn_main_goroutine"] = reinterpret_cast<void*>(__runtime_spawn_main_goroutine_v2);
+        (*runtime_functions)["__runtime_wait_for_main_goroutine"] = reinterpret_cast<void*>(__runtime_wait_for_main_goroutine_v2);
+        (*runtime_functions)["__runtime_spawn_goroutine"] = reinterpret_cast<void*>(__runtime_spawn_goroutine_v2);
         
         // FFI integration functions
-        {"execute_ffi_call", reinterpret_cast<void*>(execute_ffi_call)},
-        {"migrate_to_ffi_thread", reinterpret_cast<void*>(migrate_to_ffi_thread)},
-        {"is_goroutine_ffi_bound", reinterpret_cast<void*>(is_goroutine_ffi_bound)},
-    };
+        (*runtime_functions)["execute_ffi_call"] = reinterpret_cast<void*>(execute_ffi_call);
+        (*runtime_functions)["migrate_to_ffi_thread"] = reinterpret_cast<void*>(migrate_to_ffi_thread);
+        (*runtime_functions)["is_goroutine_ffi_bound"] = reinterpret_cast<void*>(is_goroutine_ffi_bound);
+    }
     
-    auto it = runtime_functions.find(function_name);
-    if (it != runtime_functions.end()) {
+    auto it = (*runtime_functions).find(function_name);
+    if (it != (*runtime_functions).end()) {
         std::cout << "[DEBUG] DIRECT FUNCTION POINTER: " << function_name 
                   << " -> " << it->second << " (0x" << std::hex << 
                   reinterpret_cast<uintptr_t>(it->second) << std::dec << ")" << std::endl;
