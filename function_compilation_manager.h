@@ -34,7 +34,7 @@ public:
     std::string register_function(std::shared_ptr<FunctionExpression> func_expr, const std::string& preferred_name = "");
     
     // Phase 2: Function Compilation
-    void compile_all_functions(CodeGenerator& gen, TypeInference& types);
+    void compile_all_functions(CodeGenerator& gen);
     void assign_function_addresses(void* executable_memory, size_t memory_size);
     
     // Phase 3: Execution Code Generation
@@ -61,5 +61,5 @@ private:
     
     void discover_functions_recursive(ASTNode* node);
     std::string generate_unique_function_name(const std::string& base_name);
-    void compile_function_body(CodeGenerator& gen, TypeInference& types, FunctionInfo* func_info);
+    void compile_function_body(CodeGenerator& gen, FunctionInfo* func_info);
 };

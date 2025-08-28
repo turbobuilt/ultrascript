@@ -28,7 +28,7 @@ public:
     void register_function(std::shared_ptr<FunctionExpression> func, const std::string& name);
     
     // Compile all registered functions in dependency order
-    void compile_all_functions(CodeGenerator& gen, TypeInference& types);
+    void compile_all_functions(CodeGenerator& gen);
     
     // Get function info by name
     FunctionInfo* get_function_info(const std::string& name);
@@ -51,7 +51,7 @@ private:
     void analyze_dependencies(FunctionInfo& func_info);
     
     // Compile a single function
-    void compile_function(FunctionInfo& func_info, CodeGenerator& gen, TypeInference& types);
+    void compile_function(FunctionInfo& func_info, CodeGenerator& gen);
 };
 
 // Global compilation context

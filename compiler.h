@@ -411,7 +411,7 @@ struct ScopeContext {
 struct ASTNode {
     DataType result_type = DataType::ANY;  // Type of value this node produces
     virtual ~ASTNode() = default;
-    virtual void generate_code(CodeGenerator& gen, TypeInference& types) = 0;
+    virtual void generate_code(CodeGenerator& gen) = 0;  // New scope-aware interface
 };
 
 // Include dependency and variable declaration structures for scope analysis
@@ -459,7 +459,7 @@ struct LexicalScopeNode : ASTNode {
         priority_sorted_parent_scopes = scopes; 
     }
     
-    void generate_code(CodeGenerator& gen, TypeInference& types) override {
+    void generate_code(CodeGenerator& gen) override {
         // LexicalScopeNode doesn't generate code directly
         // It contains scope analysis information used by code generation
     }
@@ -472,22 +472,20 @@ struct ExpressionNode : ASTNode {
 struct NumberLiteral : ExpressionNode {
     double value;
     NumberLiteral(double v) : value(v) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
-    void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct StringLiteral : ExpressionNode {
     std::string value;
     StringLiteral(const std::string& v) : value(v) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
-    void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct RegexLiteral : ExpressionNode {
     std::string pattern;
     std::string flags;
     RegexLiteral(const std::string& p, const std::string& f = "") : pattern(p), flags(f) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct Identifier : ExpressionNode {
@@ -508,8 +506,7 @@ struct Identifier : ExpressionNode {
         : name(n), definition_depth(def_depth), access_depth(acc_depth),
           definition_scope(def_scope), access_scope(acc_scope) {}
     
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
-    void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct BinaryOp : ExpressionNode {
@@ -517,14 +514,14 @@ struct BinaryOp : ExpressionNode {
     TokenType op;
     BinaryOp(std::unique_ptr<ExpressionNode> l, TokenType o, std::unique_ptr<ExpressionNode> r)
         : left(std::move(l)), right(std::move(r)), op(o) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct TernaryOperator : ExpressionNode {
     std::unique_ptr<ExpressionNode> condition, true_expr, false_expr;
     TernaryOperator(std::unique_ptr<ExpressionNode> cond, std::unique_ptr<ExpressionNode> true_val, std::unique_ptr<ExpressionNode> false_val)
         : condition(std::move(cond)), true_expr(std::move(true_val)), false_expr(std::move(false_val)) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct FunctionCall : ExpressionNode {
@@ -534,7 +531,7 @@ struct FunctionCall : ExpressionNode {
     bool is_goroutine = false;
     bool is_awaited = false;
     FunctionCall(const std::string& n) : name(n) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct FunctionExpression : ExpressionNode {
@@ -553,8 +550,8 @@ struct FunctionExpression : ExpressionNode {
     
     FunctionExpression() : name("") {}
     FunctionExpression(const std::string& n) : name(n) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
-    void compile_function_body(CodeGenerator& gen, TypeInference& types, const std::string& func_name);
+    void generate_code(CodeGenerator& gen) override;
+    void compile_function_body(CodeGenerator& gen, const std::string& func_name);
     
     // NEW: For three-phase compilation system
     void set_compilation_assigned_name(const std::string& assigned_name) {
@@ -578,8 +575,8 @@ struct ArrowFunction : ExpressionNode {
     std::unique_ptr<LexicalScopeNode> lexical_scope;
     
     ArrowFunction() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
-    void compile_function_body(CodeGenerator& gen, TypeInference& types, const std::string& func_name);
+    void generate_code(CodeGenerator& gen) override;
+    void compile_function_body(CodeGenerator& gen, const std::string& func_name);
     
     // NEW: For three-phase compilation system
     void set_compilation_assigned_name(const std::string& assigned_name) {
@@ -596,7 +593,7 @@ struct MethodCall : ExpressionNode {
     bool is_awaited = false;
     MethodCall(const std::string& obj, const std::string& method) 
         : object_name(obj), method_name(method) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ExpressionMethodCall : ExpressionNode {
@@ -608,26 +605,26 @@ struct ExpressionMethodCall : ExpressionNode {
     bool is_awaited = false;
     ExpressionMethodCall(std::unique_ptr<ExpressionNode> obj, const std::string& method) 
         : object(std::move(obj)), method_name(method) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ArrayLiteral : ExpressionNode {
     std::vector<std::unique_ptr<ExpressionNode>> elements;
     ArrayLiteral() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ObjectLiteral : ExpressionNode {
     std::vector<std::pair<std::string, std::unique_ptr<ExpressionNode>>> properties;
     ObjectLiteral() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct TypedArrayLiteral : ExpressionNode {
     std::vector<std::unique_ptr<ExpressionNode>> elements;
     DataType array_type;
     TypedArrayLiteral(DataType type) : array_type(type) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct SliceExpression : ExpressionNode {
@@ -640,7 +637,7 @@ struct SliceExpression : ExpressionNode {
     
     SliceExpression() : start(0), end(-1), step(1), start_specified(false), end_specified(false), step_specified(false) {}
     SliceExpression(int64_t s, int64_t e, int64_t st) : start(s), end(e), step(st), start_specified(true), end_specified(true), step_specified(true) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ArrayAccess : ExpressionNode {
@@ -651,7 +648,7 @@ struct ArrayAccess : ExpressionNode {
     std::string slice_expression;       // Raw string representation for complex indexing
     ArrayAccess(std::unique_ptr<ExpressionNode> obj, std::unique_ptr<ExpressionNode> idx)
         : object(std::move(obj)), index(std::move(idx)) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct OperatorCall : ExpressionNode {
@@ -661,7 +658,7 @@ struct OperatorCall : ExpressionNode {
     std::string class_name;  // Class that defines the operator
     OperatorCall(std::unique_ptr<ExpressionNode> left, TokenType op, std::unique_ptr<ExpressionNode> right, const std::string& cls)
         : left_operand(std::move(left)), right_operand(std::move(right)), operator_type(op), class_name(cls) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct Assignment : ExpressionNode {
@@ -686,8 +683,7 @@ struct Assignment : ExpressionNode {
     
     Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val, DeclarationKind kind = VAR)
         : variable_name(name), value(std::move(val)), declaration_kind(kind), definition_scope(nullptr), assignment_scope(nullptr) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
-    void generate_code_new(CodeGenerator& gen);  // NEW: Scope-aware version
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct PropertyAssignment : ExpressionNode {
@@ -696,7 +692,7 @@ struct PropertyAssignment : ExpressionNode {
     std::unique_ptr<ExpressionNode> value;
     PropertyAssignment(const std::string& obj, const std::string& prop, std::unique_ptr<ExpressionNode> val)
         : object_name(obj), property_name(prop), value(std::move(val)) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ExpressionPropertyAssignment : ExpressionNode {
@@ -705,19 +701,19 @@ struct ExpressionPropertyAssignment : ExpressionNode {
     std::unique_ptr<ExpressionNode> value;
     ExpressionPropertyAssignment(std::unique_ptr<ExpressionNode> obj, const std::string& prop, std::unique_ptr<ExpressionNode> val)
         : object(std::move(obj)), property_name(prop), value(std::move(val)) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct PostfixIncrement : ExpressionNode {
     std::string variable_name;
     PostfixIncrement(const std::string& name) : variable_name(name) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct PostfixDecrement : ExpressionNode {
     std::string variable_name;
     PostfixDecrement(const std::string& name) : variable_name(name) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct FunctionDecl : ASTNode {
@@ -730,7 +726,7 @@ struct FunctionDecl : ASTNode {
     std::unique_ptr<LexicalScopeNode> lexical_scope;
     
     FunctionDecl(const std::string& n) : name(n) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct IfStatement : ASTNode {
@@ -742,7 +738,7 @@ struct IfStatement : ASTNode {
     std::unique_ptr<LexicalScopeNode> then_lexical_scope;
     std::unique_ptr<LexicalScopeNode> else_lexical_scope;
     
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ForLoop : ASTNode {
@@ -758,7 +754,7 @@ struct ForLoop : ASTNode {
     // Lexical scope information for for-loop (creates scope for let/const in init)
     std::unique_ptr<LexicalScopeNode> lexical_scope;
     
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ForEachLoop : ASTNode {
@@ -772,7 +768,7 @@ struct ForEachLoop : ASTNode {
     
     ForEachLoop(const std::string& index_name, const std::string& value_name)
         : index_var_name(index_name), value_var_name(value_name) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ForInStatement : ASTNode {
@@ -785,7 +781,7 @@ struct ForInStatement : ASTNode {
     
     ForInStatement(const std::string& key_name)
         : key_var_name(key_name) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct WhileLoop : ASTNode {
@@ -799,18 +795,18 @@ struct WhileLoop : ASTNode {
     std::unique_ptr<LexicalScopeNode> lexical_scope;
     
     WhileLoop(std::unique_ptr<ExpressionNode> cond) : condition(std::move(cond)) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ReturnStatement : ASTNode {
     std::unique_ptr<ExpressionNode> value;
     ReturnStatement(std::unique_ptr<ExpressionNode> val) : value(std::move(val)) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct BreakStatement : ASTNode {
     BreakStatement() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct FreeStatement : ASTNode {
@@ -819,7 +815,7 @@ struct FreeStatement : ASTNode {
     
     FreeStatement(std::unique_ptr<ExpressionNode> tgt, bool shallow = false) 
         : target(std::move(tgt)), is_shallow(shallow) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 // Exception handling AST nodes
@@ -827,7 +823,7 @@ struct ThrowStatement : ASTNode {
     std::unique_ptr<ExpressionNode> value;
     
     ThrowStatement(std::unique_ptr<ExpressionNode> val) : value(std::move(val)) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct CatchClause : ASTNode {
@@ -835,7 +831,7 @@ struct CatchClause : ASTNode {
     std::vector<std::unique_ptr<ASTNode>> body;
     
     CatchClause(const std::string& param) : parameter(param) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct TryStatement : ASTNode {
@@ -844,7 +840,7 @@ struct TryStatement : ASTNode {
     std::vector<std::unique_ptr<ASTNode>> finally_body;  // Optional
     
     TryStatement() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 // Block statement for standalone blocks { }
@@ -856,7 +852,7 @@ struct BlockStatement : ASTNode {
     std::unique_ptr<LexicalScopeNode> lexical_scope;
     
     BlockStatement() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct CaseClause : ASTNode {
@@ -867,7 +863,7 @@ struct CaseClause : ASTNode {
     
     CaseClause(std::unique_ptr<ExpressionNode> val) : value(std::move(val)) {}
     CaseClause() : is_default(true) {}  // Default constructor for default case
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct SwitchStatement : ASTNode {
@@ -875,7 +871,7 @@ struct SwitchStatement : ASTNode {
     std::vector<std::unique_ptr<CaseClause>> cases;
     
     SwitchStatement(std::unique_ptr<ExpressionNode> disc) : discriminant(std::move(disc)) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 // Import/Export AST Nodes
@@ -896,7 +892,7 @@ struct ImportStatement : ASTNode {
     std::string namespace_name;        // For namespace imports
     
     ImportStatement(const std::string& path) : module_path(path) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ExportSpecifier {
@@ -914,7 +910,7 @@ struct ExportStatement : ASTNode {
     bool is_default = false;
     
     ExportStatement() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct PropertyAccess : ExpressionNode {
@@ -922,7 +918,7 @@ struct PropertyAccess : ExpressionNode {
     std::string property_name;
     PropertyAccess(const std::string& obj, const std::string& prop) 
         : object_name(obj), property_name(prop) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ExpressionPropertyAccess : ExpressionNode {
@@ -930,12 +926,12 @@ struct ExpressionPropertyAccess : ExpressionNode {
     std::string property_name;
     ExpressionPropertyAccess(std::unique_ptr<ExpressionNode> obj, const std::string& prop) 
         : object(std::move(obj)), property_name(prop) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ThisExpression : ExpressionNode {
     ThisExpression() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct NewExpression : ExpressionNode {
@@ -944,7 +940,7 @@ struct NewExpression : ExpressionNode {
     bool is_dart_style = false; // For new Person{name: "bob"} syntax
     std::vector<std::pair<std::string, std::unique_ptr<ExpressionNode>>> dart_args;
     NewExpression(const std::string& name) : class_name(name) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ConstructorDecl : ASTNode {
@@ -952,7 +948,7 @@ struct ConstructorDecl : ASTNode {
     std::vector<Variable> parameters;
     std::vector<std::unique_ptr<ASTNode>> body;
     ConstructorDecl(const std::string& cn) : class_name(cn) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
     
     // Helper to get class info during code generation
     static GoTSCompiler* current_compiler_context;
@@ -970,13 +966,13 @@ struct MethodDecl : ASTNode {
     bool is_protected = false;
     MethodDecl(const std::string& n) : name(n) {}
     MethodDecl(const std::string& n, const std::string& cls) : name(n), class_name(cls) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct SuperCall : ExpressionNode {
     std::vector<std::unique_ptr<ExpressionNode>> arguments;
     SuperCall() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct SuperMethodCall : ExpressionNode {
@@ -984,7 +980,7 @@ struct SuperMethodCall : ExpressionNode {
     std::vector<std::unique_ptr<ExpressionNode>> arguments;
     std::vector<std::string> keyword_names;  // Names for keyword arguments (empty string for positional)
     SuperMethodCall(const std::string& name) : method_name(name) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct ClassDecl : ASTNode {
@@ -995,7 +991,7 @@ struct ClassDecl : ASTNode {
     std::vector<std::unique_ptr<MethodDecl>> methods;
     std::vector<std::unique_ptr<OperatorOverloadDecl>> operator_overloads;  // Operator overloads
     ClassDecl(const std::string& n) : name(n) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 struct OperatorOverloadDecl : ASTNode {
@@ -1006,7 +1002,7 @@ struct OperatorOverloadDecl : ASTNode {
     std::string class_name;  // Class this operator belongs to
     OperatorOverloadDecl(TokenType op, const std::string& class_name) 
         : operator_type(op), class_name(class_name) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 class Lexer {

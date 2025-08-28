@@ -254,7 +254,7 @@ void emit_variable_store(CodeGenerator& gen, const std::string& var_name) {
 // These replace all the old generate_code methods that used TypeInference
 //=============================================================================
 
-void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
+void NumberLiteral::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_CODEGEN] NumberLiteral::generate_code - value=" << value << std::endl;
     
     // For JavaScript compatibility, always treat numbers as FLOAT64 by default
@@ -266,7 +266,7 @@ void NumberLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout << "[NEW_CODEGEN] NumberLiteral: Generated float64 value " << value << std::endl;
 }
 
-void StringLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
+void StringLiteral::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_CODEGEN] StringLiteral::generate_code - value=\"" << value << "\"" << std::endl;
     
     // TODO: Implement string literal code generation
@@ -277,7 +277,7 @@ void StringLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
     std::cout << "[NEW_CODEGEN] StringLiteral: Generated string (placeholder implementation)" << std::endl;
 }
 
-void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
+void Identifier::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_CODEGEN] Identifier::generate_code - variable: " << name << std::endl;
     
     // Handle special cases first
@@ -323,13 +323,13 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     throw std::runtime_error("Undefined variable: " + name);
 }
 
-void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
+void Assignment::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_CODEGEN] Assignment::generate_code - variable: " << variable_name 
               << ", declared_type=" << static_cast<int>(declared_type) << std::endl;
     
     // Generate value first
     if (value) {
-        value->generate_code(gen, types);
+        value->generate_code(gen);
         
         // Determine variable type
         DataType variable_type;
@@ -353,18 +353,18 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
 // TODO: Implement more AST nodes using the same pattern
 // For now, let's implement minimal versions that don't crash
 
-void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
+void BinaryOp::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_CODEGEN] BinaryOp::generate_code - operator: " << static_cast<int>(op) << std::endl;
     
     if (left) {
-        left->generate_code(gen, types);
+        left->generate_code(gen);
         // Save left operand on stack
         gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8
         gen.emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax
     }
     
     if (right) {
-        right->generate_code(gen, types);
+        right->generate_code(gen);
         // Right operand is now in RAX
     }
     
@@ -375,234 +375,234 @@ void BinaryOp::generate_code(CodeGenerator& gen, TypeInference& types) {
 }
 
 // Placeholder implementations for other nodes to prevent compilation errors
-void RegexLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
+void RegexLiteral::generate_code(CodeGenerator& gen) {
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::REGEX;
 }
 
-void TernaryOperator::generate_code(CodeGenerator& gen, TypeInference& types) {
+void TernaryOperator::generate_code(CodeGenerator& gen) {
     // TODO: Implement ternary operator
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ANY;
 }
 
-void FunctionCall::generate_code(CodeGenerator& gen, TypeInference& types) {
+void FunctionCall::generate_code(CodeGenerator& gen) {
     // TODO: Implement function calls
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ANY;
 }
 
-void FunctionExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
+void FunctionExpression::generate_code(CodeGenerator& gen) {
     // TODO: Implement function expressions
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::FUNCTION;
 }
 
-void ArrowFunction::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ArrowFunction::generate_code(CodeGenerator& gen) {
     // TODO: Implement arrow functions
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::FUNCTION;
 }
 
-void MethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
+void MethodCall::generate_code(CodeGenerator& gen) {
     // TODO: Implement method calls
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ANY;
 }
 
-void ExpressionMethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ExpressionMethodCall::generate_code(CodeGenerator& gen) {
     // TODO: Implement expression method calls
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ANY;
 }
 
-void ArrayLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ArrayLiteral::generate_code(CodeGenerator& gen) {
     // TODO: Implement array literals
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ARRAY;
 }
 
-void ObjectLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ObjectLiteral::generate_code(CodeGenerator& gen) {
     // TODO: Implement object literals
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ANY;
 }
 
-void TypedArrayLiteral::generate_code(CodeGenerator& gen, TypeInference& types) {
+void TypedArrayLiteral::generate_code(CodeGenerator& gen) {
     // TODO: Implement typed array literals
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ARRAY;
 }
 
-void ArrayAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ArrayAccess::generate_code(CodeGenerator& gen) {
     // TODO: Implement array access
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ANY;
 }
 
-void PostfixIncrement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void PostfixIncrement::generate_code(CodeGenerator& gen) {
     // TODO: Implement postfix increment
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ANY;
 }
 
-void PostfixDecrement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void PostfixDecrement::generate_code(CodeGenerator& gen) {
     // TODO: Implement postfix decrement
     gen.emit_mov_reg_imm(0, 0);
     result_type = DataType::ANY;
 }
 
-void FunctionDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
+void FunctionDecl::generate_code(CodeGenerator& gen) {
     // TODO: Implement function declarations
     std::cout << "[NEW_CODEGEN] FunctionDecl for " << name << std::endl;
 }
 
-void IfStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void IfStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement if statements
     std::cout << "[NEW_CODEGEN] IfStatement placeholder" << std::endl;
 }
 
-void ForLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ForLoop::generate_code(CodeGenerator& gen) {
     // TODO: Implement for loops
     std::cout << "[NEW_CODEGEN] ForLoop placeholder" << std::endl;
 }
 
 // Add more placeholder implementations as needed for other AST nodes...
 
-void WhileLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
+void WhileLoop::generate_code(CodeGenerator& gen) {
     // TODO: Implement while loops
     std::cout << "[NEW_CODEGEN] WhileLoop placeholder" << std::endl;
 }
 
-void ReturnStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ReturnStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement return statements
     std::cout << "[NEW_CODEGEN] ReturnStatement placeholder" << std::endl;
 }
 
-void BreakStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void BreakStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement break statements
     std::cout << "[NEW_CODEGEN] BreakStatement placeholder" << std::endl;
 }
 
-void FreeStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void FreeStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement free statements
     std::cout << "[NEW_CODEGEN] FreeStatement placeholder" << std::endl;
 }
 
-void ThrowStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ThrowStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement throw statements
     std::cout << "[NEW_CODEGEN] ThrowStatement placeholder" << std::endl;
 }
 
-void CatchClause::generate_code(CodeGenerator& gen, TypeInference& types) {
+void CatchClause::generate_code(CodeGenerator& gen) {
     // TODO: Implement catch clauses
     std::cout << "[NEW_CODEGEN] CatchClause placeholder" << std::endl;
 }
 
-void TryStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void TryStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement try statements
     std::cout << "[NEW_CODEGEN] TryStatement placeholder" << std::endl;
 }
 
-void BlockStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void BlockStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement block statements
     std::cout << "[NEW_CODEGEN] BlockStatement placeholder" << std::endl;
 }
 
-void CaseClause::generate_code(CodeGenerator& gen, TypeInference& types) {
+void CaseClause::generate_code(CodeGenerator& gen) {
     // TODO: Implement case clauses
     std::cout << "[NEW_CODEGEN] CaseClause placeholder" << std::endl;
 }
 
-void SwitchStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void SwitchStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement switch statements
     std::cout << "[NEW_CODEGEN] SwitchStatement placeholder" << std::endl;
 }
 
-void ImportStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ImportStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement import statements
     std::cout << "[NEW_CODEGEN] ImportStatement placeholder for " << module_path << std::endl;
 }
 
-void ExportStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ExportStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement export statements
     std::cout << "[NEW_CODEGEN] ExportStatement placeholder" << std::endl;
 }
 
-void ConstructorDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ConstructorDecl::generate_code(CodeGenerator& gen) {
     // TODO: Implement constructor declarations
     std::cout << "[NEW_CODEGEN] ConstructorDecl placeholder for " << class_name << std::endl;
 }
 
-void MethodDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
+void MethodDecl::generate_code(CodeGenerator& gen) {
     // TODO: Implement method declarations
     std::cout << "[NEW_CODEGEN] MethodDecl placeholder for " << name << std::endl;
 }
 
-void ClassDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ClassDecl::generate_code(CodeGenerator& gen) {
     // TODO: Implement class declarations
     std::cout << "[NEW_CODEGEN] ClassDecl placeholder for " << name << std::endl;
 }
 
-void OperatorOverloadDecl::generate_code(CodeGenerator& gen, TypeInference& types) {
+void OperatorOverloadDecl::generate_code(CodeGenerator& gen) {
     // TODO: Implement operator overload declarations
     std::cout << "[NEW_CODEGEN] OperatorOverloadDecl placeholder for TokenType=" << static_cast<int>(operator_type) << std::endl;
 }
 
-void ForEachLoop::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ForEachLoop::generate_code(CodeGenerator& gen) {
     // TODO: Implement foreach loops
     std::cout << "[NEW_CODEGEN] ForEachLoop placeholder" << std::endl;
 }
 
-void ForInStatement::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ForInStatement::generate_code(CodeGenerator& gen) {
     // TODO: Implement for-in statements
     std::cout << "[NEW_CODEGEN] ForInStatement placeholder" << std::endl;
 }
 
 // Additional missing AST node implementations
 
-void PropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
+void PropertyAccess::generate_code(CodeGenerator& gen) {
     // TODO: Implement property access
     std::cout << "[NEW_CODEGEN] PropertyAccess placeholder for " << object_name << "." << property_name << std::endl;
 }
 
-void ExpressionPropertyAccess::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ExpressionPropertyAccess::generate_code(CodeGenerator& gen) {
     // TODO: Implement expression property access
     std::cout << "[NEW_CODEGEN] ExpressionPropertyAccess placeholder" << std::endl;
 }
 
-void PropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types) {
+void PropertyAssignment::generate_code(CodeGenerator& gen) {
     // TODO: Implement property assignment
     std::cout << "[NEW_CODEGEN] PropertyAssignment placeholder" << std::endl;
 }
 
-void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen) {
     // TODO: Implement expression property assignment
     std::cout << "[NEW_CODEGEN] ExpressionPropertyAssignment placeholder" << std::endl;
 }
 
-void ThisExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
+void ThisExpression::generate_code(CodeGenerator& gen) {
     // TODO: Implement this expression
     std::cout << "[NEW_CODEGEN] ThisExpression placeholder" << std::endl;
 }
 
-void NewExpression::generate_code(CodeGenerator& gen, TypeInference& types) {
+void NewExpression::generate_code(CodeGenerator& gen) {
     // TODO: Implement new expression
     std::cout << "[NEW_CODEGEN] NewExpression placeholder for " << class_name << std::endl;
 }
 
-void SuperCall::generate_code(CodeGenerator& gen, TypeInference& types) {
+void SuperCall::generate_code(CodeGenerator& gen) {
     // TODO: Implement super call
     std::cout << "[NEW_CODEGEN] SuperCall placeholder" << std::endl;
 }
 
-void SuperMethodCall::generate_code(CodeGenerator& gen, TypeInference& types) {
+void SuperMethodCall::generate_code(CodeGenerator& gen) {
     // TODO: Implement super method call
     std::cout << "[NEW_CODEGEN] SuperMethodCall placeholder" << std::endl;
 }
 
 // Add missing FunctionExpression methods
-void FunctionExpression::compile_function_body(CodeGenerator& gen, TypeInference& types, const std::string& func_name) {
+void FunctionExpression::compile_function_body(CodeGenerator& gen, const std::string& func_name) {
     std::cout << "[NEW_CODEGEN] FunctionExpression::compile_function_body placeholder for " << func_name << std::endl;
     // TODO: Implement function body compilation with new scope system
 }

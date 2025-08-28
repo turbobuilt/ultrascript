@@ -21,7 +21,7 @@ void CompilationContext::register_function(std::shared_ptr<FunctionExpression> f
     functions[name] = std::move(func_info);
 }
 
-void CompilationContext::compile_all_functions(CodeGenerator& gen, TypeInference& types) {
+void CompilationContext::compile_all_functions(CodeGenerator& gen) {
     if (functions.empty()) {
         std::cout << "DEBUG: No functions to compile" << std::endl;
         return;
@@ -38,7 +38,7 @@ void CompilationContext::compile_all_functions(CodeGenerator& gen, TypeInference
         auto it = functions.find(func_name);
         if (it != functions.end() && !it->second->compiled) {
             std::cout << "DEBUG: Compiling function: " << func_name << std::endl;
-            compile_function(*it->second, gen, types);
+            compile_function(*it->second, gen);
             compiled_count++;
         }
     }
@@ -106,14 +106,14 @@ void CompilationContext::analyze_dependencies(FunctionInfo& func_info) {
     std::cout << "DEBUG: Function " << func_info.name << " has " << func_info.dependencies.size() << " dependencies" << std::endl;
 }
 
-void CompilationContext::compile_function(FunctionInfo& func_info, CodeGenerator& gen, TypeInference& types) {
+void CompilationContext::compile_function(FunctionInfo& func_info, CodeGenerator& gen) {
     if (func_info.compiled) {
         return;
     }
     
     try {
         // Compile the function body
-        func_info.function->compile_function_body(gen, types, func_info.name);
+        func_info.function->compile_function_body(gen, func_info.name);
         func_info.compiled = true;
         std::cout << "DEBUG: Successfully compiled function: " << func_info.name << std::endl;
     } catch (const std::exception& e) {

@@ -157,7 +157,7 @@ void GoTSCompiler::compile(const std::string& source) {
         
         // PHASE 2: FUNCTION COMPILATION
         // Compile all functions to the beginning of the code section
-        FunctionCompilationManager::instance().compile_all_functions(*codegen, type_system);
+        FunctionCompilationManager::instance().compile_all_functions(*codegen);
         
         // Check if we have any function declarations or class definitions
         bool has_functions = false;
@@ -179,7 +179,7 @@ void GoTSCompiler::compile(const std::string& source) {
         // Generate all function declarations first
         for (const auto& node : ast) {
             if (dynamic_cast<FunctionDecl*>(node.get())) {
-                node->generate_code(*codegen, type_system);
+                node->generate_code(*codegen);
             }
         }
         
@@ -188,17 +188,17 @@ void GoTSCompiler::compile(const std::string& source) {
             if (auto class_decl = dynamic_cast<ClassDecl*>(node.get())) {
                 // Generate constructor first if it exists
                 if (class_decl->constructor) {
-                    class_decl->constructor->generate_code(*codegen, type_system);
+                    class_decl->constructor->generate_code(*codegen);
                 }
                 
                 // Generate methods
                 for (auto& method : class_decl->methods) {
-                    method->generate_code(*codegen, type_system);
+                    method->generate_code(*codegen);
                 }
                 
                 // Generate operator overloads
                 for (auto& op_overload : class_decl->operator_overloads) {
-                    op_overload->generate_code(*codegen, type_system);
+                    op_overload->generate_code(*codegen);
                 }
             }
         }
@@ -255,14 +255,14 @@ void GoTSCompiler::compile(const std::string& source) {
         // Process imports first (they are hoisted like in JavaScript/TypeScript)
         for (const auto& node : ast) {
             if (dynamic_cast<ImportStatement*>(node.get())) {
-                node->generate_code(*codegen, type_system);
+                node->generate_code(*codegen);
             }
         }
         
         // Generate non-function, non-import statements
         for (const auto& node : ast) {
             if (!dynamic_cast<FunctionDecl*>(node.get()) && !dynamic_cast<ImportStatement*>(node.get())) {
-                node->generate_code(*codegen, type_system);
+                node->generate_code(*codegen);
             }
         }
         

@@ -162,7 +162,7 @@ std::string FunctionCompilationManager::register_function(std::shared_ptr<Functi
     return func_name;
 }
 
-void FunctionCompilationManager::compile_all_functions(CodeGenerator& gen, TypeInference& types) {
+void FunctionCompilationManager::compile_all_functions(CodeGenerator& gen) {
     
     total_function_code_size_ = 0;
     
@@ -187,7 +187,7 @@ void FunctionCompilationManager::compile_all_functions(CodeGenerator& gen, TypeI
         
         // Compile function body
         try {
-            compile_function_body(gen, types, func_info);
+            compile_function_body(gen, func_info);
         } catch (const std::exception& e) {
             std::cerr << "ERROR: Exception during function compilation: " << e.what() << std::endl;
             throw;
@@ -306,7 +306,7 @@ std::string FunctionCompilationManager::generate_unique_function_name(const std:
     return name;
 }
 
-void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, TypeInference& types, FunctionInfo* func_info) {
+void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, FunctionInfo* func_info) {
     FunctionExpression* func_expr = func_info->function_expr.get();
     
     // Safety check
@@ -359,16 +359,12 @@ void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, TypeI
         }
     }
     
-    // Set up local type context
-    TypeInference local_types;
-    local_types.reset_for_function();
-    
-    // Generate function body statements
+    // Generate function body statements (using new scope-aware system)
     for (size_t i = 0; i < func_expr->body.size(); i++) {
         if (func_expr->body[i]) {
             
             try {
-                func_expr->body[i]->generate_code(gen, local_types);
+                func_expr->body[i]->generate_code(gen);
             } catch (const std::exception& e) {
                 std::cerr << "ERROR: Exception in statement " << i << ": " << e.what() << std::endl;
                 throw;
