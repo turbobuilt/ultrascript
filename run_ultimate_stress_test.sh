@@ -76,11 +76,9 @@ g++ -std=c++17 -I. -O0 -g -DDEBUG \
     error_reporter.o \
     syntax_highlighter.o \
     compilation_context.o \
-    escape_analyzer.o \
     function_compilation_manager.o \
     minimal_parser_gc.o \
-    lexical_scope_layout.o \
-    lexical_scope_address_tracker.o \
+    simple_lexical_scope.o \
     console_log_overhaul.o \
     x86_codegen_v2.o \
     x86_instruction_builder.o \

@@ -27,7 +27,7 @@ CORE_OBJECTS="
     error_reporter.o
     syntax_highlighter.o
     compilation_context.o
-    escape_analyzer.o
+    simple_lexical_scope.o
 "
 
 # Optional objects that might be needed for full functionality

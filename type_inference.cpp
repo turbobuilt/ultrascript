@@ -743,32 +743,6 @@ void TypeInference::debug_print_escape_info() const {
 // SCOPE INDEX SYSTEM IMPLEMENTATION  
 // ============================================================================
 
-void TypeInference::analyze_function_lexical_scopes(const std::string& function_name, ASTNode* function_node) {
-    // Lexical scope analysis is now handled by SimpleLexicalScopeAnalyzer during parsing
-    // This method is kept for compatibility but does nothing
-    std::cout << "[DEBUG] TypeInference: Lexical scopes for '" << function_name << "' handled by SimpleLexicalScopeAnalyzer" << std::endl;
-}
-
-bool TypeInference::function_needs_r15_register(const std::string& function_name) const {
-    // The new system uses r12, r13, r14 for scope access, r15 is no longer used for lexical scopes
-    return false;
-}
-
-bool TypeInference::function_uses_heap_scope(const std::string& function_name) const {
-    // The new system uses stack-based scope management by default
-    return false;
-}
-
-std::vector<int> TypeInference::get_required_parent_scope_levels(const std::string& function_name) const {
-    // Scope level requirements are now handled during code generation
-    return {};
-}
-
-size_t TypeInference::get_heap_scope_size(const std::string& function_name) const {
-    // The new system uses stack-based scope management
-    return 0;
-}
-
 bool TypeInference::variable_escapes_in_function(const std::string& function_name, const std::string& var_name) const {
     // Fall back to the original escape analysis method
     return variable_escapes(var_name);

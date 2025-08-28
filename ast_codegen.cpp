@@ -9,7 +9,6 @@
 #include "console_log_overhaul.h"
 #include "class_runtime_interface.h"
 #include "dynamic_properties.h"
-#include "lexical_scope_address_tracker.h"
 #include <iostream>
 #include <unordered_map>
 #include <cstring>
@@ -545,59 +544,56 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
     
     result_type = var_type;
     
-    // NEW LEXICAL SCOPE SYSTEM: Load variable based on static analysis
+    // Use SimpleLexicalScopeAnalyzer for variable access
     std::string current_function = types.get_current_function_context();
     std::cout << "[DEBUG] Identifier::generate_code - Loading variable '" << name << "' from function context '" << current_function << "'" << std::endl;
     
-    if (types.function_uses_heap_scope(current_function)) {
-        // Function uses heap scopes - determine if this variable escapes
-        if (types.variable_escapes_in_function(current_function, name)) {
-            // Variable escapes - determine which scope level and register using static analysis
-            int scope_level = types.determine_variable_scope_level(name, current_function);
-            int scope_register = types.get_register_for_scope_level(current_function, scope_level);
+    // Get variable access information from scope analyzer
+    int scope_depth = types.get_variable_scope_depth(name);
+    // TODO: implement get_variable_access_register method
+    std::string access_register; // = types.get_variable_access_register(name);
+    
+    if (!access_register.empty() && scope_depth > 0) {
+        // Variable is in a parent scope and has a register assigned
+        // TODO: implement get_compiler method
+        // SimpleLexicalScopeAnalyzer* scope_analyzer = 
+        //     gen.get_compiler().get_lexical_scope_analyzer();
+        SimpleLexicalScopeAnalyzer* scope_analyzer = nullptr;
+        
+        X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+        if (scope_analyzer && x86_gen) {
+            // Use the assigned register for scope access
+            int64_t var_offset = types.get_variable_offset(name);
             
-            if (scope_register != -1) {
-                // ULTRA-FAST: Direct register-based scope access (1 instruction)
-                int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
-                
-                // Use X86CodeGenV2 specific scope register method
-                if (auto* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
-                    x86_gen->emit_variable_load_from_scope_register(0, scope_register, heap_offset);
-                    std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from register-based scope R" 
-                              << scope_register << "+" << heap_offset << " (ULTRA-FAST)" << std::endl;
-                } else {
-                    // This should not happen if we're using X86CodeGenV2
-                    throw std::runtime_error("Register-based scope access requires X86CodeGenV2");
-                }
-            } else if (types.needs_stack_fallback_for_scopes(current_function)) {
-                // FALLBACK: Stack-based scope access for deep scopes
-                int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
-                gen.emit_mov_reg_mem(1, -16 - (scope_level * 8));  // Load scope pointer from stack
-                gen.emit_mov_reg_reg_offset(0, 1, heap_offset);    // RAX = [scope_ptr + offset]
-                std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack-cached scope at level " 
-                          << scope_level << "+" << heap_offset << std::endl;
+            // Map register name to register number for X86CodeGenV2
+            int reg_num = -1;
+            if (access_register == "r12") reg_num = 12;
+            else if (access_register == "r13") reg_num = 13;
+            else if (access_register == "r14") reg_num = 14;
+            
+            if (reg_num != -1) {
+                x86_gen->emit_variable_load_from_scope_register(0, reg_num, var_offset);
+                std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from scope register " 
+                          << access_register << " at depth " << scope_depth << std::endl;
             } else {
-                // Traditional heap scope access via R15
-                int64_t heap_offset = types.get_variable_offset_in_function(current_function, name);
-                gen.emit_mov_reg_reg_offset(0, 15, heap_offset);  // RAX = [R15 + offset]
-                std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from heap scope at R15+" << heap_offset << std::endl;
+                // TODO: implement emit_load_variable method
+                // gen.emit_load_variable(name, var_offset, var_type);
+                std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack (fallback)" << std::endl;
             }
         } else {
-            // Variable on stack in escaping function
-            int64_t stack_offset = types.get_variable_offset_in_function(current_function, name);
-            gen.emit_mov_reg_mem(0, stack_offset);  // RAX = [RBP + offset]
-            std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack at RBP" << stack_offset << std::endl;
+            // TODO: implement emit_load_variable method
+            // gen.emit_load_variable(name, types.get_variable_offset(name), var_type);
+            std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack (no scope analyzer)" << std::endl;
         }
     } else {
-        // Non-escaping function - direct stack access (no heap scopes needed)
-        int64_t stack_offset = types.get_variable_offset_in_function(current_function, name);
-        if (stack_offset == 0) {
-            // Default to -8 for backward compatibility
-            stack_offset = -8;
-        }
+        // Variable is in current scope, use regular stack access
+        int64_t stack_offset = types.get_variable_offset(name);
+        // TODO: implement emit_load_variable method
+        // gen.emit_load_variable(name, stack_offset, var_type);
+        std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from current scope at RBP" << stack_offset << std::endl;
         
-        gen.emit_mov_reg_mem(0, stack_offset);  // RAX = [RBP + offset]
-        std::cout << "[DEBUG] Identifier: Variable '" << name << "' loaded from stack (non-escaping function) at RBP" << stack_offset << std::endl;
+        // TODO: implement access_variable method
+        // types.access_variable(name);
     }
 }
 
@@ -1967,21 +1963,27 @@ void FunctionExpression::compile_function_body(CodeGenerator& gen, TypeInference
     // LEXICAL SCOPE CONTEXT: Track function entry for proper scope analysis
     types.push_function_context(func_name);
     
-    // LEXICAL SCOPE SYSTEM: Debug current parent scope variables before reset
+    // Debug current parent scope variables before reset
     std::cout << "[DEBUG] FunctionExpression::compile_function_body - Parent scope variables before reset:" << std::endl;
     types.debug_print_all_variables();
     
-    // Save current stack offset state
+    // Create local type inference context and connect to scope analyzer
     TypeInference local_types;
+    // TODO: implement set_scope_analyzer and get_scope_analyzer methods
+    // local_types.set_scope_analyzer(types.get_scope_analyzer());
     local_types.reset_for_function();
     
-    // LEXICAL SCOPE SYSTEM: For goroutines, we need to inherit parent scope variables
+    // Enter function scope in the scope analyzer
+    // TODO: implement get_scope_analyzer method
+    // if (auto* scope_analyzer = local_types.get_scope_analyzer()) {
+    //     scope_analyzer->enter_scope();
+    // }
+    
     if (is_goroutine) {
-        std::cout << "[DEBUG] FunctionExpression::compile_function_body - This is a GOROUTINE, need to inherit parent scope" << std::endl;
-        // Copy parent scope variables that have escaped to this goroutine
-        local_types.inherit_escaped_variables_from_parent(types);
-        std::cout << "[DEBUG] FunctionExpression::compile_function_body - After inheriting parent scope:" << std::endl;
-        local_types.debug_print_all_variables();
+        std::cout << "[DEBUG] FunctionExpression::compile_function_body - This is a GOROUTINE" << std::endl;
+        std::cout << "[DEBUG] FunctionExpression::compile_function_body - Scope dependencies managed by SimpleLexicalScopeAnalyzer" << std::endl;
+        // TODO: implement debug_print_scope_info method
+        // local_types.debug_print_scope_info();
     }
     
     // Emit function label
@@ -3339,20 +3341,34 @@ void Assignment::generate_code(CodeGenerator& gen, TypeInference& types) {
             }
             // else: primitive -> primitive (no conversion needed)
             
-            // LEXICAL SCOPE SYSTEM: Store variable based on escape analysis result
-            if (types.variable_escapes(variable_name)) {
-                // Variable escapes - store in lexical scope (direct inline assembly)
-                std::cout << "[DEBUG] Assignment: Variable '" << variable_name << "' escapes - storing in lexical scope" << std::endl;
+            // Use SimpleLexicalScopeAnalyzer for variable storage
+            int scope_depth = types.get_variable_scope_depth(variable_name);
+            // TODO: implement get_variable_access_register method
+            std::string access_register; // = types.get_variable_access_register(variable_name);
+            
+            if (!access_register.empty() && scope_depth > 0) {
+                // Variable is in a parent scope and has a register assigned
+                std::cout << "[DEBUG] Assignment: Variable '" << variable_name << "' in parent scope - storing via " << access_register << std::endl;
                 
-                // For escaping variables, we store them in heap scope directly
-                // R15 register contains current lexical scope pointer (set by goroutine system)
-                // Generate inline assembly to store in scope structure
-                int64_t var_offset = types.get_variable_offset_in_function("current_function", variable_name);
-                gen.emit_mov_reg_offset_reg(15, var_offset, 0); // mov [r15 + var_offset], rax
+                // Map register name to register number
+                int reg_num = -1;
+                if (access_register == "r12") reg_num = 12;
+                else if (access_register == "r13") reg_num = 13;
+                else if (access_register == "r14") reg_num = 14;
+                
+                X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+                if (reg_num != -1 && x86_gen) {
+                    int64_t var_offset = types.get_variable_offset(variable_name);
+                    // Store to scope register: mov [reg_num + var_offset], rax
+                    gen.emit_mov_reg_offset_reg(reg_num, var_offset, 0);
+                } else {
+                    // Fallback to stack storage
+                    gen.emit_mov_mem_reg(offset, 0);
+                }
             } else {
-                // Variable stays on stack - use direct stack access (zero overhead)
-                gen.emit_mov_mem_reg(offset, 0); // Store the primitive value on stack
-                std::cout << "[DEBUG] Assignment: Variable '" << variable_name << "' stays on stack at offset " << offset << std::endl;
+                // Variable is in current scope - use direct stack access
+                gen.emit_mov_mem_reg(offset, 0);
+                std::cout << "[DEBUG] Assignment: Variable '" << variable_name << "' stored in current scope at offset " << offset << std::endl;
             }
         }
         

@@ -2,7 +2,6 @@
 
 #include "minimal_parser_gc.h"
 #include "codegen_forward.h"
-#include "escape_analyzer.h"
 #include "simple_lexical_scope.h"  // NEW SIMPLE LEXICAL SCOPE SYSTEM
 #include <variant>
 #include <memory>
@@ -335,14 +334,6 @@ public:
     std::vector<std::string> get_escaped_variables_in_scope() const;       // Get all escaped vars in current scope
     std::vector<std::string> get_stack_variables_in_scope() const;         // Get all stack vars in current scope
     int get_variable_scope_depth(const std::string& name) const;           // Get declaration scope depth
-    
-    // NEW LEXICAL SCOPE SYSTEM: Static analysis-based methods
-    void set_current_function_analysis(const std::string& function_name);  // Set function being analyzed
-    void analyze_function_lexical_scopes(const std::string& function_name, ASTNode* function_node);  // Analyze function
-    bool function_needs_r15_register(const std::string& function_name) const;       // Does function need R15?
-    bool function_uses_heap_scope(const std::string& function_name) const;          // Does function use heap scopes?
-    std::vector<int> get_required_parent_scope_levels(const std::string& function_name) const;  // Which parent levels needed?
-    size_t get_heap_scope_size(const std::string& function_name) const;             // Size of heap scope
     
     // Updated variable access methods with function context
     bool variable_escapes_in_function(const std::string& function_name, const std::string& var_name) const;
@@ -1014,11 +1005,6 @@ public:
     void initialize_simple_lexical_scope_system();
     void finalize_simple_lexical_scope_analysis();
     class SimpleLexicalScopeAnalyzer* get_lexical_scope_analyzer() { return lexical_scope_analyzer_.get(); }
-    
-    // Legacy methods (will be removed)
-    // Legacy method kept for compatibility but returns nullptr since old system is removed
-    void* get_lexical_scope_address_tracker() { return nullptr; }
-    class EscapeAnalyzer* get_escape_analyzer() { return nullptr; }
     
     // Current scope variable tracking for escape analysis
     void add_variable_to_current_scope(const std::string& name, const std::string& type);
