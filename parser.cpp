@@ -921,6 +921,16 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             gc_integration_->enter_scope("function_expr", true);
         }
         
+        // NEW: Enter lexical scope for function expression
+        if (lexical_scope_analyzer_) {
+            lexical_scope_analyzer_->enter_scope();
+            
+            // Declare parameters in the new scope
+            for (const auto& param : func_expr->parameters) {
+                lexical_scope_analyzer_->declare_variable(param.name, "let");
+            }
+        }
+        
         // LEXICAL SCOPE MANAGEMENT: Save parent scope before entering function
         std::unordered_map<std::string, std::string> parent_scope = current_scope_variables_;
         enter_function_scope(); // Clear local scope for function body
@@ -936,6 +946,11 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             throw std::runtime_error("Expected '}' to end function body");
         }
         
+        // NEW: Exit lexical scope for function expression and capture scope info
+        if (lexical_scope_analyzer_) {
+            func_expr->lexical_scope = lexical_scope_analyzer_->exit_scope();
+        }
+        
         // GC INTEGRATION: Exit function scope
         if (gc_integration_) {
             gc_integration_->exit_scope();
@@ -943,9 +958,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         
         // LEXICAL SCOPE MANAGEMENT: Restore parent scope and perform escape analysis
         exit_function_scope(parent_scope);
-        
-        // The new simple lexical scope system handles analysis during parsing
-        // No post-processing needed
         
         return func_expr;
     }
@@ -1190,9 +1202,9 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
         throw std::runtime_error("Expected '}' to end function body");
     }
     
-    // NEW: Exit lexical scope for function
+    // NEW: Exit lexical scope for function and capture scope info
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->exit_scope();
+        func_decl->lexical_scope = lexical_scope_analyzer_->exit_scope();
     }
     
     // GC Integration: Exit function scope
@@ -1230,6 +1242,11 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
         case TokenType::CONST: decl_type_str = "const"; break;
         case TokenType::VAR: 
         default: decl_type_str = "var"; break;
+    }
+    
+    // NEW: Declare variable in lexical scope analyzer
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->declare_variable(var_name, decl_type_str);
     }
     
     // Lexical Scope System: Add variable to current scope for escape analysis
@@ -1299,6 +1316,11 @@ std::unique_ptr<ASTNode> Parser::parse_if_statement() {
         throw std::runtime_error("Expected ')' after if condition");
     }
     
+    // Enter lexical scope for then branch
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+    }
+    
     if (match(TokenType::LBRACE)) {
         while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
             if_stmt->then_body.push_back(parse_statement());
@@ -1311,9 +1333,19 @@ std::unique_ptr<ASTNode> Parser::parse_if_statement() {
         if_stmt->then_body.push_back(parse_statement());
     }
     
+    // Exit lexical scope for then branch and capture scope info
+    if (lexical_scope_analyzer_) {
+        if_stmt->then_lexical_scope = lexical_scope_analyzer_->exit_scope();
+    }
+    
     // Handle else clause
     if (current_token().type == TokenType::IDENTIFIER && current_token().value == "else") {
         advance(); // consume "else"
+        
+        // Enter lexical scope for else branch
+        if (lexical_scope_analyzer_) {
+            lexical_scope_analyzer_->enter_scope();
+        }
         
         if (match(TokenType::LBRACE)) {
             while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
@@ -1326,6 +1358,11 @@ std::unique_ptr<ASTNode> Parser::parse_if_statement() {
         } else {
             if_stmt->else_body.push_back(parse_statement());
         }
+        
+        // Exit lexical scope for else branch and capture scope info
+        if (lexical_scope_analyzer_) {
+            if_stmt->else_lexical_scope = lexical_scope_analyzer_->exit_scope();
+        }
     }
     
     return std::move(if_stmt);
@@ -1337,6 +1374,11 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
     }
     
     auto for_loop = std::make_unique<ForLoop>();
+    
+    // Enter lexical scope for for loop (ES6 for loops create block scope for let/const)
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+    }
     
     bool has_parens = false;
     if (check(TokenType::LPAREN)) {
@@ -1375,6 +1417,13 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
                 case TokenType::LET: assignment_kind = Assignment::LET; break;
                 case TokenType::CONST: assignment_kind = Assignment::CONST; break;
                 default: assignment_kind = Assignment::VAR; break;
+            }
+            
+            // Declare variable in lexical scope analyzer
+            if (lexical_scope_analyzer_) {
+                std::string decl_type_str = (assignment_kind == Assignment::LET) ? "let" : 
+                                           (assignment_kind == Assignment::CONST) ? "const" : "var";
+                lexical_scope_analyzer_->declare_variable(var_name, decl_type_str);
             }
             
             auto assignment = std::make_unique<Assignment>(var_name, std::move(value), assignment_kind);
@@ -1425,6 +1474,11 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
         for_loop->body.push_back(parse_statement());
     }
     
+    // Exit lexical scope for for loop and capture scope info
+    if (lexical_scope_analyzer_) {
+        for_loop->lexical_scope = lexical_scope_analyzer_->exit_scope();
+    }
+    
     return std::move(for_loop);
 }
 
@@ -1448,6 +1502,11 @@ std::unique_ptr<ASTNode> Parser::parse_while_statement() {
     
     auto while_loop = std::make_unique<WhileLoop>(std::move(condition));
     
+    // Enter lexical scope for while loop body
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+    }
+    
     // Parse body - support both braced and single statement
     if (match(TokenType::LBRACE)) {
         while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
@@ -1459,6 +1518,11 @@ std::unique_ptr<ASTNode> Parser::parse_while_statement() {
         }
     } else {
         while_loop->body.push_back(parse_statement());
+    }
+    
+    // Exit lexical scope for while loop and capture scope info
+    if (lexical_scope_analyzer_) {
+        while_loop->lexical_scope = lexical_scope_analyzer_->exit_scope();
     }
     
     return std::move(while_loop);
@@ -1473,11 +1537,21 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
         throw std::runtime_error("Expected 'each' after 'for'");
     }
     
+    // Enter lexical scope for for-each loop
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+    }
+    
     // Parse: index, value (where index represents index for arrays or key for objects)
     if (!match(TokenType::IDENTIFIER)) {
         throw std::runtime_error("Expected index/key variable name");
     }
     std::string index_var = tokens[pos - 1].value;
+    
+    // Declare index variable in lexical scope
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->declare_variable(index_var, "let");
+    }
     
     if (!match(TokenType::COMMA)) {
         throw std::runtime_error("Expected ',' after index/key variable");
@@ -1487,6 +1561,11 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
         throw std::runtime_error("Expected value variable name");
     }
     std::string value_var = tokens[pos - 1].value;
+    
+    // Declare value variable in lexical scope
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->declare_variable(value_var, "let");
+    }
     
     if (!match(TokenType::IN)) {
         throw std::runtime_error("Expected 'in' after variable declarations");
@@ -1511,12 +1590,22 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
         for_each->body.push_back(parse_statement());
     }
     
+    // Exit lexical scope for for-each loop and capture scope info
+    if (lexical_scope_analyzer_) {
+        for_each->lexical_scope = lexical_scope_analyzer_->exit_scope();
+    }
+    
     return std::move(for_each);
 }
 
 std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
     if (!match(TokenType::FOR)) {
         throw std::runtime_error("Expected 'for'");
+    }
+    
+    // Enter lexical scope for for-in loop
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
     }
     
     // Check if parentheses are used
@@ -1527,8 +1616,12 @@ std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
     
     // Optional variable declaration (let/var/const)
     bool has_declaration = false;
+    std::string decl_type = "let"; // default
     if (check(TokenType::LET) || check(TokenType::VAR) || check(TokenType::CONST)) {
         has_declaration = true;
+        if (check(TokenType::LET)) decl_type = "let";
+        else if (check(TokenType::VAR)) decl_type = "var";
+        else if (check(TokenType::CONST)) decl_type = "const";
         advance(); // consume the declaration keyword
     }
     
@@ -1537,6 +1630,11 @@ std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
         throw std::runtime_error("Expected variable name in for-in loop");
     }
     std::string key_var = tokens[pos - 1].value;
+    
+    // Declare key variable in lexical scope
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->declare_variable(key_var, decl_type);
+    }
     
     if (!match(TokenType::IN)) {
         throw std::runtime_error("Expected 'in' after variable name in for-in loop");
@@ -1565,6 +1663,11 @@ std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
         }
     } else {
         for_in->body.push_back(parse_statement());
+    }
+    
+    // Exit lexical scope for for-in loop and capture scope info
+    if (lexical_scope_analyzer_) {
+        for_in->lexical_scope = lexical_scope_analyzer_->exit_scope();
     }
     
     return std::move(for_in);
@@ -2374,6 +2477,14 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_identifier(cons
     param.type = DataType::ANY;  // Infer later
     arrow_func->parameters.push_back(param);
     
+    // Enter lexical scope for arrow function (even single expressions create scope)
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+        
+        // Declare parameter in the new scope
+        lexical_scope_analyzer_->declare_variable(param_name, "let");
+    }
+    
     // Parse the arrow function body
     if (check(TokenType::LBRACE)) {
         // Block body: x => { return x + 1; }
@@ -2394,6 +2505,11 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_identifier(cons
         arrow_func->expression = parse_assignment_expression();
     }
     
+    // Exit lexical scope for arrow function and capture scope info
+    if (lexical_scope_analyzer_) {
+        arrow_func->lexical_scope = lexical_scope_analyzer_->exit_scope();
+    }
+    
     return arrow_func;
 }
 
@@ -2405,6 +2521,16 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_params(const st
     
     auto arrow_func = std::make_unique<ArrowFunction>();
     arrow_func->parameters = params;
+    
+    // Enter lexical scope for arrow function
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+        
+        // Declare all parameters in the new scope
+        for (const auto& param : params) {
+            lexical_scope_analyzer_->declare_variable(param.name, "let");
+        }
+    }
     
     // Parse the arrow function body (same logic as single parameter version)
     if (check(TokenType::LBRACE)) {
@@ -2423,6 +2549,11 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_params(const st
         // Expression body: (x, y) => x + y
         arrow_func->is_single_expression = true;
         arrow_func->expression = parse_assignment_expression();
+    }
+    
+    // Exit lexical scope for arrow function and capture scope info
+    if (lexical_scope_analyzer_) {
+        arrow_func->lexical_scope = lexical_scope_analyzer_->exit_scope();
     }
     
     return arrow_func;
@@ -2560,9 +2691,9 @@ std::unique_ptr<ASTNode> Parser::parse_block_statement() {
         throw std::runtime_error("Expected '}' after block body");
     }
     
-    // NEW: Exit lexical scope for block
+    // NEW: Exit lexical scope for block and capture scope info
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->exit_scope();
+        block->lexical_scope = lexical_scope_analyzer_->exit_scope();
     }
     
     // GC Integration: Exit block scope

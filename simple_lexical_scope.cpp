@@ -1,4 +1,5 @@
 #include "simple_lexical_scope.h"
+#include "compiler.h"  // For LexicalScopeNode
 #include <algorithm>
 #include <iostream>
 #include <set>
@@ -13,17 +14,33 @@ void SimpleLexicalScopeAnalyzer::enter_scope() {
     std::cout << "[SimpleLexicalScope] Entered scope at depth " << current_depth_ << std::endl;
 }
 
-// Called when exiting a lexical scope
-void SimpleLexicalScopeAnalyzer::exit_scope() {
+// Called when exiting a lexical scope - returns LexicalScopeNode with all scope info
+std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     if (scope_stack_.empty()) {
         std::cerr << "[SimpleLexicalScope] ERROR: Attempting to exit scope when none exists!" << std::endl;
-        return;
+        return nullptr;
     }
     
     LexicalScopeInfo& current_scope = *scope_stack_.back();
     
     std::cout << "[SimpleLexicalScope] Exiting scope at depth " << current_depth_ 
               << " with " << current_scope.declared_variables.size() << " declared variables" << std::endl;
+    
+    // Create a LexicalScopeNode with all the scope information
+    auto lexical_scope_node = std::make_unique<LexicalScopeNode>(current_scope.depth);
+    
+    // Copy declared variables
+    lexical_scope_node->declared_variables = current_scope.declared_variables;
+    
+    // Copy self dependencies
+    for (const auto& dep : current_scope.self_dependencies) {
+        lexical_scope_node->add_self_dependency(dep.variable_name, dep.definition_depth, dep.access_count);
+    }
+    
+    // Copy descendant dependencies  
+    for (const auto& dep : current_scope.descendant_dependencies) {
+        lexical_scope_node->add_descendant_dependency(dep.variable_name, dep.definition_depth, dep.access_count);
+    }
     
     // Propagate dependencies to parent scope when this scope closes
     if (scope_stack_.size() > 1) {  // If there's a parent scope
@@ -118,6 +135,9 @@ void SimpleLexicalScopeAnalyzer::exit_scope() {
         }
     }
     
+    // Set priority-sorted scopes in the LexicalScopeNode
+    lexical_scope_node->set_priority_sorted_scopes(current_scope.priority_sorted_parent_scopes);
+    
     std::cout << "[SimpleLexicalScope] Priority-sorted parent scopes: ";
     for (int depth : current_scope.priority_sorted_parent_scopes) {
         std::cout << depth << " ";
@@ -130,6 +150,8 @@ void SimpleLexicalScopeAnalyzer::exit_scope() {
     // Remove this scope from the stack
     scope_stack_.pop_back();
     current_depth_--;
+    
+    return lexical_scope_node;
 }
 
 // Called when a variable is declared

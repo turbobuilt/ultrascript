@@ -41,6 +41,9 @@ struct LexicalScopeInfo {
     LexicalScopeInfo(int d) : depth(d) {}
 };
 
+// Forward declaration
+class LexicalScopeNode;
+
 // Main lexical scope analyzer - simple and parse-time integrated
 class SimpleLexicalScopeAnalyzer {
 private:
@@ -59,8 +62,8 @@ public:
     // Called when entering a new lexical scope (function, block, etc.)
     void enter_scope();
     
-    // Called when exiting a lexical scope
-    void exit_scope();
+    // Called when exiting a lexical scope - returns LexicalScopeNode with all scope info
+    std::unique_ptr<LexicalScopeNode> exit_scope();
     
     // Called when a variable is declared
     void declare_variable(const std::string& name, const std::string& type);

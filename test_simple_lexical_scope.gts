@@ -1,27 +1,24 @@
-// Test the new Simple Lexical Scope System
-// This tests absolute depth tracking and register allocation
-
-function outer() {
-    let x = 10;  // depth 1
+// Simple test of the lexical scope system
+function test() {
+    let outerVar = "outer";
     
-    function middle(y) { // depth 2
-        let z = 20;
+    if (true) {
+        let blockVar = "block";
+        console.log(outerVar); // accessing outer scope
         
-        function inner() { // depth 3
-            // Should access:
-            // x from depth 1 (using r12 for parent-of-parent)
-            // y from depth 2 (using r13 for parent) 
-            // z from depth 2 (using r13 for parent)
-            console.log("x=" + x + ", y=" + y + ", z=" + z);
-            return x + y + z;
+        for (let i = 0; i < 2; i++) {
+            let loopVar = "loop";
+            console.log(blockVar); // accessing block scope
+            console.log(outerVar); // accessing outer scope
         }
-        
-        return inner();
     }
     
-    return middle(5);
+    while (false) {
+        let whileVar = "while";
+        console.log(outerVar);
+    }
+    
+    return outerVar;
 }
 
-// Call the function to test lexical scope
-let result = outer();
-console.log("Result: " + result);
+test();

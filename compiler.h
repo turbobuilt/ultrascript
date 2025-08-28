@@ -378,10 +378,27 @@ struct ASTNode {
     virtual void generate_code(CodeGenerator& gen, TypeInference& types) = 0;
 };
 
-// Simple lexical scope node to track variable declarations and accesses
+// Include dependency and variable declaration structures for scope analysis
+#include <unordered_set>
+
+// Forward declarations - structures defined in simple_lexical_scope.h
+struct ScopeDependency;
+struct VariableDeclarationInfo;
+
+// Comprehensive lexical scope node containing all scope analysis information
 struct LexicalScopeNode : ASTNode {
-    int scope_depth;
-    std::unordered_set<std::string> declared_variables;
+    // Basic scope information
+    int scope_depth;                                           // Absolute depth of this scope
+    std::unordered_set<std::string> declared_variables;       // Variables declared in THIS scope
+    
+    // Advanced dependency tracking (moved from LexicalScopeInfo)
+    std::vector<ScopeDependency> self_dependencies;           // Variables accessed in this scope from outer scopes
+    std::vector<ScopeDependency> descendant_dependencies;     // Variables needed by all descendant scopes
+    
+    // Priority-sorted scope levels (backend-agnostic, computed after analysis)
+    std::vector<int> priority_sorted_parent_scopes;           // Scope levels/depths in order of access frequency
+    
+    // Legacy compatibility
     std::unordered_map<std::string, int> variable_access_depths; // var_name -> definition depth
     
     LexicalScopeNode(int depth) : scope_depth(depth) {}
@@ -394,9 +411,16 @@ struct LexicalScopeNode : ASTNode {
         variable_access_depths[name] = definition_depth;
     }
     
+    // Add dependency tracking methods
+    void add_self_dependency(const std::string& var_name, int def_depth, size_t access_count = 1);
+    void add_descendant_dependency(const std::string& var_name, int def_depth, size_t access_count = 1);
+    void set_priority_sorted_scopes(const std::vector<int>& scopes) { 
+        priority_sorted_parent_scopes = scopes; 
+    }
+    
     void generate_code(CodeGenerator& gen, TypeInference& types) override {
         // LexicalScopeNode doesn't generate code directly
-        // It's used by the simple lexical scope analyzer for tracking
+        // It contains scope analysis information used by code generation
     }
 };
 
@@ -465,6 +489,9 @@ struct FunctionExpression : ExpressionNode {
     // NEW: For three-phase compilation system
     std::string compilation_assigned_name_;  // Name assigned during Phase 1
     
+    // Lexical scope information for this function
+    std::unique_ptr<LexicalScopeNode> lexical_scope;
+    
     FunctionExpression() : name("") {}
     FunctionExpression(const std::string& n) : name(n) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
@@ -487,6 +514,9 @@ struct ArrowFunction : ExpressionNode {
     
     // NEW: For three-phase compilation system  
     std::string compilation_assigned_name_;  // Name assigned during Phase 1
+    
+    // Lexical scope information for this function (even single expression arrows create scope)
+    std::unique_ptr<LexicalScopeNode> lexical_scope;
     
     ArrowFunction() {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
@@ -629,6 +659,10 @@ struct FunctionDecl : ASTNode {
     std::vector<Variable> parameters;
     DataType return_type = DataType::ANY;
     std::vector<std::unique_ptr<ASTNode>> body;
+    
+    // Lexical scope information for this function
+    std::unique_ptr<LexicalScopeNode> lexical_scope;
+    
     FunctionDecl(const std::string& n) : name(n) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
@@ -637,6 +671,11 @@ struct IfStatement : ASTNode {
     std::unique_ptr<ExpressionNode> condition;
     std::vector<std::unique_ptr<ASTNode>> then_body;
     std::vector<std::unique_ptr<ASTNode>> else_body;
+    
+    // Lexical scope information (if/else bodies can create scopes even without {})
+    std::unique_ptr<LexicalScopeNode> then_lexical_scope;
+    std::unique_ptr<LexicalScopeNode> else_lexical_scope;
+    
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
@@ -650,6 +689,9 @@ struct ForLoop : ASTNode {
     Assignment::DeclarationKind init_declaration_kind = Assignment::VAR;  // Default to var
     bool creates_block_scope = false;  // true for let/const loops
     
+    // Lexical scope information for for-loop (creates scope for let/const in init)
+    std::unique_ptr<LexicalScopeNode> lexical_scope;
+    
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
 };
 
@@ -658,6 +700,10 @@ struct ForEachLoop : ASTNode {
     std::string value_var_name;   // value variable name
     std::unique_ptr<ExpressionNode> iterable;  // the array/object to iterate over
     std::vector<std::unique_ptr<ASTNode>> body;
+    
+    // Lexical scope information for for-each loop
+    std::unique_ptr<LexicalScopeNode> lexical_scope;
+    
     ForEachLoop(const std::string& index_name, const std::string& value_name)
         : index_var_name(index_name), value_var_name(value_name) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
@@ -667,6 +713,10 @@ struct ForInStatement : ASTNode {
     std::string key_var_name;     // the key variable name
     std::unique_ptr<ExpressionNode> object;  // the object to iterate over
     std::vector<std::unique_ptr<ASTNode>> body;
+    
+    // Lexical scope information for for-in loop
+    std::unique_ptr<LexicalScopeNode> lexical_scope;
+    
     ForInStatement(const std::string& key_name)
         : key_var_name(key_name) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
@@ -678,6 +728,9 @@ struct WhileLoop : ASTNode {
     
     // ES6 while-loop scoping - while loops create block scope in ES6
     bool creates_block_scope = true;  // while loops always create block scope for let/const
+    
+    // Lexical scope information for while loop
+    std::unique_ptr<LexicalScopeNode> lexical_scope;
     
     WhileLoop(std::unique_ptr<ExpressionNode> cond) : condition(std::move(cond)) {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
@@ -732,6 +785,9 @@ struct TryStatement : ASTNode {
 struct BlockStatement : ASTNode {
     std::vector<std::unique_ptr<ASTNode>> body;
     bool creates_scope = true;  // Block statements always create new scope
+    
+    // Lexical scope information for this block
+    std::unique_ptr<LexicalScopeNode> lexical_scope;
     
     BlockStatement() {}
     void generate_code(CodeGenerator& gen, TypeInference& types) override;
