@@ -466,31 +466,12 @@ void Identifier::generate_code(CodeGenerator& gen, TypeInference& types) {
                 std::cout << "[SCOPE_DEBUG] Variable '" << name << "' defined at depth " << definition_depth 
                           << ", accessing from depth " << current_depth << std::endl;
                 
-                // Get the appropriate register for this depth
-                std::string register_name = scope_analyzer->get_register_for_depth(definition_depth);
+                // Backend-agnostic: just record that this is a cross-scope variable access
+                // Actual register/stack allocation will be handled by backend-specific code later
+                std::cout << "[SCOPE_DEBUG] Cross-scope variable access detected (backend will handle allocation)" << std::endl;
                 
-                std::cout << "[SCOPE_DEBUG] Using register: " << register_name << std::endl;
-                
-                // For now, generate a simple load instruction
-                // In a full implementation, this would calculate the proper offset
-                if (auto* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
-                    if (register_name == "r12") {
-                        // Load from parent scope: RAX = [r12 + offset]
-                        x86_gen->emit_mov_reg_reg_offset(0, 12, 0); // RAX = [r12 + 0] (simplified)
-                    } else if (register_name == "r13") {
-                        // Load from grandparent scope: RAX = [r13 + offset]
-                        x86_gen->emit_mov_reg_reg_offset(0, 13, 0); // RAX = [r13 + 0] (simplified)
-                    } else if (register_name == "r14") {
-                        // Load from great-grandparent scope: RAX = [r14 + offset]
-                        x86_gen->emit_mov_reg_reg_offset(0, 14, 0); // RAX = [r14 + 0] (simplified)
-                    } else if (register_name.find("stack_") == 0) {  // Use find instead of starts_with
-                        // Load from stack
-                        x86_gen->emit_mov_reg_reg_offset(0, 6, -8); // RAX = [rbp - 8] (simplified)
-                    }
-                    
-                    result_type = DataType::ANY;
-                    return;
-                }
+                // For now, fall through to regular variable handling
+                // The backend can query the scope analyzer's priority_sorted_parent_scopes for optimization
             }
         }
     }

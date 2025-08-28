@@ -1,6 +1,8 @@
 #include "simple_lexical_scope.h"
 #include <algorithm>
 #include <iostream>
+#include <set>
+#include <unordered_map>
 
 // Called when entering a new lexical scope (function, block, etc.)
 void SimpleLexicalScopeAnalyzer::enter_scope() {
@@ -23,8 +25,104 @@ void SimpleLexicalScopeAnalyzer::exit_scope() {
     std::cout << "[SimpleLexicalScope] Exiting scope at depth " << current_depth_ 
               << " with " << current_scope.declared_variables.size() << " declared variables" << std::endl;
     
-    // Assign registers based on dependency frequency for this scope
-    assign_registers_for_scope(current_scope);
+    // Propagate dependencies to parent scope when this scope closes
+    if (scope_stack_.size() > 1) {  // If there's a parent scope
+        auto& parent_scope = *scope_stack_[scope_stack_.size() - 2];
+        
+        // Add all self_dependencies to parent's descendant_dependencies
+        for (const auto& dep : current_scope.self_dependencies) {
+            // Check if this dependency already exists in parent's descendant_dependencies
+            bool found = false;
+            for (auto& parent_dep : parent_scope.descendant_dependencies) {
+                if (parent_dep.variable_name == dep.variable_name && 
+                    parent_dep.definition_depth == dep.definition_depth) {
+                    parent_dep.access_count += dep.access_count;
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                parent_scope.descendant_dependencies.push_back(dep);
+            }
+        }
+        
+        // Add all descendant_dependencies to parent's descendant_dependencies
+        for (const auto& dep : current_scope.descendant_dependencies) {
+            // Check if this dependency already exists in parent's descendant_dependencies
+            bool found = false;
+            for (auto& parent_dep : parent_scope.descendant_dependencies) {
+                if (parent_dep.variable_name == dep.variable_name && 
+                    parent_dep.definition_depth == dep.definition_depth) {
+                    parent_dep.access_count += dep.access_count;
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                parent_scope.descendant_dependencies.push_back(dep);
+            }
+        }
+        
+        std::cout << "[SimpleLexicalScope] Propagated " << current_scope.self_dependencies.size() 
+                  << " self dependencies and " << current_scope.descendant_dependencies.size() 
+                  << " descendant dependencies to parent scope" << std::endl;
+    }
+    
+    // Create priority-sorted vector: SELF dependencies first (sorted by access count), 
+    // then descendant dependencies not in SELF (in any order, just for propagation)
+    
+    // First, sort SELF dependencies by access count per depth
+    std::unordered_map<int, int> self_depth_access_counts;
+    for (const auto& dep : current_scope.self_dependencies) {
+        self_depth_access_counts[dep.definition_depth] += dep.access_count;
+    }
+    
+    // Convert self dependencies to vector and sort by access count (highest first)
+    std::vector<std::pair<int, int>> self_depth_counts;
+    for (const auto& pair : self_depth_access_counts) {
+        self_depth_counts.emplace_back(pair.first, pair.second);  // (depth, total_count)
+    }
+    
+    std::sort(self_depth_counts.begin(), self_depth_counts.end(),
+        [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+            return a.second > b.second;  // Sort by access count (descending)
+        });
+    
+    // Add SELF depths first (these get r12+8 style access)
+    current_scope.priority_sorted_parent_scopes.clear();
+    current_scope.priority_sorted_parent_scopes.reserve(
+        self_depth_counts.size() + current_scope.descendant_dependencies.size());
+    
+    std::unordered_set<int> self_depths;
+    for (const auto& pair : self_depth_counts) {
+        current_scope.priority_sorted_parent_scopes.push_back(pair.first);
+        self_depths.insert(pair.first);
+    }
+    
+    // Then add descendant depths that are NOT already in SELF (just for propagation)
+    for (const auto& dep : current_scope.descendant_dependencies) {
+        if (self_depths.find(dep.definition_depth) == self_depths.end()) {
+            // This depth is not in SELF dependencies, so add it (if not already added)
+            bool already_added = false;
+            for (int existing_depth : current_scope.priority_sorted_parent_scopes) {
+                if (existing_depth == dep.definition_depth) {
+                    already_added = true;
+                    break;
+                }
+            }
+            if (!already_added) {
+                current_scope.priority_sorted_parent_scopes.push_back(dep.definition_depth);
+            }
+        }
+    }
+    
+    std::cout << "[SimpleLexicalScope] Priority-sorted parent scopes: ";
+    for (int depth : current_scope.priority_sorted_parent_scopes) {
+        std::cout << depth << " ";
+    }
+    std::cout << std::endl;
     
     // Clean up variable declarations at this depth
     cleanup_declarations_at_depth(current_depth_);
@@ -72,8 +170,8 @@ void SimpleLexicalScopeAnalyzer::access_variable(const std::string& name) {
         }
     }
     
-    // Add as self-dependency to current scope
-    if (!scope_stack_.empty()) {
+    // Add as self-dependency to current scope (if accessing from different depth)
+    if (!scope_stack_.empty() && definition_depth != current_depth_) {
         auto& current_scope = *scope_stack_.back();
         
         // Check if we already have this dependency
@@ -90,11 +188,6 @@ void SimpleLexicalScopeAnalyzer::access_variable(const std::string& name) {
             current_scope.self_dependencies.emplace_back(name, definition_depth);
         }
     }
-    
-    // If accessing from a different depth, propagate dependency upward immediately
-    if (definition_depth != current_depth_) {
-        propagate_dependency_upward(name, definition_depth);
-    }
 }
 
 // Get the absolute depth where a variable was last declared
@@ -106,28 +199,6 @@ int SimpleLexicalScopeAnalyzer::get_variable_definition_depth(const std::string&
     
     // Return the depth of the most recent declaration (last in the vector)
     return it->second.back().depth;
-}
-
-// Get register/stack allocation for a specific depth in current scope
-std::string SimpleLexicalScopeAnalyzer::get_register_for_depth(int depth) const {
-    if (scope_stack_.empty()) {
-        return "rbp"; // Fallback to stack
-    }
-    
-    const auto& current_scope = *scope_stack_.back();
-    auto it = current_scope.depth_to_register.find(depth);
-    if (it != current_scope.depth_to_register.end()) {
-        return it->second;
-    }
-    
-    // Default register allocation strategy
-    switch (depth) {
-        case 0: return "r15";  // Current scope (if accessing own variables)
-        case 1: return "r12";  // Parent scope
-        case 2: return "r13";  // Grandparent scope  
-        case 3: return "r14";  // Great-grandparent scope
-        default: return "rbp"; // Stack access for deeper scopes
-    }
 }
 
 // Debug: Print current state
@@ -148,8 +219,14 @@ void SimpleLexicalScopeAnalyzer::print_debug_info() const {
     
     if (!scope_stack_.empty()) {
         const auto& current_scope = *scope_stack_.back();
-        std::cout << "\nCurrent scope dependencies:" << std::endl;
+        std::cout << "\nCurrent scope self dependencies:" << std::endl;
         for (const auto& dep : current_scope.self_dependencies) {
+            std::cout << "  " << dep.variable_name << " from depth " << dep.definition_depth 
+                      << " (accessed " << dep.access_count << " times)" << std::endl;
+        }
+        
+        std::cout << "\nCurrent scope descendant dependencies:" << std::endl;
+        for (const auto& dep : current_scope.descendant_dependencies) {
             std::cout << "  " << dep.variable_name << " from depth " << dep.definition_depth 
                       << " (accessed " << dep.access_count << " times)" << std::endl;
         }
@@ -158,59 +235,6 @@ void SimpleLexicalScopeAnalyzer::print_debug_info() const {
 }
 
 // Private methods
-
-// Propagate dependency up the scope chain immediately
-void SimpleLexicalScopeAnalyzer::propagate_dependency_upward(const std::string& var_name, int definition_depth) {
-    // Find the scope at definition_depth + 1 (the immediate child of where the variable was defined)
-    // and propagate the dependency upward from there
-    
-    for (int i = scope_stack_.size() - 1; i >= 0; i--) {
-        auto& scope = *scope_stack_[i];
-        
-        // If this scope is deeper than where the variable was defined,
-        // it needs this variable as a child dependency
-        if (scope.depth > definition_depth) {
-            // This is inefficient as mentioned in the requirements, but it works
-            // We could optimize later by checking if already exists
-            
-            // For now, just mark that scopes between definition and current access need this variable
-            std::cout << "[SimpleLexicalScope] Propagating dependency for '" << var_name 
-                      << "' defined at depth " << definition_depth 
-                      << " to scope at depth " << scope.depth << std::endl;
-        }
-    }
-}
-
-// Assign registers based on frequency after scope analysis
-void SimpleLexicalScopeAnalyzer::assign_registers_for_scope(LexicalScopeInfo& scope) {
-    // Sort dependencies by access frequency (most frequently accessed first)
-    std::vector<ScopeDependency> sorted_deps = scope.self_dependencies;
-    std::sort(sorted_deps.begin(), sorted_deps.end(), 
-        [](const ScopeDependency& a, const ScopeDependency& b) {
-            return a.access_count > b.access_count;
-        });
-    
-    // Assign registers to most frequently accessed variables
-    std::vector<std::string> preferred_registers = {"r12", "r13", "r14"};
-    int register_index = 0;
-    
-    std::cout << "[SimpleLexicalScope] Assigning registers for scope at depth " << scope.depth << ":" << std::endl;
-    
-    for (const auto& dep : sorted_deps) {
-        std::string location;
-        
-        if (static_cast<size_t>(register_index) < preferred_registers.size()) {
-            location = preferred_registers[register_index++];
-        } else {
-            location = "stack_" + std::to_string(register_index - preferred_registers.size());
-        }
-        
-        scope.depth_to_register[dep.definition_depth] = location;
-        
-        std::cout << "  Variable '" << dep.variable_name << "' from depth " << dep.definition_depth 
-                  << " -> " << location << " (accessed " << dep.access_count << " times)" << std::endl;
-    }
-}
 
 // Clean up variable declarations for the depth we're exiting
 void SimpleLexicalScopeAnalyzer::cleanup_declarations_at_depth(int depth) {

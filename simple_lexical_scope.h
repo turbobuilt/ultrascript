@@ -32,10 +32,10 @@ struct LexicalScopeInfo {
     int depth;                                           // Absolute depth of this scope
     std::unordered_set<std::string> declared_variables; // Variables declared in THIS scope
     std::vector<ScopeDependency> self_dependencies;     // Variables accessed in this scope from outer scopes
-    std::unordered_set<ScopeDependency*> child_dependencies; // Child scopes need these variables
+    std::vector<ScopeDependency> descendant_dependencies; // Variables needed by all descendant scopes
     
-    // Register allocation (computed after analysis)
-    std::unordered_map<int, std::string> depth_to_register; // Maps absolute depth to register/stack location
+    // Priority-sorted scope levels (backend-agnostic, computed after analysis)
+    std::vector<int> priority_sorted_parent_scopes;     // Scope levels/depths in order of access frequency
     
     LexicalScopeInfo() : depth(0) {}  // Default constructor
     LexicalScopeInfo(int d) : depth(d) {}
@@ -74,19 +74,10 @@ public:
     // Get the absolute depth where a variable was last declared
     int get_variable_definition_depth(const std::string& name) const;
     
-    // Get register/stack allocation for a specific depth in current scope
-    std::string get_register_for_depth(int depth) const;
-    
     // Debug: Print current state
     void print_debug_info() const;
     
 private:
-    // Propagate dependency up the scope chain immediately
-    void propagate_dependency_upward(const std::string& var_name, int definition_depth);
-    
-    // Assign registers based on frequency after scope analysis
-    void assign_registers_for_scope(LexicalScopeInfo& scope);
-    
     // Clean up variable declarations for the depth we're exiting
     void cleanup_declarations_at_depth(int depth);
 };
