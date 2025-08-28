@@ -398,6 +398,11 @@ struct LexicalScopeNode : ASTNode {
     // Priority-sorted scope levels (backend-agnostic, computed after analysis)
     std::vector<int> priority_sorted_parent_scopes;           // Scope levels/depths in order of access frequency
     
+    // Variable packing and memory layout (NEW)
+    std::unordered_map<std::string, size_t> variable_offsets; // identifier -> byte offset in scope frame
+    size_t total_scope_frame_size = 0;                        // Total size of all variables in this scope
+    std::vector<std::string> packed_variable_order;           // Variables in memory layout order
+    
     // Legacy compatibility
     std::unordered_map<std::string, int> variable_access_depths; // var_name -> definition depth
     

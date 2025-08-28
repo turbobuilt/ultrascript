@@ -33,10 +33,8 @@ void Parser::add_variable_to_current_scope(const std::string& name, const std::s
     current_scope_variables_[name] = type;
     std::cout << "[Parser] Added variable to current scope: " << name << " : " << type << std::endl;
     
-    // NEW: Notify the simple lexical scope analyzer
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->declare_variable(name, type);
-    }
+    // Note: lexical_scope_analyzer_->declare_variable is called directly in parse_variable_declaration
+    // with proper DataType information, so we don't call it here to avoid overwriting with DataType::ANY
 }
 
 void Parser::set_current_scope_variables(const std::unordered_map<std::string, std::string>& variables) {
@@ -927,7 +925,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             
             // Declare parameters in the new scope
             for (const auto& param : func_expr->parameters) {
-                lexical_scope_analyzer_->declare_variable(param.name, "let");
+                lexical_scope_analyzer_->declare_variable(param.name, "let", param.type);
             }
         }
         
@@ -1246,7 +1244,7 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
     
     // NEW: Declare variable in lexical scope analyzer
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->declare_variable(var_name, decl_type_str);
+        lexical_scope_analyzer_->declare_variable(var_name, decl_type_str, type);
     }
     
     // Lexical Scope System: Add variable to current scope for escape analysis
@@ -2302,6 +2300,11 @@ std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
         gc_integration_->enter_scope("global", false);
     }
     
+    // Lexical Scope System: Initialize global scope
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->enter_scope();
+    }
+    
     while (!check(TokenType::EOF_TOKEN)) {
         statements.push_back(parse_statement());
     }
@@ -2310,6 +2313,11 @@ std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
     if (gc_integration_) {
         gc_integration_->exit_scope();
         gc_integration_->finalize_analysis();
+    }
+    
+    // Lexical Scope System: Close global scope and perform variable packing
+    if (lexical_scope_analyzer_) {
+        lexical_scope_analyzer_->exit_scope();
     }
     
     return statements;

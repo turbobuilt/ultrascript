@@ -1,5 +1,5 @@
 #include "simple_lexical_scope.h"
-#include "compiler.h"  // For LexicalScopeNode
+#include "compiler.h"  // For LexicalScopeNode and DataType enum
 #include <algorithm>
 #include <iostream>
 #include <set>
@@ -138,6 +138,23 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     // Set priority-sorted scopes in the LexicalScopeNode
     lexical_scope_node->set_priority_sorted_scopes(current_scope.priority_sorted_parent_scopes);
     
+    // NEW: Perform optimal variable packing for this scope
+    std::unordered_map<std::string, size_t> variable_offsets;
+    std::vector<std::string> packed_order;
+    size_t total_frame_size = 0;
+    
+    pack_scope_variables(current_scope.declared_variables, variable_offsets, packed_order, total_frame_size);
+    
+    // Store packing results in the lexical scope node
+    lexical_scope_node->variable_offsets = variable_offsets;
+    lexical_scope_node->packed_variable_order = packed_order;
+    lexical_scope_node->total_scope_frame_size = total_frame_size;
+    
+    std::cout << "[SimpleLexicalScope] Variable packing completed: " << total_frame_size << " bytes total" << std::endl;
+    for (const auto& var : packed_order) {
+        std::cout << "[SimpleLexicalScope]   " << var << " -> offset " << variable_offsets[var] << std::endl;
+    }
+    
     std::cout << "[SimpleLexicalScope] Priority-sorted parent scopes: ";
     for (int depth : current_scope.priority_sorted_parent_scopes) {
         std::cout << depth << " ";
@@ -154,18 +171,23 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     return lexical_scope_node;
 }
 
-// Called when a variable is declared
-void SimpleLexicalScopeAnalyzer::declare_variable(const std::string& name, const std::string& type) {
+// Called when a variable is declared (new version with DataType)
+void SimpleLexicalScopeAnalyzer::declare_variable(const std::string& name, const std::string& declaration_type, DataType data_type) {
     // Add to the variable declarations map
-    variable_declarations_[name].emplace_back(current_depth_, type);
+    variable_declarations_[name].emplace_back(current_depth_, declaration_type, data_type);
     
     // Add to current scope's declared variables
     if (!scope_stack_.empty()) {
         scope_stack_.back()->declared_variables.insert(name);
     }
     
-    std::cout << "[SimpleLexicalScope] Declared variable '" << name << "' as " << type 
-              << " at depth " << current_depth_ << std::endl;
+    std::cout << "[SimpleLexicalScope] Declared variable '" << name << "' as " << declaration_type 
+              << " (DataType=" << static_cast<int>(data_type) << ") at depth " << current_depth_ << std::endl;
+}
+
+// Called when a variable is declared (legacy version - assumes DataType::ANY)
+void SimpleLexicalScopeAnalyzer::declare_variable(const std::string& name, const std::string& declaration_type) {
+    declare_variable(name, declaration_type, DataType::ANY);
 }
 
 // Called when a variable is accessed
@@ -233,7 +255,7 @@ void SimpleLexicalScopeAnalyzer::print_debug_info() const {
     for (const auto& [var_name, declarations] : variable_declarations_) {
         std::cout << "  " << var_name << ": ";
         for (const auto& decl : declarations) {
-            std::cout << "[depth=" << decl.depth << ", type=" << decl.type 
+            std::cout << "[depth=" << decl.depth << ", decl=" << decl.declaration_type 
                       << ", usage=" << decl.usage_count << "] ";
         }
         std::cout << std::endl;
@@ -287,4 +309,139 @@ void SimpleLexicalScopeAnalyzer::cleanup_declarations_at_depth(int depth) {
             ++it;
         }
     }
+}
+
+// Get the size in bytes for a DataType
+size_t SimpleLexicalScopeAnalyzer::get_datatype_size(DataType type) const {
+    switch (type) {
+        case DataType::INT8:
+        case DataType::UINT8:
+        case DataType::BOOLEAN:
+            return 1;
+        case DataType::INT16:
+        case DataType::UINT16:
+            return 2;
+        case DataType::INT32:
+        case DataType::UINT32:
+        case DataType::FLOAT32:
+            return 4;
+        case DataType::INT64:
+        case DataType::UINT64:
+        case DataType::FLOAT64:
+            return 8;
+        case DataType::STRING:
+        case DataType::ARRAY:
+        case DataType::TENSOR:
+        case DataType::FUNCTION:
+        case DataType::PROMISE:
+        case DataType::CLASS_INSTANCE:
+        case DataType::RUNTIME_OBJECT:
+            return 8; // Pointer size on 64-bit systems
+        case DataType::ANY:
+        default:
+            return 16; // DynamicValue or unknown type - conservative estimate
+    }
+}
+
+// Get the alignment requirement for a DataType
+size_t SimpleLexicalScopeAnalyzer::get_datatype_alignment(DataType type) const {
+    switch (type) {
+        case DataType::INT8:
+        case DataType::UINT8:
+        case DataType::BOOLEAN:
+            return 1;
+        case DataType::INT16:
+        case DataType::UINT16:
+            return 2;
+        case DataType::INT32:
+        case DataType::UINT32:
+        case DataType::FLOAT32:
+            return 4;
+        case DataType::INT64:
+        case DataType::UINT64:
+        case DataType::FLOAT64:
+        case DataType::STRING:
+        case DataType::ARRAY:
+        case DataType::TENSOR:
+        case DataType::FUNCTION:
+        case DataType::PROMISE:
+        case DataType::CLASS_INSTANCE:
+        case DataType::RUNTIME_OBJECT:
+            return 8; // Natural alignment for 8-byte types and pointers
+        case DataType::ANY:
+        default:
+            return 8; // Conservative alignment for unknown types
+    }
+}
+
+// Optimal variable packing algorithm
+void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<std::string>& variables, 
+                                                      std::unordered_map<std::string, size_t>& offsets,
+                                                      std::vector<std::string>& packed_order,
+                                                      size_t& total_size) const {
+    struct VariablePacking {
+        std::string name;
+        size_t size;
+        size_t alignment;
+        DataType data_type;
+    };
+    
+    std::vector<VariablePacking> vars_to_pack;
+    
+    // Collect variable information for packing
+    for (const auto& var_name : variables) {
+        auto it = variable_declarations_.find(var_name);
+        if (it != variable_declarations_.end() && !it->second.empty()) {
+            // Get the most recent declaration
+            const auto& decl = it->second.back();
+            VariablePacking pack;
+            pack.name = var_name;
+            pack.data_type = decl.data_type;
+            pack.size = get_datatype_size(decl.data_type);
+            pack.alignment = get_datatype_alignment(decl.data_type);
+            vars_to_pack.push_back(pack);
+        }
+    }
+    
+    // Sort variables by alignment (descending) and then by size (descending)
+    // This minimizes padding by placing larger, more-aligned variables first
+    std::sort(vars_to_pack.begin(), vars_to_pack.end(), 
+        [](const VariablePacking& a, const VariablePacking& b) {
+            if (a.alignment != b.alignment) {
+                return a.alignment > b.alignment; // Higher alignment first
+            }
+            return a.size > b.size; // Larger size first
+        });
+    
+    size_t current_offset = 0;
+    
+    // Pack variables with proper alignment
+    for (const auto& var : vars_to_pack) {
+        // Calculate the next aligned offset
+        size_t aligned_offset = current_offset;
+        if (var.alignment > 1) {
+            size_t remainder = current_offset % var.alignment;
+            if (remainder != 0) {
+                aligned_offset = current_offset + (var.alignment - remainder);
+            }
+        }
+        
+        // Store the offset and add to packed order
+        offsets[var.name] = aligned_offset;
+        packed_order.push_back(var.name);
+        
+        // Update current offset
+        current_offset = aligned_offset + var.size;
+        
+        std::cout << "[SimpleLexicalScope] Packed " << var.name << " (size=" << var.size 
+                  << ", align=" << var.alignment << ", DataType=" << static_cast<int>(var.data_type) 
+                  << ") at offset " << aligned_offset << std::endl;
+    }
+    
+    // Final alignment to 8-byte boundary for next scope or return address
+    if (current_offset % 8 != 0) {
+        current_offset += (8 - (current_offset % 8));
+    }
+    
+    total_size = current_offset;
 }

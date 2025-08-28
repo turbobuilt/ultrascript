@@ -7,14 +7,24 @@
 #include <memory>
 #include <iostream>
 
+// Forward declare DataType enum
+enum class DataType;
+
 // Simple variable declaration info - tracks where variables are declared
 struct VariableDeclarationInfo {
     int depth;                    // Absolute depth where declared (0 = global, 1 = first nested, etc.)
-    std::string type;            // "let", "const", "var"
+    std::string declaration_type; // "let", "const", "var"
+    DataType data_type;          // Actual data type for size calculation
     size_t usage_count = 0;      // How many times this declaration is accessed
     
-    VariableDeclarationInfo() : depth(0), type("") {}  // Default constructor
-    VariableDeclarationInfo(int d, const std::string& t) : depth(d), type(t) {}
+    // Packing information (calculated at scope close)
+    size_t size_bytes = 0;       // Size in bytes
+    size_t alignment = 0;        // Alignment requirement
+    size_t offset = 0;           // Memory offset within scope
+    
+    VariableDeclarationInfo() : depth(0), declaration_type(""), data_type(static_cast<DataType>(0)) {}  // Default constructor
+    VariableDeclarationInfo(int d, const std::string& decl_type, DataType dt) 
+        : depth(d), declaration_type(decl_type), data_type(dt) {}
 };
 
 // Dependency info for lexical scopes
@@ -66,7 +76,8 @@ public:
     std::unique_ptr<LexicalScopeNode> exit_scope();
     
     // Called when a variable is declared
-    void declare_variable(const std::string& name, const std::string& type);
+    void declare_variable(const std::string& name, const std::string& declaration_type, DataType data_type);
+    void declare_variable(const std::string& name, const std::string& declaration_type); // Legacy overload
     
     // Called when a variable is accessed
     void access_variable(const std::string& name);
@@ -83,6 +94,14 @@ public:
 private:
     // Clean up variable declarations for the depth we're exiting
     void cleanup_declarations_at_depth(int depth);
+    
+    // Variable packing utilities
+    size_t get_datatype_size(DataType type) const;
+    size_t get_datatype_alignment(DataType type) const;
+    void pack_scope_variables(const std::unordered_set<std::string>& variables, 
+                             std::unordered_map<std::string, size_t>& offsets,
+                             std::vector<std::string>& packed_order,
+                             size_t& total_size) const;
 };
 
 // Forward declaration - LexicalScopeNode is defined in compiler.h
