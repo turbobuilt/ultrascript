@@ -49,12 +49,7 @@ struct GlobalScopeContext {
         std::vector<int> stack_stored_scopes; // scopes that couldn't fit in registers
     } scope_state;
     
-    // Type information extracted from parse phase
-    std::unordered_map<std::string, DataType> variable_types;
-    std::unordered_map<std::string, DataType> variable_array_element_types;
-    std::unordered_map<std::string, std::string> variable_class_names;
-    
-    // Assignment context tracking (similar to old TypeInference)
+    // Assignment context tracking (for complex expressions)
     DataType current_assignment_target_type = DataType::ANY;
     DataType current_assignment_array_element_type = DataType::ANY;
     DataType current_element_type_context = DataType::ANY;
@@ -62,6 +57,26 @@ struct GlobalScopeContext {
     
     // Current class context for 'this' handling
     std::string current_class_name;
+    
+    // Assignment context helpers (direct property access)
+    void set_assignment_context(DataType target_type, DataType element_type = DataType::ANY) {
+        current_assignment_target_type = target_type;
+        current_assignment_array_element_type = element_type;
+    }
+    
+    void clear_assignment_context() {
+        current_assignment_target_type = DataType::ANY;
+        current_assignment_array_element_type = DataType::ANY;
+        current_element_type_context = DataType::ANY;
+        current_property_assignment_type = DataType::ANY;
+    }
+    
+    // Function scope management (for function entry/exit)
+    void reset_for_function() {
+        // Clear function-local state
+        clear_assignment_context();
+        current_class_name.clear();
+    }
 };
 
 // Global scope context instance (thread-local for safety)
@@ -267,14 +282,43 @@ void NumberLiteral::generate_code(CodeGenerator& gen) {
 }
 
 void StringLiteral::generate_code(CodeGenerator& gen) {
-    std::cout << "[NEW_CODEGEN] StringLiteral::generate_code - value=\"" << value << "\"" << std::endl;
+    // High-performance string creation using interned strings for literals
+    // This provides both memory efficiency and extremely fast string creation
     
-    // TODO: Implement string literal code generation
-    // For now, just put a null pointer in RAX
-    gen.emit_mov_reg_imm(0, 0);
+    if (value.empty()) {
+        // Handle empty string efficiently - call __string_create_empty()
+        gen.emit_call("__string_create_empty");
+    } else {
+        // SAFE APPROACH: Use string interning with proper fixed StringPool
+        // The StringPool now uses std::string keys instead of char* keys,
+        // which makes it safe to use with temporary string data
+        
+        // Store the string content safely for the call
+        // We need to ensure the string data is available during the __string_intern call
+        static std::unordered_map<std::string, const char*> literal_storage;
+        
+        // Check if we already have this literal stored
+        auto it = literal_storage.find(value);
+        const char* str_ptr;
+        if (it != literal_storage.end()) {
+            str_ptr = it->second;
+        } else {
+            // Allocate permanent storage for this literal
+            char* permanent_str = new char[value.length() + 1];
+            strcpy(permanent_str, value.c_str());
+            literal_storage[value] = permanent_str;
+            str_ptr = permanent_str;
+        }
+        
+        uint64_t str_literal_addr = reinterpret_cast<uint64_t>(str_ptr);
+        gen.emit_mov_reg_imm(7, static_cast<int64_t>(str_literal_addr)); // RDI = first argument
+        
+        // Use string interning for memory efficiency
+        gen.emit_call("__string_intern");
+    }
+    
+    // Result is now in RAX (pointer to GoTSString)
     result_type = DataType::STRING;
-    
-    std::cout << "[NEW_CODEGEN] StringLiteral: Generated string (placeholder implementation)" << std::endl;
 }
 
 void Identifier::generate_code(CodeGenerator& gen) {
@@ -306,21 +350,44 @@ void Identifier::generate_code(CodeGenerator& gen) {
         return;
     }
     
-    // Use scope-aware variable access
-    try {
-        emit_variable_load(gen, name);
-        // Get variable type from scope context
-        auto type_it = g_scope_context.variable_types.find(name);
-        result_type = (type_it != g_scope_context.variable_types.end()) ? type_it->second : DataType::ANY;
-        std::cout << "[NEW_CODEGEN] Variable '" << name << "' loaded successfully" << std::endl;
+    // ULTRA-FAST DIRECT POINTER ACCESS - Zero lookups needed!
+    if (variable_declaration_info) {
+        // Get variable type directly from declaration info
+        result_type = variable_declaration_info->data_type;
+        
+        // Get variable offset directly from declaration info
+        size_t var_offset = variable_declaration_info->offset;
+        
+        // Generate optimal code based on scope relationship
+        if (definition_scope == g_scope_context.current_scope) {
+            // Variable is in current scope - use r15 + offset (fastest path)
+            gen.emit_mov_reg_reg_offset(0, 15, var_offset); // rax = [r15 + offset]
+            std::cout << "[NEW_CODEGEN] Loaded local variable '" << name << "' from r15+" << var_offset 
+                      << " (type=" << static_cast<int>(result_type) << ")" << std::endl;
+        } else {
+            // Variable is in parent scope - find which register holds it
+            int scope_depth = variable_declaration_info->depth;
+            auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
+            
+            if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
+                // Parent scope is in a register (fast path)
+                int scope_reg = reg_it->second;
+                gen.emit_mov_reg_reg_offset(0, scope_reg, var_offset); // rax = [r12/13/14 + offset]
+                std::cout << "[NEW_CODEGEN] Loaded parent variable '" << name 
+                          << "' from r" << scope_reg << "+" << var_offset 
+                          << " (type=" << static_cast<int>(result_type) << ")" << std::endl;
+            } else {
+                // Deep nesting - use stack-based access (slower but still optimized)
+                throw std::runtime_error("Deep nested scope access not yet implemented for: " + name);
+            }
+        }
+        
+        std::cout << "[NEW_CODEGEN] Variable '" << name << "' loaded successfully via direct pointer (ULTRA-FAST)" << std::endl;
         return;
-    } catch (const std::exception& e) {
-        std::cout << "[NEW_CODEGEN] Variable load failed: " << e.what() << std::endl;
     }
     
-    // TODO: Try implicit 'this.property' access for class methods
-    
-    throw std::runtime_error("Undefined variable: " + name);
+    // This should never happen if scope analysis worked correctly
+    throw std::runtime_error("Variable declaration info not found for: " + name + " (scope analysis bug)");
 }
 
 void Assignment::generate_code(CodeGenerator& gen) {
@@ -339,14 +406,44 @@ void Assignment::generate_code(CodeGenerator& gen) {
             variable_type = value->result_type;
         }
         
-        // Store type information in scope context
-        g_scope_context.variable_types[variable_name] = variable_type;
-        
-        // Store the value using scope-aware codegen
-        emit_variable_store(gen, variable_name);
+        // ULTRA-FAST DIRECT POINTER STORE
+        if (variable_declaration_info) {
+            // Update the variable's type in its declaration info
+            variable_declaration_info->data_type = variable_type;
+            
+            // Get variable offset directly from declaration info
+            size_t var_offset = variable_declaration_info->offset;
+            
+            // Generate optimal store code based on scope relationship
+            if (assignment_scope == g_scope_context.current_scope) {
+                // Storing to current scope (fastest path)
+                gen.emit_mov_reg_offset_reg(15, var_offset, 0); // [r15 + offset] = rax
+                std::cout << "[NEW_CODEGEN] Stored to local variable '" << variable_name << "' at r15+" << var_offset 
+                          << " (type=" << static_cast<int>(variable_type) << ")" << std::endl;
+            } else {
+                // Storing to parent scope
+                int scope_depth = variable_declaration_info->depth;
+                auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
+                
+                if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
+                    // Parent scope is in register (fast path)
+                    int scope_reg = reg_it->second;
+                    gen.emit_mov_reg_offset_reg(scope_reg, var_offset, 0); // [r12/13/14 + offset] = rax
+                    std::cout << "[NEW_CODEGEN] Stored to parent variable '" << variable_name 
+                              << "' at r" << scope_reg << "+" << var_offset 
+                              << " (type=" << static_cast<int>(variable_type) << ")" << std::endl;
+                } else {
+                    // Deep nesting - use stack-based access
+                    throw std::runtime_error("Deep nested scope store not yet implemented for: " + variable_name);
+                }
+            }
+        } else {
+            // This should never happen if scope analysis worked correctly
+            throw std::runtime_error("Variable declaration info not found for assignment: " + variable_name + " (scope analysis bug)");
+        }
         
         result_type = variable_type;
-        std::cout << "[NEW_CODEGEN] Assignment to '" << variable_name << "' completed" << std::endl;
+        std::cout << "[NEW_CODEGEN] Assignment to '" << variable_name << "' completed (ULTRA-FAST)" << std::endl;
     }
 }
 

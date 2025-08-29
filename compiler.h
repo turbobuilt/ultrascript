@@ -22,6 +22,7 @@
 struct Token;
 enum class TokenType;
 struct ASTNode;
+struct VariableDeclarationInfo;  // Forward declaration for direct pointer access
 
 // Forward declaration for new lexical scope system
 class ExpressionOptimizer;
@@ -497,14 +498,24 @@ struct Identifier : ExpressionNode {
     LexicalScopeNode* definition_scope;    // Scope where variable was defined
     LexicalScopeNode* access_scope;        // Scope where variable is being accessed
     
+    // ULTRA-FAST: Direct pointer to variable declaration info (zero lookup overhead)
+    VariableDeclarationInfo* variable_declaration_info;  // Direct pointer to the variable's declaration info
+    
     Identifier(const std::string& n, int def_depth = -1, int acc_depth = -1) 
-        : name(n), definition_depth(def_depth), access_depth(acc_depth), definition_scope(nullptr), access_scope(nullptr) {}
+        : name(n), definition_depth(def_depth), access_depth(acc_depth), 
+          definition_scope(nullptr), access_scope(nullptr), variable_declaration_info(nullptr) {}
         
     // Enhanced constructor with raw pointers to scope nodes
     Identifier(const std::string& n, LexicalScopeNode* def_scope, LexicalScopeNode* acc_scope,
                int def_depth = -1, int acc_depth = -1) 
         : name(n), definition_depth(def_depth), access_depth(acc_depth),
-          definition_scope(def_scope), access_scope(acc_scope) {}
+          definition_scope(def_scope), access_scope(acc_scope), variable_declaration_info(nullptr) {}
+          
+    // Ultra-fast constructor with direct variable declaration pointer
+    Identifier(const std::string& n, VariableDeclarationInfo* var_info,
+               LexicalScopeNode* def_scope = nullptr, LexicalScopeNode* acc_scope = nullptr) 
+        : name(n), definition_depth(var_info ? var_info->depth : -1), access_depth(-1),
+          definition_scope(def_scope), access_scope(acc_scope), variable_declaration_info(var_info) {}
     
     void generate_code(CodeGenerator& gen) override;
 };
@@ -673,6 +684,9 @@ struct Assignment : ExpressionNode {
     LexicalScopeNode* definition_scope;    // Scope where variable was defined
     LexicalScopeNode* assignment_scope;    // Scope where assignment occurs
     
+    // ULTRA-FAST: Direct pointer to variable declaration info (zero lookup overhead)
+    VariableDeclarationInfo* variable_declaration_info;  // Direct pointer to the variable's declaration info
+    
     // ES6 declaration kind for proper block scoping
     enum DeclarationKind {
         VAR,    // Function-scoped, hoisted
@@ -682,7 +696,8 @@ struct Assignment : ExpressionNode {
     DeclarationKind declaration_kind = VAR;  // Default to var for compatibility
     
     Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val, DeclarationKind kind = VAR)
-        : variable_name(name), value(std::move(val)), declaration_kind(kind), definition_scope(nullptr), assignment_scope(nullptr) {}
+        : variable_name(name), value(std::move(val)), declaration_kind(kind), 
+          definition_scope(nullptr), assignment_scope(nullptr), variable_declaration_info(nullptr) {}
     void generate_code(CodeGenerator& gen) override;
 };
 

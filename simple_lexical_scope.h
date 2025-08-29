@@ -44,7 +44,8 @@ class LexicalScopeNode;
 class SimpleLexicalScopeAnalyzer {
 private:
     // Core data structure: variable_name -> list of declarations at different depths
-    std::unordered_map<std::string, std::vector<VariableDeclarationInfo>> variable_declarations_;
+    // Variable declarations tracking - use pointers for stable addresses
+    std::unordered_map<std::string, std::vector<std::unique_ptr<VariableDeclarationInfo>>> variable_declarations_;
     
     // Stack of active lexical scope NODES during parsing (immediate creation)
     std::vector<std::shared_ptr<LexicalScopeNode>> scope_stack_;
