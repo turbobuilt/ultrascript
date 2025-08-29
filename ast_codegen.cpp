@@ -593,24 +593,6 @@ void NumberLiteral::generate_code_as(CodeGenerator& gen, DataType target_type) {
     std::cout << "[NEW_CODEGEN] NumberLiteral::generate_code_as - raw_value=" << raw_value 
               << ", target_type=" << static_cast<int>(target_type) << std::endl;
     
-    // Handle boolean values specially
-    if (raw_value == "true" || raw_value == "false") {
-        bool bool_val = (raw_value == "true");
-        if (target_type == DataType::BOOLEAN) {
-            gen.emit_mov_reg_imm(0, bool_val ? 1 : 0);
-            result_type = DataType::BOOLEAN;
-            std::cout << "[NEW_CODEGEN] NumberLiteral: Generated boolean value " << bool_val << std::endl;
-            return;
-        } else {
-            // Convert boolean to target numeric type
-            int64_t numeric_val = bool_val ? 1 : 0;
-            // Fall through to numeric conversion with numeric_val
-            // For simplicity, we'll treat it as the string "1" or "0"
-            std::string temp_raw = std::to_string(numeric_val);
-            std::swap(raw_value, temp_raw);
-        }
-    }
-    
     switch (target_type) {
         case DataType::INT8: {
             int8_t val = static_cast<int8_t>(std::stoll(raw_value));
@@ -786,16 +768,6 @@ void Identifier::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_CODEGEN] Identifier::generate_code - variable: " << name << std::endl;
     
     // Handle special cases first
-    if (name == "true") {
-        gen.emit_mov_reg_imm(0, 1);
-        result_type = DataType::BOOLEAN;
-        return;
-    }
-    if (name == "false") {
-        gen.emit_mov_reg_imm(0, 0);
-        result_type = DataType::BOOLEAN;
-        return;
-    }
     if (name == "runtime") {
         result_type = DataType::RUNTIME_OBJECT;
         return;
