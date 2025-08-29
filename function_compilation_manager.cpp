@@ -6,6 +6,10 @@
 #include <iostream>
 #include <algorithm>
 
+// Forward declare scope management functions from ast_codegen.cpp
+void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node);
+void emit_scope_exit(CodeGenerator& gen, LexicalScopeNode* scope_node);
+
 // Additional forward declarations for AST traversal
 class MethodCall;
 class ExpressionMethodCall;
@@ -357,6 +361,14 @@ void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, Funct
             // Note: Parent scope addresses should be passed in r12/r13/r14 by the goroutine spawn
             // For now, we assume they're available in those registers
         }
+        
+        // IMPORTANT: Enter the function's lexical scope context for code generation
+        if (func_expr->lexical_scope) {
+            std::cout << "[SCOPE_CONTEXT] Entering function lexical scope for code generation" << std::endl;
+            emit_scope_enter(gen, func_expr->lexical_scope.get());
+        } else {
+            std::cout << "[WARNING] FunctionExpression missing lexical_scope - scope context may be incorrect" << std::endl;
+        }
     }
     
     // Generate function body statements (using new scope-aware system)
@@ -367,12 +379,28 @@ void FunctionCompilationManager::compile_function_body(CodeGenerator& gen, Funct
                 func_expr->body[i]->generate_code(gen);
             } catch (const std::exception& e) {
                 std::cerr << "ERROR: Exception in statement " << i << ": " << e.what() << std::endl;
+                
+                // Exit scope context before rethrowing
+                if (func_expr->lexical_scope) {
+                    emit_scope_exit(gen, func_expr->lexical_scope.get());
+                }
                 throw;
             } catch (...) {
                 std::cerr << "ERROR: Unknown exception in statement " << i << std::endl;
+                
+                // Exit scope context before rethrowing
+                if (func_expr->lexical_scope) {
+                    emit_scope_exit(gen, func_expr->lexical_scope.get());
+                }
                 throw;
             }
         }
+    }
+    
+    // IMPORTANT: Exit the function's lexical scope context
+    if (func_expr->lexical_scope) {
+        std::cout << "[SCOPE_CONTEXT] Exiting function lexical scope after code generation" << std::endl;
+        emit_scope_exit(gen, func_expr->lexical_scope.get());
     }
     
     gen.emit_epilogue();

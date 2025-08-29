@@ -193,8 +193,21 @@ void generate_deep_scope_variable_load(CodeGenerator& gen, const std::string& va
     int current_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
     int scope_depth_diff = current_depth - target_scope_depth;
     
+    std::cout << "[DEEP_SCOPE] Current depth: " << current_depth << ", Target depth: " << target_scope_depth 
+              << ", Depth diff: " << scope_depth_diff << std::endl;
+    
     if (scope_depth_diff <= 0) {
         throw std::runtime_error("Invalid deep scope access: target scope depth must be less than current");
+    }
+    
+    // Add safety limit to prevent infinite loops from corrupted scope depths
+    const int MAX_SCOPE_TRAVERSAL = 100; // Reasonable limit for scope nesting
+    if (scope_depth_diff > MAX_SCOPE_TRAVERSAL) {
+        std::cerr << "[ERROR] Scope depth difference too large: " << scope_depth_diff 
+                  << " (max allowed: " << MAX_SCOPE_TRAVERSAL << ")" << std::endl;
+        std::cerr << "[ERROR] Current scope depth: " << current_depth 
+                  << ", Target scope depth: " << target_scope_depth << std::endl;
+        throw std::runtime_error("Scope traversal limit exceeded - possible corrupted scope depths");
     }
     
     // Each scope level stores a pointer to its parent scope at a fixed offset
@@ -207,7 +220,7 @@ void generate_deep_scope_variable_load(CodeGenerator& gen, const std::string& va
     for (int i = 0; i < scope_depth_diff; i++) {
         // Each scope stores a pointer to its parent scope at offset -8 (before the actual variables)
         x86_gen->emit_mov_reg_reg_offset(11, 11, -8); // r11 = [r11 - 8] (follow parent pointer)
-        std::cout << "[DEEP_SCOPE] Traversed to parent scope level " << (i + 1) << std::endl;
+        std::cout << "[DEEP_SCOPE] Traversed to parent scope level " << (i + 1) << "/" << scope_depth_diff << std::endl;
     }
     
     // Now r11 points to the target parent scope, load the variable
@@ -231,8 +244,21 @@ void generate_deep_scope_variable_store(CodeGenerator& gen, const std::string& v
     int current_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
     int scope_depth_diff = current_depth - target_scope_depth;
     
+    std::cout << "[DEEP_SCOPE] Store: Current depth: " << current_depth << ", Target depth: " << target_scope_depth 
+              << ", Depth diff: " << scope_depth_diff << std::endl;
+    
     if (scope_depth_diff <= 0) {
         throw std::runtime_error("Invalid deep scope store: target scope depth must be less than current");
+    }
+    
+    // Add safety limit to prevent infinite loops from corrupted scope depths
+    const int MAX_SCOPE_TRAVERSAL = 100; // Reasonable limit for scope nesting
+    if (scope_depth_diff > MAX_SCOPE_TRAVERSAL) {
+        std::cerr << "[ERROR] Scope depth difference too large for store: " << scope_depth_diff 
+                  << " (max allowed: " << MAX_SCOPE_TRAVERSAL << ")" << std::endl;
+        std::cerr << "[ERROR] Current scope depth: " << current_depth 
+                  << ", Target scope depth: " << target_scope_depth << std::endl;
+        throw std::runtime_error("Scope traversal limit exceeded in store - possible corrupted scope depths");
     }
     
     // Preserve RAX which contains the value to store
@@ -245,7 +271,7 @@ void generate_deep_scope_variable_store(CodeGenerator& gen, const std::string& v
     for (int i = 0; i < scope_depth_diff; i++) {
         // Each scope stores a pointer to its parent scope at offset -8 (before the actual variables)
         x86_gen->emit_mov_reg_reg_offset(11, 11, -8); // r11 = [r11 - 8] (follow parent pointer)
-        std::cout << "[DEEP_SCOPE] Traversed to parent scope level " << (i + 1) << std::endl;
+        std::cout << "[DEEP_SCOPE] Store traversed to parent scope level " << (i + 1) << "/" << scope_depth_diff << std::endl;
     }
     
     // Restore the value to store
@@ -452,11 +478,18 @@ void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
         throw std::runtime_error("No scope context for variable access: " + var_name);
     }
     
+    std::cout << "[SCOPE_DEBUG] emit_variable_load for '" << var_name 
+              << "' - current scope depth: " << g_scope_context.current_scope->scope_depth << std::endl;
+    
     // Find the scope where this variable is defined
     auto def_scope = g_scope_context.scope_analyzer->get_definition_scope_for_variable(var_name);
     if (!def_scope) {
         throw std::runtime_error("Variable not found in any scope: " + var_name);
     }
+    
+    std::cout << "[SCOPE_DEBUG] Variable '" << var_name << "' defined in scope depth: " 
+              << def_scope->scope_depth << ", current scope depth: " 
+              << g_scope_context.current_scope->scope_depth << std::endl;
     
     // Get variable offset within its scope
     auto offset_it = def_scope->variable_offsets.find(var_name);
@@ -473,6 +506,9 @@ void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
         // Variable is in parent scope - find which register holds it
         int scope_depth = def_scope->scope_depth;
         auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
+        
+        std::cout << "[SCOPE_DEBUG] Looking for scope depth " << scope_depth 
+                  << " in register map (map size: " << g_scope_context.scope_state.scope_depth_to_register.size() << ")" << std::endl;
         
         if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
             // Parent scope is in a register

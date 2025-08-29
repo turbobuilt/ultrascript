@@ -10,6 +10,7 @@
 #include "dynamic_properties.h"
 #include <iostream>
 #include <unordered_map>
+#include <unordered_set>
 #include <cstring>
 #include <cstdlib>
 #include <stdexcept>
@@ -37,6 +38,11 @@ private:
         std::unordered_map<int, int> scope_depth_to_register;  // scope_depth -> register_id (12,13,14)
         std::vector<int> available_scope_registers = {12, 13, 14};
         std::vector<int> stack_stored_scopes; // scopes that couldn't fit in registers
+        
+        // Register preservation tracking
+        std::unordered_set<int> registers_in_use;  // which of r12,r13,r14 are currently used
+        std::unordered_set<int> registers_saved_to_stack;  // which registers we've pushed to stack
+        std::vector<int> register_save_order;  // order in which registers were saved (for proper restore)
     } scope_state;
     
     // Current context
@@ -70,6 +76,9 @@ public:
             std::cout << "[NEW_CODEGEN] Allocated " << scope_size << " bytes for scope, r15 = rsp" << std::endl;
         }
         
+        // r15 is always used for current scope
+        mark_register_in_use(15);
+        
         // Set up parent scope registers based on priority
         setup_parent_scope_registers(scope_node);
         
@@ -80,6 +89,9 @@ public:
     void exit_lexical_scope(LexicalScopeNode* scope_node) {
         std::cout << "[NEW_CODEGEN] Exiting lexical scope at depth " << scope_node->scope_depth << std::endl;
         
+        // Restore parent scope registers first (before deallocating stack)
+        restore_parent_scope_registers();
+        
         // Deallocate stack space
         size_t scope_size = scope_node->total_scope_frame_size;
         if (scope_size > 0) {
@@ -87,8 +99,8 @@ public:
             std::cout << "[NEW_CODEGEN] Deallocated " << scope_size << " bytes from scope" << std::endl;
         }
         
-        // Restore parent scope registers if needed
-        restore_parent_scope_registers();
+        // r15 is no longer used for this scope (will be set by parent scope)
+        mark_register_free(15);
     }
     
     // Variable access methods
@@ -187,15 +199,56 @@ public:
         return (it != variable_types.end()) ? it->second : DataType::ANY;
     }
     
+    // Register usage tracking methods
+    void mark_register_in_use(int reg_id) {
+        scope_state.registers_in_use.insert(reg_id);
+        std::cout << "[NEW_CODEGEN] Marked r" << reg_id << " as in use" << std::endl;
+    }
+    
+    void mark_register_free(int reg_id) {
+        scope_state.registers_in_use.erase(reg_id);
+        std::cout << "[NEW_CODEGEN] Marked r" << reg_id << " as free" << std::endl;
+    }
+    
+    bool is_register_in_use(int reg_id) {
+        return scope_state.registers_in_use.count(reg_id) > 0;
+    }
+    
 private:
     void setup_parent_scope_registers(LexicalScopeNode* scope_node) {
-        // Set up parent scope registers based on priority_sorted_parent_scopes
-        scope_state.available_scope_registers = {12, 13, 14}; // Reset available registers
+        std::cout << "[NEW_CODEGEN] Setting up parent scope registers for scope depth " << scope_node->scope_depth << std::endl;
+        
+        // Determine which registers we need for parent scopes
+        std::vector<int> needed_registers;
+        size_t num_parent_scopes = scope_node->priority_sorted_parent_scopes.size();
+        size_t max_registers = std::min(num_parent_scopes, size_t(3)); // r12, r13, r14
+        
+        for (size_t i = 0; i < max_registers; ++i) {
+            needed_registers.push_back(scope_state.available_scope_registers[i]);
+        }
+        
+        std::cout << "[NEW_CODEGEN] Need " << needed_registers.size() << " registers for parent scopes" << std::endl;
+        
+        // Save any currently used registers that we need to overwrite
+        scope_state.register_save_order.clear();
+        scope_state.registers_saved_to_stack.clear();
+        
+        for (int reg : needed_registers) {
+            if (scope_state.registers_in_use.count(reg)) {
+                // This register is currently in use, save it to stack
+                emit_push_reg(reg);  // push r12/r13/r14
+                scope_state.registers_saved_to_stack.insert(reg);
+                scope_state.register_save_order.push_back(reg);
+                std::cout << "[NEW_CODEGEN] Saved r" << reg << " to stack (was in use)" << std::endl;
+            }
+        }
+        
+        // Now set up parent scope registers
         scope_state.scope_depth_to_register.clear();
         
-        for (size_t i = 0; i < scope_node->priority_sorted_parent_scopes.size() && i < 3; ++i) {
+        for (size_t i = 0; i < max_registers; ++i) {
             int parent_depth = scope_node->priority_sorted_parent_scopes[i];
-            int scope_reg = scope_state.available_scope_registers[i];
+            int scope_reg = needed_registers[i];
             
             // Load parent scope pointer into the register
             // TODO: Implement actual parent scope pointer loading
@@ -204,12 +257,15 @@ private:
             emit_mov_reg_mem(scope_reg, parent_scope_offset);  // r12/13/14 = [rbp + parent_offset]
             
             scope_state.scope_depth_to_register[parent_depth] = scope_reg;
+            scope_state.registers_in_use.insert(scope_reg); // Mark as in use
+            
             std::cout << "[NEW_CODEGEN] Assigned parent scope depth " << parent_depth 
                       << " to register r" << scope_reg << std::endl;
         }
         
         // Store remaining deep scopes on stack
-        for (size_t i = 3; i < scope_node->priority_sorted_parent_scopes.size(); ++i) {
+        scope_state.stack_stored_scopes.clear();
+        for (size_t i = max_registers; i < num_parent_scopes; ++i) {
             int deep_scope_depth = scope_node->priority_sorted_parent_scopes[i];
             scope_state.stack_stored_scopes.push_back(deep_scope_depth);
             std::cout << "[NEW_CODEGEN] Deep parent scope depth " << deep_scope_depth 
@@ -218,8 +274,29 @@ private:
     }
     
     void restore_parent_scope_registers() {
-        // TODO: Implement register restoration if needed for nested function calls
-        // For basic block scopes, registers don't need restoration
+        std::cout << "[NEW_CODEGEN] Restoring parent scope registers" << std::endl;
+        
+        // Clear current register usage for parent scopes
+        for (auto& pair : scope_state.scope_depth_to_register) {
+            int reg = pair.second;
+            scope_state.registers_in_use.erase(reg);
+            std::cout << "[NEW_CODEGEN] Freed register r" << reg << " from parent scope use" << std::endl;
+        }
+        
+        // Restore previously saved registers in reverse order (stack is LIFO)
+        for (auto it = scope_state.register_save_order.rbegin(); 
+             it != scope_state.register_save_order.rend(); ++it) {
+            int reg = *it;
+            emit_pop_reg(reg);  // pop r12/r13/r14
+            scope_state.registers_in_use.insert(reg); // Mark as in use again
+            std::cout << "[NEW_CODEGEN] Restored r" << reg << " from stack" << std::endl;
+        }
+        
+        // Clear tracking state
+        scope_state.register_save_order.clear();
+        scope_state.registers_saved_to_stack.clear();
+        scope_state.scope_depth_to_register.clear();
+        scope_state.stack_stored_scopes.clear();
     }
 };
 
