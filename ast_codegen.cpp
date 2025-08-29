@@ -355,15 +355,15 @@ void Identifier::generate_code(CodeGenerator& gen) {
         // Get variable type directly from declaration info
         result_type = variable_declaration_info->data_type;
         
-        // Get variable offset directly from declaration info
+        // Use the direct offset from variable_declaration_info (FASTEST - no map lookup!)
         size_t var_offset = variable_declaration_info->offset;
         
-        // Generate optimal code based on scope relationship
+        // Generate optimal load code based on scope relationship
         if (definition_scope == g_scope_context.current_scope) {
-            // Variable is in current scope - use r15 + offset (fastest path)
+            // Loading from current scope (fastest path)
             gen.emit_mov_reg_reg_offset(0, 15, var_offset); // rax = [r15 + offset]
-            std::cout << "[NEW_CODEGEN] Loaded local variable '" << name << "' from r15+" << var_offset 
-                      << " (type=" << static_cast<int>(result_type) << ")" << std::endl;
+            std::cout << "[NEW_CODEGEN] Loaded from local variable '" << name << "' at r15+" << var_offset 
+                      << " (type=" << static_cast<int>(variable_declaration_info->data_type) << ")" << std::endl;
         } else {
             // Variable is in parent scope - find which register holds it
             int scope_depth = variable_declaration_info->depth;
@@ -411,7 +411,7 @@ void Assignment::generate_code(CodeGenerator& gen) {
             // Update the variable's type in its declaration info
             variable_declaration_info->data_type = variable_type;
             
-            // Get variable offset directly from declaration info
+            // Use the direct offset from variable_declaration_info (FASTEST - no map lookup!)
             size_t var_offset = variable_declaration_info->offset;
             
             // Generate optimal store code based on scope relationship
@@ -622,8 +622,13 @@ void RegexLiteral::generate_code(CodeGenerator& gen) {
         pattern_registry[pattern] = pattern_id;
     }
     
-    // Register the pattern with the runtime first
-    gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(pattern_ptr)); // RDI = pattern string (permanent storage)
+    // FIXED: First create a GoTSString for the pattern using string interning
+    uint64_t pattern_str_addr = reinterpret_cast<uint64_t>(pattern_ptr);
+    gen.emit_mov_reg_imm(7, static_cast<int64_t>(pattern_str_addr)); // RDI = first argument
+    gen.emit_call("__string_intern"); // Convert raw C string to GoTSString*
+    
+    // Now register the pattern with the runtime (RAX contains GoTSString*)
+    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (GoTSString* from string interning)
     gen.emit_call("__register_regex_pattern");
     
     // The function returns the pattern ID in RAX, use it to create the regex

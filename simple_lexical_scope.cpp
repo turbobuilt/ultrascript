@@ -143,6 +143,16 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     current_scope_node->packed_variable_order = packed_order;
     current_scope_node->total_scope_frame_size = total_frame_size;
     
+    // CRITICAL: Update individual VariableDeclarationInfo objects with their calculated offsets
+    for (const auto& var : packed_order) {
+        VariableDeclarationInfo* var_info = get_variable_declaration_info(var);
+        if (var_info) {
+            var_info->offset = variable_offsets[var];
+            std::cout << "[SimpleLexicalScope] Updated VariableDeclarationInfo->offset for '" << var 
+                      << "' to " << var_info->offset << std::endl;
+        }
+    }
+    
     std::cout << "[SimpleLexicalScope] Variable packing completed: " << total_frame_size << " bytes total" << std::endl;
     for (const auto& var : packed_order) {
         std::cout << "[SimpleLexicalScope]   " << var << " -> offset " << variable_offsets[var] << std::endl;
