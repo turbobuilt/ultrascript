@@ -179,3 +179,10 @@ make clean && make
 ### Planned Features
 - Libtorch integration
 - Add ability to import parse and run Python syntax.
+
+
+new syntax
+
+break 0; // regular break
+break 1; // break current loop and outer loop!
+break 2; // break current, outer and grandparent loop!

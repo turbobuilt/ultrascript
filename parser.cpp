@@ -1490,6 +1490,9 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
                 assignment->definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
                 assignment->assignment_scope = lexical_scope_analyzer_->get_current_scope_node();
                 
+                // NEW: Set direct pointer to variable declaration info for ultra-fast access
+                assignment->variable_declaration_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
+                
                 std::cout << "[Parser] For-loop declaration '" << var_name 
                           << "' def_scope=" << assignment->definition_scope
                           << ", assign_scope=" << assignment->assignment_scope << std::endl;
