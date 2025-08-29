@@ -181,7 +181,7 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
 // Called when a variable is declared (new version with DataType)
 void SimpleLexicalScopeAnalyzer::declare_variable(const std::string& name, const std::string& declaration_type, DataType data_type) {
     // Add to the variable declarations map
-    variable_declarations_[name].emplace_back(current_depth_, declaration_type, data_type);
+    variable_declarations_[name].emplace_back(std::make_unique<VariableDeclarationInfo>(current_depth_, declaration_type, data_type));
     
     // Add to current scope's declared variables
     if (!scope_stack_.empty()) {
@@ -215,8 +215,8 @@ void SimpleLexicalScopeAnalyzer::access_variable(const std::string& name) {
     // Update usage count for this declaration
     auto& declarations = variable_declarations_[name];
     for (auto& decl : declarations) {
-        if (decl.depth == definition_depth) {
-            decl.usage_count++;
+        if (decl->depth == definition_depth) {
+            decl->usage_count++;
             break;
         }
     }
@@ -249,7 +249,7 @@ int SimpleLexicalScopeAnalyzer::get_variable_definition_depth(const std::string&
     }
     
     // Return the depth of the most recent declaration (last in the vector)
-    return it->second.back().depth;
+    return it->second.back()->depth;
 }
 
 // Debug: Print current state
@@ -262,8 +262,8 @@ void SimpleLexicalScopeAnalyzer::print_debug_info() const {
     for (const auto& [var_name, declarations] : variable_declarations_) {
         std::cout << "  " << var_name << ": ";
         for (const auto& decl : declarations) {
-            std::cout << "[depth=" << decl.depth << ", decl=" << decl.declaration_type 
-                      << ", usage=" << decl.usage_count << "] ";
+            std::cout << "[depth=" << decl->depth << ", decl=" << decl->declaration_type
+                      << ", usage=" << decl->usage_count << "] ";
         }
         std::cout << std::endl;
     }
@@ -295,8 +295,8 @@ void SimpleLexicalScopeAnalyzer::cleanup_declarations_at_depth(int depth) {
         // Remove all declarations at this depth
         declarations.erase(
             std::remove_if(declarations.begin(), declarations.end(),
-                [depth, &var_name](const VariableDeclarationInfo& decl) {
-                    bool should_remove = (decl.depth == depth);
+                [depth, &var_name](const std::unique_ptr<VariableDeclarationInfo>& decl) {
+                    bool should_remove = (decl->depth == depth);
                     if (should_remove) {
                         std::cout << "  Removing declaration of '" << var_name 
                                   << "' from depth " << depth << std::endl;
@@ -403,9 +403,9 @@ void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<s
             const auto& decl = it->second.back();
             VariablePacking pack;
             pack.name = var_name;
-            pack.data_type = decl.data_type;
-            pack.size = get_datatype_size(decl.data_type);
-            pack.alignment = get_datatype_alignment(decl.data_type);
+            pack.data_type = decl->data_type;
+            pack.size = get_datatype_size(decl->data_type);
+            pack.alignment = get_datatype_alignment(decl->data_type);
             vars_to_pack.push_back(pack);
         }
     }
@@ -471,6 +471,17 @@ LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_definition_scope_for_variable(
 // NEW: Get raw pointer to the current scope node
 LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_current_scope_node() const {
     return get_scope_node_for_depth(current_depth_);
+}
+
+// NEW: Get direct pointer to variable declaration info for ultra-fast access
+VariableDeclarationInfo* SimpleLexicalScopeAnalyzer::get_variable_declaration_info(const std::string& name) const {
+    auto it = variable_declarations_.find(name);
+    if (it == variable_declarations_.end() || it->second.empty()) {
+        return nullptr;
+    }
+    
+    // Return the most recent declaration (last in the vector)
+    return it->second.back().get();
 }
 
 

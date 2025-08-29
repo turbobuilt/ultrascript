@@ -101,6 +101,9 @@ public:
     // NEW: Get direct pointer to the current scope node (always available)
     LexicalScopeNode* get_current_scope_node() const;
     
+    // NEW: Get direct pointer to variable declaration info for ultra-fast access
+    VariableDeclarationInfo* get_variable_declaration_info(const std::string& name) const;
+    
     // Debug: Print current state
     void print_debug_info() const;
     

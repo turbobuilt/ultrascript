@@ -451,36 +451,221 @@ void Assignment::generate_code(CodeGenerator& gen) {
 // For now, let's implement minimal versions that don't crash
 
 void BinaryOp::generate_code(CodeGenerator& gen) {
-    std::cout << "[NEW_CODEGEN] BinaryOp::generate_code - operator: " << static_cast<int>(op) << std::endl;
-    
     if (left) {
         left->generate_code(gen);
-        // Save left operand on stack
-        gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8
-        gen.emit_mov_mem_rsp_reg(0, 0);   // mov [rsp], rax
+        // Push left operand result onto stack to protect it during right operand evaluation
+        gen.emit_sub_reg_imm(4, 8);   // sub rsp, 8 (allocate stack space)
+        // Store to RSP-relative location to match the RSP-relative load later
+        if (auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+            x86_gen->emit_mov_mem_reg(0, 0);   // mov [rsp], rax (save left operand on stack)
+        } else {
+            gen.emit_mov_mem_reg(0, 0);   // fallback for other backends
+        }
     }
     
     if (right) {
         right->generate_code(gen);
-        // Right operand is now in RAX
     }
     
-    // TODO: Implement actual binary operations based on op type
-    // For now, just return the right operand
-    result_type = DataType::ANY;
-    std::cout << "[NEW_CODEGEN] BinaryOp: Placeholder implementation" << std::endl;
+    DataType left_type = left ? left->result_type : DataType::ANY;
+    DataType right_type = right ? right->result_type : DataType::ANY;
+    
+    switch (op) {
+        case TokenType::PLUS:
+            if (left_type == DataType::STRING || right_type == DataType::STRING) {
+                result_type = DataType::STRING;
+                if (left) {
+                    // String concatenation - extremely optimized
+                    // Right operand (string) is in RAX
+                    gen.emit_mov_reg_reg(6, 0);   // mov rsi, rax (right operand -> second argument)
+                    
+                    // Pop left operand from stack
+                    auto* x86_gen = static_cast<X86CodeGenV2*>(&gen);
+                    x86_gen->emit_mov_reg_mem(7, 0);   // mov rdi, [rsp] (left operand -> first argument)
+                    gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
+                    
+                    // Robust string concatenation with proper type handling
+                    if (left_type == DataType::STRING && right_type == DataType::STRING) {
+                        // Both are GoTSString* - use optimized __string_concat
+                        gen.emit_call("__string_concat");
+                    } else if (left_type == DataType::STRING && right_type != DataType::STRING) {
+                        // Left is GoTSString*, right needs conversion to string
+                        gen.emit_call("__string_concat_cstr");
+                    } else if (left_type != DataType::STRING && right_type == DataType::STRING) {
+                        // Left needs conversion to string, right is GoTSString*
+                        gen.emit_call("__string_concat_cstr_left");
+                    } else {
+                        // Neither operand is a string - fallback to regular concatenation
+                        gen.emit_call("__string_concat");
+                    }
+                    // Result (new GoTSString*) is now in RAX
+                }
+            } else {
+                // Numeric addition
+                result_type = DataType::FLOAT64; // JavaScript compatibility
+                if (left) {
+                    // Pop left operand from stack and add to right operand (in RAX)
+                    if (auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+                        x86_gen->emit_mov_reg_mem(3, 0);   // mov rbx, [rsp] (load left operand from stack)
+                    } else {
+                        gen.emit_mov_reg_mem(3, 0);   // fallback for other backends
+                    }
+                    gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
+                    gen.emit_add_reg_reg(0, 3);   // add rax, rbx (add left to right)
+                }
+            }
+            break;
+            
+        case TokenType::MINUS:
+            result_type = DataType::FLOAT64;
+            if (left) {
+                // Binary minus: Pop left operand from stack and subtract right operand from it
+                if (auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+                    x86_gen->emit_mov_reg_mem(3, 0);   // mov rbx, [rsp] (load left operand from stack)
+                } else {
+                    gen.emit_mov_reg_mem(3, 0);   // fallback for other backends
+                }
+                gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
+                gen.emit_sub_reg_reg(3, 0);   // sub rbx, rax (subtract right from left)
+                gen.emit_mov_reg_reg(0, 3);   // mov rax, rbx (result in rax)
+            } else {
+                // Unary minus: negate the value in RAX
+                gen.emit_mov_reg_imm(1, 0);   // mov rcx, 0
+                gen.emit_sub_reg_reg(1, 0);   // sub rcx, rax (0 - rax)
+                gen.emit_mov_reg_reg(0, 1);   // mov rax, rcx (result in rax)
+                result_type = right_type;     // Result type is same as right operand for unary minus
+            }
+            break;
+            
+        case TokenType::MULTIPLY:
+            result_type = DataType::FLOAT64;
+            if (left) {
+                // Pop left operand from stack and multiply with right operand
+                if (auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+                    x86_gen->emit_mov_reg_mem(3, 0);   // mov rbx, [rsp] (load left operand from stack)
+                } else {
+                    gen.emit_mov_reg_mem(3, 0);   // fallback for other backends
+                }
+                gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
+                gen.emit_mul_reg_reg(3, 0);   // imul rbx, rax (multiply left with right)
+                gen.emit_mov_reg_reg(0, 3);   // mov rax, rbx (result in rax)
+            }
+            break;
+            
+        case TokenType::DIVIDE:
+            result_type = DataType::FLOAT64;
+            if (left) {
+                // Pop left operand from stack and divide by right operand
+                if (auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
+                    x86_gen->emit_mov_reg_mem(1, 0);   // mov rcx, [rsp] (load left operand from stack)
+                } else {
+                    gen.emit_mov_reg_mem(1, 0);   // fallback for other backends
+                }
+                gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
+                gen.emit_div_reg_reg(1, 0);   // div rcx by rax (divide left by right)
+                gen.emit_mov_reg_reg(0, 1);   // mov rax, rcx (result in rax)
+            }
+            break;
+            
+        default:
+            result_type = DataType::ANY;
+            break;
+    }
 }
 
 // Placeholder implementations for other nodes to prevent compilation errors
 void RegexLiteral::generate_code(CodeGenerator& gen) {
-    gen.emit_mov_reg_imm(0, 0);
+    // Create a runtime regex object from pattern and flags
+    
+    // Store pattern string
+    static std::unordered_map<std::string, const char*> pattern_storage;
+    
+    // Check if we already have this pattern stored
+    auto pattern_it = pattern_storage.find(pattern);
+    const char* pattern_ptr;
+    if (pattern_it != pattern_storage.end()) {
+        pattern_ptr = pattern_it->second;
+    } else {
+        // Allocate permanent storage for this pattern
+        char* permanent_pattern = new char[pattern.length() + 1];
+        strcpy(permanent_pattern, pattern.c_str());
+        pattern_storage[pattern] = permanent_pattern;
+        pattern_ptr = permanent_pattern;
+    }
+    
+    // Store flags string
+    static std::unordered_map<std::string, const char*> flags_storage;
+    
+    auto flags_it = flags_storage.find(flags);
+    const char* flags_ptr;
+    if (flags_it != flags_storage.end()) {
+        flags_ptr = flags_it->second;
+    } else {
+        // Allocate permanent storage for this flags string
+        char* permanent_flags = new char[flags.length() + 1];
+        strcpy(permanent_flags, flags.c_str());
+        flags_storage[flags] = permanent_flags;
+        flags_ptr = permanent_flags;
+    }
+    
+    // Use a safer method to pass the pattern
+    // Store pattern in a safe global registry with integer IDs
+    static std::unordered_map<std::string, int> pattern_registry;
+    static int next_pattern_id = 1;
+    
+    int pattern_id;
+    auto registry_it = pattern_registry.find(pattern);
+    if (registry_it != pattern_registry.end()) {
+        pattern_id = registry_it->second;
+    } else {
+        pattern_id = next_pattern_id++;
+        pattern_registry[pattern] = pattern_id;
+    }
+    
+    // Register the pattern with the runtime first
+    gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(pattern_ptr)); // RDI = pattern string (permanent storage)
+    gen.emit_call("__register_regex_pattern");
+    
+    // The function returns the pattern ID in RAX, use it to create the regex
+    gen.emit_mov_reg_reg(7, 0); // RDI = RAX (pattern ID returned)
+    gen.emit_call("__regex_create_by_id");
+    
+    // Result is now in RAX (pointer to GoTSRegExp)
     result_type = DataType::REGEX;
 }
 
 void TernaryOperator::generate_code(CodeGenerator& gen) {
-    // TODO: Implement ternary operator
-    gen.emit_mov_reg_imm(0, 0);
-    result_type = DataType::ANY;
+    // Generate unique labels for the ternary branches
+    static int label_counter = 0;
+    std::string false_label = "__ternary_false_" + std::to_string(label_counter);
+    std::string end_label = "__ternary_end_" + std::to_string(label_counter++);
+    
+    // Generate code for condition
+    condition->generate_code(gen);
+    
+    // Test if condition is zero (false) - compare RAX with 0
+    gen.emit_mov_reg_imm(1, 0); // mov rcx, 0
+    gen.emit_compare(0, 1); // Compare RAX with RCX (0)
+    gen.emit_jump_if_zero(false_label);
+    
+    // Generate code for true expression
+    true_expr->generate_code(gen);
+    gen.emit_jump(end_label);
+    
+    // False branch
+    gen.emit_label(false_label);
+    false_expr->generate_code(gen);
+    
+    // End label
+    gen.emit_label(end_label);
+    
+    // Result type is the common type of true and false expressions
+    // For now, use FLOAT64 as common numeric type
+    if (true_expr->result_type == false_expr->result_type) {
+        result_type = true_expr->result_type;
+    } else {
+        result_type = DataType::FLOAT64; // Default to JavaScript number type
+    }
 }
 
 void FunctionCall::generate_code(CodeGenerator& gen) {

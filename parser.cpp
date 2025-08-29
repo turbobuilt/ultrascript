@@ -709,8 +709,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                       << ", access_scope=" << access_scope << std::endl;
         }
         
-        return std::make_unique<Identifier>(var_name, definition_scope, access_scope, 
-                                          definition_depth, access_depth);
+        // Get direct pointer to variable declaration info for ultra-fast access
+        VariableDeclarationInfo* var_info = nullptr;
+        if (lexical_scope_analyzer_) {
+            var_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
+        }
+        
+        // Use ultra-fast constructor with direct variable declaration pointer
+        return std::make_unique<Identifier>(var_name, var_info, definition_scope, access_scope);
     }
     
     if (match(TokenType::LBRACKET)) {
@@ -1308,6 +1314,9 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
         // NEW: Set raw pointer scope pointers for safe access
         assignment->definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
         assignment->assignment_scope = lexical_scope_analyzer_->get_current_scope_node();
+        
+        // NEW: Set direct pointer to variable declaration info for ultra-fast access
+        assignment->variable_declaration_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
         
         std::cout << "[Parser] Variable declaration '" << var_name 
                   << "' def_scope=" << assignment->definition_scope
