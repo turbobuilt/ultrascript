@@ -1,9 +1,22 @@
-let x = 10;
-function test() {
-    let y = 20;
+{
+    let outerVar = 42;
+    let shared = "outer";
+    
     {
-        let z = 30;
-        console.log(x + y + z);
+        let innerVar = outerVar + 10;
+        let shared = "inner";
+        console.log(innerVar);
+        console.log(shared);
+        
+        {
+            let deepVar = innerVar + outerVar;
+            console.log(deepVar);
+            console.log(shared);
+        }
+        
+        console.log(innerVar);
     }
+    
+    console.log(shared);
+    console.log(outerVar);
 }
-test();

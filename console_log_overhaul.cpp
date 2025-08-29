@@ -62,7 +62,7 @@ void TypeAwareConsoleLog::generate_typed_argument_code(
     bool is_first_argument
 ) {
     // Generate code for the argument expression
-    argument->generate_code(gen, types);
+    argument->generate_code(gen);
     
     // Get the result type from the argument
     DataType arg_type = argument->result_type;

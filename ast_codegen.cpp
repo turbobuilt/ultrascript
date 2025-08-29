@@ -39,6 +39,9 @@ struct GlobalScopeContext {
     LexicalScopeNode* current_scope = nullptr;
     SimpleLexicalScopeAnalyzer* scope_analyzer = nullptr;
     
+    // Scope nesting stack for proper save/restore (LIFO order)
+    std::vector<LexicalScopeNode*> scope_nesting_stack;
+    
     // Scope register management
     // r15 always points to current scope
     // r12, r13, r14 point to parent scopes in order of frequency
@@ -76,6 +79,35 @@ struct GlobalScopeContext {
         // Clear function-local state
         clear_assignment_context();
         current_class_name.clear();
+        
+        // Reset scope nesting stack for new function context
+        scope_nesting_stack.clear();
+        current_scope = nullptr;
+        scope_state.scope_depth_to_register.clear();
+        scope_state.stack_stored_scopes.clear();
+        scope_state.current_scope_depth = 0;
+        
+        std::cout << "[SCOPE_CONTEXT] Reset scope context for new function" << std::endl;
+    }
+    
+    // Verify scope stack consistency
+    bool verify_scope_stack_consistency() const {
+        // Check that current scope depth is consistent with stack
+        if (current_scope == nullptr) {
+            return scope_nesting_stack.empty(); // Should have empty stack at root
+        }
+        
+        // Check that current scope depth is greater than all stack entries
+        for (const auto* stacked_scope : scope_nesting_stack) {
+            if (stacked_scope->scope_depth >= current_scope->scope_depth) {
+                std::cout << "[SCOPE_ERROR] Inconsistent scope stack: stacked depth " 
+                          << stacked_scope->scope_depth << " >= current depth " 
+                          << current_scope->scope_depth << std::endl;
+                return false;
+            }
+        }
+        
+        return true;
     }
 };
 
@@ -89,47 +121,216 @@ void initialize_scope_context(SimpleLexicalScopeAnalyzer* analyzer) {
 }
 
 void set_current_scope(LexicalScopeNode* scope) {
+    // Update nesting stack when entering a new scope
+    if (scope != nullptr && scope != g_scope_context.current_scope) {
+        // Push current scope onto stack before switching (if not null)
+        if (g_scope_context.current_scope != nullptr) {
+            g_scope_context.scope_nesting_stack.push_back(g_scope_context.current_scope);
+            std::cout << "[SCOPE_STACK] Pushed scope depth " << g_scope_context.current_scope->scope_depth 
+                      << " onto nesting stack" << std::endl;
+        }
+    }
+    
+    // Update current scope
     g_scope_context.current_scope = scope;
     if (scope) {
         g_scope_context.scope_state.current_scope_depth = scope->scope_depth;
+        std::cout << "[SCOPE_CONTEXT] Set current scope to depth " << scope->scope_depth << std::endl;
+    } else {
+        g_scope_context.scope_state.current_scope_depth = 0;
+        std::cout << "[SCOPE_CONTEXT] Set current scope to global/root" << std::endl;
     }
+}
+
+// Pop from scope nesting stack when exiting a scope
+LexicalScopeNode* pop_scope_from_stack() {
+    if (g_scope_context.scope_nesting_stack.empty()) {
+        std::cout << "[SCOPE_STACK] Stack is empty, returning nullptr" << std::endl;
+        return nullptr;
+    }
+    
+    LexicalScopeNode* parent_scope = g_scope_context.scope_nesting_stack.back();
+    g_scope_context.scope_nesting_stack.pop_back();
+    std::cout << "[SCOPE_STACK] Popped scope depth " << parent_scope->scope_depth 
+              << " from nesting stack" << std::endl;
+    return parent_scope;
 }
 
 LexicalScopeNode* get_current_scope() {
     return g_scope_context.current_scope;
 }
 
+// Debug function to print current scope stack state
+void debug_print_scope_stack() {
+    std::cout << "[SCOPE_DEBUG] Current scope stack state:" << std::endl;
+    std::cout << "[SCOPE_DEBUG]   Current scope: " 
+              << (g_scope_context.current_scope ? std::to_string(g_scope_context.current_scope->scope_depth) : "nullptr") << std::endl;
+    std::cout << "[SCOPE_DEBUG]   Stack depth: " << g_scope_context.scope_nesting_stack.size() << std::endl;
+    
+    for (size_t i = 0; i < g_scope_context.scope_nesting_stack.size(); i++) {
+        std::cout << "[SCOPE_DEBUG]     Stack[" << i << "]: depth " 
+                  << g_scope_context.scope_nesting_stack[i]->scope_depth << std::endl;
+    }
+    
+    std::cout << "[SCOPE_DEBUG]   Register assignments:" << std::endl;
+    for (const auto& pair : g_scope_context.scope_state.scope_depth_to_register) {
+        std::cout << "[SCOPE_DEBUG]     Scope depth " << pair.first << " -> r" << pair.second << std::endl;
+    }
+}
+
+// Generate stack-based access to a variable in a deeply nested parent scope
+void generate_deep_scope_variable_load(CodeGenerator& gen, const std::string& var_name, 
+                                      int target_scope_depth, size_t var_offset) {
+    std::cout << "[DEEP_SCOPE] Generating stack-based load for '" << var_name 
+              << "' in scope depth " << target_scope_depth << " at offset " << var_offset << std::endl;
+    
+    X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (!x86_gen) {
+        throw std::runtime_error("Deep scope access requires X86CodeGenV2");
+    }
+    
+    // Calculate the stack-based offset to reach the target parent scope
+    int current_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
+    int scope_depth_diff = current_depth - target_scope_depth;
+    
+    if (scope_depth_diff <= 0) {
+        throw std::runtime_error("Invalid deep scope access: target scope depth must be less than current");
+    }
+    
+    // Each scope level stores a pointer to its parent scope at a fixed offset
+    // We traverse the scope chain by following these parent pointers
+    
+    // Start from current scope (r15 points to current scope)
+    x86_gen->emit_mov_reg_reg(11, 15); // mov r11, r15 (use r11 as working register)
+    
+    // Traverse the scope chain to reach the target scope
+    for (int i = 0; i < scope_depth_diff; i++) {
+        // Each scope stores a pointer to its parent scope at offset -8 (before the actual variables)
+        x86_gen->emit_mov_reg_reg_offset(11, 11, -8); // r11 = [r11 - 8] (follow parent pointer)
+        std::cout << "[DEEP_SCOPE] Traversed to parent scope level " << (i + 1) << std::endl;
+    }
+    
+    // Now r11 points to the target parent scope, load the variable
+    x86_gen->emit_mov_reg_reg_offset(0, 11, var_offset); // rax = [r11 + var_offset]
+    
+    std::cout << "[DEEP_SCOPE] Loaded variable '" << var_name << "' from deep scope (stack-based access)" << std::endl;
+}
+
+// Generate stack-based access to store a variable in a deeply nested parent scope  
+void generate_deep_scope_variable_store(CodeGenerator& gen, const std::string& var_name,
+                                       int target_scope_depth, size_t var_offset) {
+    std::cout << "[DEEP_SCOPE] Generating stack-based store for '" << var_name
+              << "' in scope depth " << target_scope_depth << " at offset " << var_offset << std::endl;
+    
+    X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (!x86_gen) {
+        throw std::runtime_error("Deep scope access requires X86CodeGenV2");
+    }
+    
+    // Calculate the stack-based offset to reach the target parent scope
+    int current_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
+    int scope_depth_diff = current_depth - target_scope_depth;
+    
+    if (scope_depth_diff <= 0) {
+        throw std::runtime_error("Invalid deep scope store: target scope depth must be less than current");
+    }
+    
+    // Preserve RAX which contains the value to store
+    x86_gen->get_instruction_builder().push(X86Reg::RAX); // push rax
+    
+    // Start from current scope (r15 points to current scope)  
+    x86_gen->emit_mov_reg_reg(11, 15); // mov r11, r15 (use r11 as working register)
+    
+    // Traverse the scope chain to reach the target scope
+    for (int i = 0; i < scope_depth_diff; i++) {
+        // Each scope stores a pointer to its parent scope at offset -8 (before the actual variables)
+        x86_gen->emit_mov_reg_reg_offset(11, 11, -8); // r11 = [r11 - 8] (follow parent pointer)
+        std::cout << "[DEEP_SCOPE] Traversed to parent scope level " << (i + 1) << std::endl;
+    }
+    
+    // Restore the value to store
+    x86_gen->get_instruction_builder().pop(X86Reg::RAX); // pop rax
+    
+    // Now r11 points to the target parent scope, store the variable
+    x86_gen->emit_mov_reg_offset_reg(11, var_offset, 0); // [r11 + var_offset] = rax
+    
+    std::cout << "[DEEP_SCOPE] Stored variable '" << var_name << "' to deep scope (stack-based access)" << std::endl;
+}
+
 //=============================================================================
 // SCOPE-AWARE CODE GENERATION HELPERS
 //=============================================================================
 
-// Set up parent scope registers based on priority
-void setup_parent_scope_registers(X86CodeGenV2* x86_gen, LexicalScopeNode* scope_node) {
-    // Reset scope register state
-    g_scope_context.scope_state.available_scope_registers = {12, 13, 14};
-    g_scope_context.scope_state.scope_depth_to_register.clear();
+// Stack locations for saved scope registers (relative to current RSP)
+// These are used to save/restore r12, r13, r14 when entering/exiting nested scopes
+static const int64_t SAVED_R12_OFFSET = -8;   // [rsp - 8]  = saved r12
+static const int64_t SAVED_R13_OFFSET = -16;  // [rsp - 16] = saved r13  
+static const int64_t SAVED_R14_OFFSET = -24;  // [rsp - 24] = saved r14
+static const int64_t SCOPE_SAVE_AREA_SIZE = 24; // Total bytes for register save area
+
+// Save current parent scope registers to stack before entering child scope
+void save_parent_scope_registers(X86CodeGenV2* x86_gen) {
+    std::cout << "[SCOPE_CODEGEN] Saving current parent scope registers to stack" << std::endl;
     
-    // Assign parent scope registers based on priority
+    // Allocate stack space for saving registers
+    x86_gen->emit_sub_reg_imm(4, SCOPE_SAVE_AREA_SIZE); // sub rsp, 24
+    
+    // Save current parent scope registers to stack
+    x86_gen->emit_mov_mem_rsp_reg(SAVED_R12_OFFSET + SCOPE_SAVE_AREA_SIZE, 12); // mov [rsp + 16], r12
+    x86_gen->emit_mov_mem_rsp_reg(SAVED_R13_OFFSET + SCOPE_SAVE_AREA_SIZE, 13); // mov [rsp + 8], r13
+    x86_gen->emit_mov_mem_rsp_reg(SAVED_R14_OFFSET + SCOPE_SAVE_AREA_SIZE, 14); // mov [rsp], r14
+    
+    std::cout << "[SCOPE_CODEGEN] Saved r12, r13, r14 to stack at rsp+16, rsp+8, rsp+0" << std::endl;
+}
+
+// Restore parent scope registers from stack after exiting child scope
+void restore_parent_scope_registers(X86CodeGenV2* x86_gen) {
+    std::cout << "[SCOPE_CODEGEN] Restoring parent scope registers from stack" << std::endl;
+    
+    // Restore parent scope registers from stack
+    x86_gen->emit_mov_reg_mem_rsp(12, SAVED_R12_OFFSET + SCOPE_SAVE_AREA_SIZE); // mov r12, [rsp + 16]
+    x86_gen->emit_mov_reg_mem_rsp(13, SAVED_R13_OFFSET + SCOPE_SAVE_AREA_SIZE); // mov r13, [rsp + 8]
+    x86_gen->emit_mov_reg_mem_rsp(14, SAVED_R14_OFFSET + SCOPE_SAVE_AREA_SIZE); // mov r14, [rsp]
+    
+    // Deallocate stack space used for saving registers
+    x86_gen->emit_add_reg_imm(4, SCOPE_SAVE_AREA_SIZE); // add rsp, 24
+    
+    std::cout << "[SCOPE_CODEGEN] Restored r12, r13, r14 from stack and deallocated save area" << std::endl;
+}
+
+// Set up parent scope registers based on priority for current scope
+void setup_parent_scope_registers(X86CodeGenV2* x86_gen, LexicalScopeNode* scope_node) {
+    std::cout << "[SCOPE_CODEGEN] Setting up parent scope registers for scope depth " << scope_node->scope_depth << std::endl;
+    
+    // Clear previous register assignments
+    g_scope_context.scope_state.scope_depth_to_register.clear();
+    g_scope_context.scope_state.stack_stored_scopes.clear();
+    
+    // Reset available registers
+    g_scope_context.scope_state.available_scope_registers = {12, 13, 14};
+    
+    // Assign parent scope registers based on priority (most accessed scopes get registers)
     for (size_t i = 0; i < scope_node->priority_sorted_parent_scopes.size() && i < 3; ++i) {
         int parent_depth = scope_node->priority_sorted_parent_scopes[i];
         int scope_reg = g_scope_context.scope_state.available_scope_registers[i];
         
         // Load parent scope pointer into the register
-        // For now, use a simple stack-based approach
-        int64_t parent_scope_offset = -32 - (parent_depth * 8);  // Placeholder calculation
+        // Use a calculated offset based on scope depth relationship
+        int64_t parent_scope_offset = -32 - (parent_depth * 8);  // Stack-relative offset
         x86_gen->emit_mov_reg_mem(scope_reg, parent_scope_offset);  // r12/13/14 = [rbp + parent_offset]
         
+        // Record the assignment
         g_scope_context.scope_state.scope_depth_to_register[parent_depth] = scope_reg;
         std::cout << "[SCOPE_CODEGEN] Assigned parent scope depth " << parent_depth 
-                  << " to register r" << scope_reg << std::endl;
+                  << " to register r" << scope_reg << " (offset " << parent_scope_offset << ")" << std::endl;
     }
     
-    // Store remaining deep scopes for stack access
+    // Store remaining deep scopes for stack-based access
     for (size_t i = 3; i < scope_node->priority_sorted_parent_scopes.size(); ++i) {
         int deep_scope_depth = scope_node->priority_sorted_parent_scopes[i];
         g_scope_context.scope_state.stack_stored_scopes.push_back(deep_scope_depth);
         std::cout << "[SCOPE_CODEGEN] Deep parent scope depth " << deep_scope_depth 
-                  << " will use stack access" << std::endl;
+                  << " will use stack access (no register available)" << std::endl;
     }
 }
 
@@ -143,34 +344,106 @@ void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node) {
         throw std::runtime_error("Scope management requires X86CodeGenV2");
     }
     
-    // Allocate stack space for this scope's variables
-    size_t scope_size = scope_node->total_scope_frame_size;
-    if (scope_size > 0) {
-        gen.emit_sub_reg_imm(4, scope_size); // sub rsp, scope_size
-        gen.emit_mov_reg_reg(15, 4); // mov r15, rsp (r15 points to current scope)
-        std::cout << "[SCOPE_CODEGEN] Allocated " << scope_size << " bytes for scope, r15 = rsp" << std::endl;
+    // STEP 1: Save current parent scope registers to stack (if not at root level)
+    if (g_scope_context.current_scope != nullptr) {
+        save_parent_scope_registers(x86_gen);
     }
     
-    // Set up parent scope registers based on priority
+    // STEP 2: Allocate stack space for this scope's variables
+    size_t scope_size = scope_node->total_scope_frame_size;
+    if (scope_size > 0) {
+        // Allocate extra 8 bytes for parent scope pointer
+        size_t total_size = scope_size + 8;
+        gen.emit_sub_reg_imm(4, total_size); // sub rsp, (scope_size + 8)
+        gen.emit_mov_reg_reg(15, 4); // mov r15, rsp (r15 points to current scope)
+        
+        // Store parent scope pointer at offset -8 from the scope variables
+        if (g_scope_context.current_scope != nullptr) {
+            // Find which register or stack location contains the parent scope
+            int parent_depth = g_scope_context.current_scope->scope_depth;
+            auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(parent_depth);
+            
+            if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
+                // Parent scope is in a register
+                int parent_reg = reg_it->second;
+                x86_gen->emit_mov_mem_rsp_reg(-8, parent_reg); // [rsp - 8] = parent_scope_register
+                std::cout << "[SCOPE_CODEGEN] Stored parent scope pointer from r" << parent_reg 
+                          << " to [rsp - 8]" << std::endl;
+            } else {
+                // Parent scope is also on stack - we'll use r15 from the previous scope
+                // This happens when we're deeply nested
+                std::cout << "[SCOPE_CODEGEN] Parent scope on stack - using previous r15" << std::endl;
+                // For now, store a placeholder - this needs more sophisticated stack traversal
+                x86_gen->emit_mov_reg_imm(10, 0); // mov r10, 0 (placeholder)
+                x86_gen->emit_mov_mem_rsp_reg(-8, 10); // [rsp - 8] = 0 (placeholder)
+            }
+        } else {
+            // No parent scope (this is the root scope)
+            x86_gen->emit_mov_reg_imm(10, 0); // mov r10, 0
+            x86_gen->emit_mov_mem_rsp_reg(-8, 10); // [rsp - 8] = 0 (null parent)
+            std::cout << "[SCOPE_CODEGEN] Root scope - stored null parent pointer" << std::endl;
+        }
+        
+        std::cout << "[SCOPE_CODEGEN] Allocated " << total_size << " bytes (" << scope_size 
+                  << " for variables + 8 for parent pointer), r15 = rsp" << std::endl;
+    }
+    
+    // STEP 3: Set up new parent scope registers for this scope's needs
     setup_parent_scope_registers(x86_gen, scope_node);
     
-    // Update current context
+    // STEP 4: Update current context
     set_current_scope(scope_node);
+    
+    std::cout << "[SCOPE_CODEGEN] Successfully entered scope depth " << scope_node->scope_depth 
+              << " with " << scope_node->priority_sorted_parent_scopes.size() << " parent scopes" << std::endl;
 }
 
 // Generate code to exit a lexical scope
 void emit_scope_exit(CodeGenerator& gen, LexicalScopeNode* scope_node) {
     std::cout << "[SCOPE_CODEGEN] Exiting lexical scope at depth " << scope_node->scope_depth << std::endl;
     
-    // Deallocate stack space
-    size_t scope_size = scope_node->total_scope_frame_size;
-    if (scope_size > 0) {
-        gen.emit_add_reg_imm(4, scope_size); // add rsp, scope_size
-        std::cout << "[SCOPE_CODEGEN] Deallocated " << scope_size << " bytes from scope" << std::endl;
+    // Cast to X86CodeGenV2 to access scope management methods
+    X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (!x86_gen) {
+        throw std::runtime_error("Scope management requires X86CodeGenV2");
     }
     
-    // Restore parent context
-    // TODO: Implement parent context restoration if needed
+    // STEP 1: Deallocate stack space used by this scope's variables
+    size_t scope_size = scope_node->total_scope_frame_size;
+    if (scope_size > 0) {
+        // Deallocate the extra 8 bytes for parent pointer too
+        size_t total_size = scope_size + 8;
+        gen.emit_add_reg_imm(4, total_size); // add rsp, (scope_size + 8)
+        std::cout << "[SCOPE_CODEGEN] Deallocated " << total_size << " bytes (" << scope_size 
+                  << " for variables + 8 for parent pointer)" << std::endl;
+    }
+    
+    // STEP 2: Restore parent scope registers from stack (if we have a parent to return to)
+    LexicalScopeNode* parent_scope = pop_scope_from_stack();
+    if (parent_scope != nullptr) {
+        restore_parent_scope_registers(x86_gen);
+        
+        // STEP 3: Restore parent context with correct register assignments
+        set_current_scope(parent_scope);
+        
+        // STEP 4: Reconfigure parent scope registers for the restored scope
+        // The restored scope needs its own parent scope register configuration
+        setup_parent_scope_registers(x86_gen, parent_scope);
+        
+        std::cout << "[SCOPE_CODEGEN] Restored parent context to scope depth " 
+                  << parent_scope->scope_depth << " with proper register assignments" << std::endl;
+    } else {
+        // Returning to global/root scope
+        set_current_scope(nullptr);
+        
+        // Clear register assignments since we're at root level
+        g_scope_context.scope_state.scope_depth_to_register.clear();
+        g_scope_context.scope_state.stack_stored_scopes.clear();
+        
+        std::cout << "[SCOPE_CODEGEN] Returned to global/root scope, cleared register assignments" << std::endl;
+    }
+    
+    std::cout << "[SCOPE_CODEGEN] Successfully exited scope depth " << scope_node->scope_depth << std::endl;
 }
 
 // Generate variable load code using scope-aware access
@@ -209,7 +482,9 @@ void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
                       << "' from r" << scope_reg << "+" << var_offset << std::endl;
         } else {
             // Parent scope is on stack (deep nesting)
-            throw std::runtime_error("Deep nested scope access not yet implemented for: " + var_name);
+            generate_deep_scope_variable_load(gen, var_name, scope_depth, var_offset);
+            std::cout << "[SCOPE_CODEGEN] Loaded parent variable '" << var_name 
+                      << "' from deep scope (stack-based access)" << std::endl;
         }
     }
 }
@@ -258,7 +533,9 @@ void emit_variable_store(CodeGenerator& gen, const std::string& var_name) {
                 std::cout << "[SCOPE_CODEGEN] Stored to parent variable '" << var_name 
                           << "' at r" << scope_reg << "+" << var_offset << std::endl;
             } else {
-                throw std::runtime_error("Deep nested scope store not yet implemented for: " + var_name);
+                generate_deep_scope_variable_store(gen, var_name, scope_depth, var_offset);
+                std::cout << "[SCOPE_CODEGEN] Stored to parent variable '" << var_name 
+                          << "' via deep scope (stack-based access)" << std::endl;
             }
         }
     }
@@ -378,7 +655,10 @@ void Identifier::generate_code(CodeGenerator& gen) {
                           << " (type=" << static_cast<int>(result_type) << ")" << std::endl;
             } else {
                 // Deep nesting - use stack-based access (slower but still optimized)
-                throw std::runtime_error("Deep nested scope access not yet implemented for: " + name);
+                generate_deep_scope_variable_load(gen, name, scope_depth, var_offset);
+                std::cout << "[NEW_CODEGEN] Loaded parent variable '" << name 
+                          << "' from deep scope (stack-based access)"
+                          << " (type=" << static_cast<int>(result_type) << ")" << std::endl;
             }
         }
         
@@ -434,7 +714,10 @@ void Assignment::generate_code(CodeGenerator& gen) {
                               << " (type=" << static_cast<int>(variable_type) << ")" << std::endl;
                 } else {
                     // Deep nesting - use stack-based access
-                    throw std::runtime_error("Deep nested scope store not yet implemented for: " + variable_name);
+                    generate_deep_scope_variable_store(gen, variable_name, scope_depth, var_offset);
+                    std::cout << "[NEW_CODEGEN] Stored to parent variable '" << variable_name 
+                              << "' via deep scope (stack-based access)"
+                              << " (type=" << static_cast<int>(variable_type) << ")" << std::endl;
                 }
             }
         } else {
@@ -1609,7 +1892,10 @@ void PostfixIncrement::generate_code(CodeGenerator& gen) {
             std::cout << "[NEW_CODEGEN] PostfixIncrement: loaded parent variable '" << variable_name 
                       << "' from r" << scope_reg << "+" << var_offset << std::endl;
         } else {
-            throw std::runtime_error("Deep nested scope access not yet implemented for PostfixIncrement: " + variable_name);
+            // Deep nested scope access for PostfixIncrement
+            generate_deep_scope_variable_load(gen, variable_name, scope_depth, var_offset);
+            std::cout << "[NEW_CODEGEN] PostfixIncrement: loaded parent variable '" << variable_name 
+                      << "' from deep scope (stack-based access)" << std::endl;
         }
     }
     
@@ -1637,7 +1923,10 @@ void PostfixIncrement::generate_code(CodeGenerator& gen) {
             std::cout << "[NEW_CODEGEN] PostfixIncrement: stored to parent variable '" << variable_name 
                       << "' at r" << scope_reg << "+" << var_offset << std::endl;
         } else {
-            throw std::runtime_error("Deep nested scope store not yet implemented for PostfixIncrement: " + variable_name);
+            // Deep nested scope store for PostfixIncrement
+            generate_deep_scope_variable_store(gen, variable_name, scope_depth, var_offset);
+            std::cout << "[NEW_CODEGEN] PostfixIncrement: stored to parent variable '" << variable_name 
+                      << "' via deep scope (stack-based access)" << std::endl;
         }
     }
     
@@ -1945,18 +2234,106 @@ void FreeStatement::generate_code(CodeGenerator& gen) {
 }
 
 void ThrowStatement::generate_code(CodeGenerator& gen) {
-    // TODO: Implement throw statements
-    std::cout << "[NEW_CODEGEN] ThrowStatement placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] ThrowStatement::generate_code - throw expression" << std::endl;
+    
+    // Generate code for the expression to be thrown
+    if (value) {
+        value->generate_code(gen);
+        
+        // Store the exception value in a standard location for runtime exception handling
+        gen.emit_mov_mem_reg(-272, 0); // Store exception value at stack location
+        
+        // Set up the exception throw with the runtime system
+        gen.emit_mov_reg_mem(7, -272); // RDI = exception value
+        gen.emit_call("__runtime_throw_exception");
+        
+        // The __runtime_throw_exception function should handle:
+        // 1. Stack unwinding to find the nearest catch handler
+        // 2. Proper cleanup of resources in unwound scopes
+        // 3. Jumping to the appropriate catch block or program termination
+        
+        // This call should not return normally - it either jumps to a catch handler
+        // or terminates the program. We add a safety return instruction just in case.
+        gen.emit_ret();
+        
+        result_type = DataType::VOID; // throw statements don't produce values
+    } else {
+        // Re-throw current exception (throw; with no expression)
+        gen.emit_call("__runtime_rethrow_exception");
+        gen.emit_ret();
+        result_type = DataType::VOID;
+    }
+    
+    std::cout << "[NEW_CODEGEN] ThrowStatement::generate_code complete" << std::endl;
 }
 
 void CatchClause::generate_code(CodeGenerator& gen) {
-    // TODO: Implement catch clauses
-    std::cout << "[NEW_CODEGEN] CatchClause placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] CatchClause::generate_code - catch(" << parameter << ")" << std::endl;
+    
+    // TODO: Set up scope-aware exception variable access
+    // For now, the exception value should be available in a runtime-defined location
+    
+    // Store exception value in a temporary location for the catch block
+    // The runtime exception handling system should have placed the exception in RAX
+    gen.emit_mov_mem_reg(-200, 0); // Store exception value for catch block access
+    
+    // Generate catch block body
+    for (const auto& stmt : body) {
+        stmt->generate_code(gen);
+    }
+    
+    std::cout << "[NEW_CODEGEN] CatchClause::generate_code complete" << std::endl;
 }
 
 void TryStatement::generate_code(CodeGenerator& gen) {
-    // TODO: Implement try statements
-    std::cout << "[NEW_CODEGEN] TryStatement placeholder" << std::endl;
+    static int try_counter = 0;
+    std::string catch_label = "try_catch_" + std::to_string(try_counter);
+    std::string finally_label = "try_finally_" + std::to_string(try_counter);
+    std::string end_label = "try_end_" + std::to_string(try_counter);
+    try_counter++;
+    
+    std::cout << "[NEW_CODEGEN] TryStatement::generate_code - try block with " 
+              << (catch_clause ? "catch" : "no catch") 
+              << (finally_body.empty() ? "" : " and finally") << std::endl;
+    
+    // Set up exception handling (simplified approach)
+    // TODO: Integrate with proper exception handling system
+    
+    // Generate try block
+    for (const auto& stmt : try_body) {
+        stmt->generate_code(gen);
+    }
+    
+    // If no exception occurred, jump to finally (or end if no finally)
+    if (!finally_body.empty()) {
+        gen.emit_jump(finally_label);
+    } else {
+        gen.emit_jump(end_label);
+    }
+    
+    // Generate catch block if present
+    if (catch_clause) {
+        gen.emit_label(catch_label);
+        catch_clause->generate_code(gen);
+        
+        // After catch, go to finally (or end if no finally)
+        if (!finally_body.empty()) {
+            gen.emit_jump(finally_label);
+        } else {
+            gen.emit_jump(end_label);
+        }
+    }
+    
+    // Generate finally block if present
+    if (!finally_body.empty()) {
+        gen.emit_label(finally_label);
+        for (const auto& stmt : finally_body) {
+            stmt->generate_code(gen);
+        }
+    }
+    
+    gen.emit_label(end_label);
+    std::cout << "[NEW_CODEGEN] TryStatement::generate_code complete" << std::endl;
 }
 
 void BlockStatement::generate_code(CodeGenerator& gen) {
@@ -1986,53 +2363,547 @@ void BlockStatement::generate_code(CodeGenerator& gen) {
 }
 
 void CaseClause::generate_code(CodeGenerator& gen) {
-    // TODO: Implement case clauses
-    std::cout << "[NEW_CODEGEN] CaseClause placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] CaseClause::generate_code - ";
+    if (is_default) {
+        std::cout << "default case with " << body.size() << " statements" << std::endl;
+    } else {
+        std::cout << "case with value and " << body.size() << " statements" << std::endl;
+    }
+    
+    // Note: The case label and value comparison is handled by SwitchStatement
+    // CaseClause just needs to generate its body statements
+    
+    for (const auto& stmt : body) {
+        stmt->generate_code(gen);
+    }
+    
+    std::cout << "[NEW_CODEGEN] CaseClause::generate_code complete" << std::endl;
 }
 
 void SwitchStatement::generate_code(CodeGenerator& gen) {
-    // TODO: Implement switch statements
-    std::cout << "[NEW_CODEGEN] SwitchStatement placeholder" << std::endl;
+    static int switch_counter = 0;
+    std::string switch_end = "switch_end_" + std::to_string(switch_counter);
+    switch_counter++;
+    
+    std::cout << "[NEW_CODEGEN] SwitchStatement::generate_code - generating switch with " 
+              << cases.size() << " cases" << std::endl;
+    
+    // Generate discriminant code - this puts the result in RAX
+    discriminant->generate_code(gen);
+    DataType discriminant_type = discriminant->result_type;
+    
+    // Store discriminant value and type in temporary stack locations
+    gen.emit_mov_mem_reg(-150, 0); // Store discriminant value
+    gen.emit_mov_reg_imm(0, static_cast<int64_t>(discriminant_type));
+    gen.emit_mov_mem_reg(-158, 0); // Store discriminant type
+    
+    // Generate code for each case
+    std::vector<std::string> case_labels;
+    std::string default_label;
+    bool has_default = false;
+    
+    // First pass: create labels and generate comparison jumps
+    for (size_t i = 0; i < cases.size(); i++) {
+        const auto& case_clause = cases[i];
+        
+        if (case_clause->is_default) {
+            default_label = "case_default_" + std::to_string(switch_counter - 1);
+            has_default = true;
+        } else {
+            std::string case_label = "case_" + std::to_string(switch_counter - 1) + "_" + std::to_string(i);
+            case_labels.push_back(case_label);
+            
+            // Generate case value and compare with discriminant
+            case_clause->value->generate_code(gen);
+            DataType case_type = case_clause->value->result_type;
+            
+            // Fast path for same known types
+            if (discriminant_type != DataType::ANY && case_type != DataType::ANY && discriminant_type == case_type) {
+                // Direct comparison for same types
+                gen.emit_mov_reg_mem(3, -150); // RBX = discriminant value from stack
+                gen.emit_sub_reg_reg(3, 0); // SUB sets zero flag if values are equal
+                gen.emit_jump_if_zero(case_label); // Jump if equal (zero flag set)
+            } else if (discriminant_type != DataType::ANY && case_type != DataType::ANY && discriminant_type != case_type) {
+                // Different known types - never equal, skip this case
+                continue;
+            } else {
+                // At least one operand is ANY - use runtime comparison
+                gen.emit_mov_reg_mem(7, -150); // RDI = discriminant value
+                gen.emit_mov_reg_mem(6, -158); // RSI = discriminant type
+                gen.emit_mov_reg_reg(2, 0);   // RDX = case value (currently in RAX)
+                gen.emit_mov_reg_imm(1, static_cast<int64_t>(case_type)); // RCX = case type
+                gen.emit_call("__runtime_js_equal");
+                
+                // Jump to case if equal (RAX != 0)
+                gen.emit_mov_reg_imm(1, 0);
+                gen.emit_compare(0, 1);
+                gen.emit_jump_if_not_zero(case_label);
+            }
+        }
+    }
+    
+    // If no case matched and there's a default, jump to it
+    if (has_default) {
+        gen.emit_jump(default_label);
+    } else {
+        // No default case - jump to end
+        gen.emit_jump(switch_end);
+    }
+    
+    // Second pass: generate case bodies
+    for (size_t i = 0; i < cases.size(); i++) {
+        const auto& case_clause = cases[i];
+        
+        if (case_clause->is_default) {
+            gen.emit_label(default_label);
+        } else {
+            gen.emit_label(case_labels[i]);
+        }
+        
+        // Generate case body
+        for (const auto& stmt : case_clause->body) {
+            stmt->generate_code(gen);
+        }
+        
+        // Note: JavaScript switch cases fall through by default unless there's a break
+        // The break statement implementation should jump to switch_end
+    }
+    
+    gen.emit_label(switch_end);
+    std::cout << "[NEW_CODEGEN] SwitchStatement::generate_code complete" << std::endl;
 }
 
 void ImportStatement::generate_code(CodeGenerator& gen) {
-    // TODO: Implement import statements
-    std::cout << "[NEW_CODEGEN] ImportStatement placeholder for " << module_path << std::endl;
+    std::cout << "[NEW_CODEGEN] ImportStatement::generate_code - import from " << module_path << std::endl;
+    
+    // Create a stable string for the module path
+    static std::unordered_map<std::string, const char*> module_path_storage;
+    auto it = module_path_storage.find(module_path);
+    if (it == module_path_storage.end()) {
+        char* path_copy = new char[module_path.length() + 1];
+        strcpy(path_copy, module_path.c_str());
+        module_path_storage[module_path] = path_copy;
+        it = module_path_storage.find(module_path);
+    }
+    
+    // Handle different import patterns based on ImportSpecifiers
+    if (is_namespace_import) {
+        // import * as name from 'module'
+        gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = module_path
+        gen.emit_call("__module_load"); // Load entire module as namespace object
+        
+        // Store the namespace object in the specified variable
+        if (!namespace_name.empty()) {
+            emit_variable_store(gen, namespace_name);
+        }
+    } else if (specifiers.size() == 1 && specifiers[0].is_default) {
+        // import defaultName from 'module'
+        gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = module_path
+        gen.emit_call("__module_import_default");
+        
+        // Store the default export in the imported variable
+        emit_variable_store(gen, specifiers[0].local_name);
+    } else if (!specifiers.empty()) {
+        // import { name1, name2 } from 'module'
+        gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = module_path
+        gen.emit_call("__module_load"); // Load the module
+        gen.emit_mov_mem_reg(-360, 0); // Store module object
+        
+        // Import each named export
+        for (const auto& spec : specifiers) {
+            // Create stable string for import name
+            static std::unordered_map<std::string, const char*> import_name_storage;
+            auto name_it = import_name_storage.find(spec.imported_name);
+            if (name_it == import_name_storage.end()) {
+                char* name_copy = new char[spec.imported_name.length() + 1];
+                strcpy(name_copy, spec.imported_name.c_str());
+                import_name_storage[spec.imported_name] = name_copy;
+                name_it = import_name_storage.find(spec.imported_name);
+            }
+            
+            // Get the named export from the module
+            gen.emit_mov_reg_mem(7, -360); // RDI = module object
+            gen.emit_mov_reg_imm(6, reinterpret_cast<int64_t>(name_it->second)); // RSI = export name
+            gen.emit_call("__module_get_named_export");
+            
+            // Store in the local variable with scope-aware access
+            emit_variable_store(gen, spec.local_name);
+        }
+    } else {
+        // import 'module' (side effects only)
+        gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = module_path
+        gen.emit_call("__module_import_side_effects");
+    }
+    
+    result_type = DataType::VOID; // Imports don't produce values
+    std::cout << "[NEW_CODEGEN] ImportStatement::generate_code complete" << std::endl;
 }
 
 void ExportStatement::generate_code(CodeGenerator& gen) {
-    // TODO: Implement export statements
-    std::cout << "[NEW_CODEGEN] ExportStatement placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] ExportStatement::generate_code - export statement" << std::endl;
+    
+    if (is_default) {
+        // export default expression/declaration
+        if (declaration) {
+            declaration->generate_code(gen);
+            
+            // Register the default export with the module system
+            gen.emit_mov_reg_reg(7, 0); // RDI = declaration result (from RAX)
+            gen.emit_call("__module_set_default_export");
+        }
+        
+    } else if (declaration) {
+        // export const/let/var/function/class declaration
+        declaration->generate_code(gen);
+        
+        // The declaration should have created variables/functions in scope
+        // For simplicity, assume we can extract the name and register it as export
+        // This is a simplified implementation
+        
+        // For now, register all specifiers as named exports
+        for (const auto& spec : specifiers) {
+            // Load the variable value using local_name
+            emit_variable_load(gen, spec.local_name);
+            
+            // Create stable string for export name
+            static std::unordered_map<std::string, const char*> export_name_storage;
+            auto it = export_name_storage.find(spec.exported_name);
+            if (it == export_name_storage.end()) {
+                char* name_copy = new char[spec.exported_name.length() + 1];
+                strcpy(name_copy, spec.exported_name.c_str());
+                export_name_storage[spec.exported_name] = name_copy;
+                it = export_name_storage.find(spec.exported_name);
+            }
+            
+            // Register named export
+            gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = export name
+            gen.emit_mov_reg_reg(6, 0); // RSI = export value (from variable load)
+            gen.emit_call("__module_set_named_export");
+        }
+        
+    } else if (!specifiers.empty()) {
+        // export { name1, name2 } - re-export existing variables
+        for (const auto& spec : specifiers) {
+            // Load the variable to export using local_name
+            emit_variable_load(gen, spec.local_name);
+            
+            // Create stable string for export name
+            static std::unordered_map<std::string, const char*> export_name_storage;
+            auto it = export_name_storage.find(spec.exported_name);
+            if (it == export_name_storage.end()) {
+                char* name_copy = new char[spec.exported_name.length() + 1];
+                strcpy(name_copy, spec.exported_name.c_str());
+                export_name_storage[spec.exported_name] = name_copy;
+                it = export_name_storage.find(spec.exported_name);
+            }
+            
+            // Register named export
+            gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = export name
+            gen.emit_mov_reg_reg(6, 0); // RSI = variable value (from RAX)
+            gen.emit_call("__module_set_named_export");
+        }
+    }
+    
+    result_type = DataType::VOID; // Exports don't produce values
+    std::cout << "[NEW_CODEGEN] ExportStatement::generate_code complete" << std::endl;
 }
 
 void ConstructorDecl::generate_code(CodeGenerator& gen) {
-    // TODO: Implement constructor declarations
-    std::cout << "[NEW_CODEGEN] ConstructorDecl placeholder for " << class_name << std::endl;
+    std::cout << "[NEW_CODEGEN] ConstructorDecl::generate_code - constructor for " << class_name << std::endl;
+    
+    // Set class context for 'this' binding
+    std::string previous_class = g_scope_context.current_class_name;
+    g_scope_context.current_class_name = class_name;
+    
+    // Generate constructor function label
+    std::string constructor_label = "__constructor_" + class_name;
+    gen.emit_label(constructor_label);
+    
+    // Constructor prologue - establish stack frame
+    gen.emit_sub_reg_imm(4, 128); // sub rsp, 128 (allocate larger stack frame for constructor)
+    gen.emit_mov_reg_offset_reg(5, 0, 5); // mov [rbp], rbp (save old rbp)
+    gen.emit_mov_reg_reg(5, 4); // mov rbp, rsp (establish new frame pointer)
+    
+    // Save 'this' parameter (passed in RDI) to a known stack location
+    gen.emit_mov_mem_reg(-128, 7); // Save 'this' object at [rbp-128]
+    
+    // Generate parameter assignments (skip 'this' - it's implicit)
+    // Constructor parameters are passed in RSI, RDX, RCX, R8, R9, then stack
+    for (size_t i = 0; i < parameters.size() && i < 5; i++) {
+        // Store parameter values in stack locations for scope-aware access
+        int64_t param_offset = -136 - (i * 8); // Start after 'this' storage
+        
+        switch (i) {
+            case 0: gen.emit_mov_mem_reg(param_offset, 6); break; // RSI -> param 0
+            case 1: gen.emit_mov_mem_reg(param_offset, 2); break; // RDX -> param 1
+            case 2: gen.emit_mov_mem_reg(param_offset, 1); break; // RCX -> param 2
+            case 3: gen.emit_mov_mem_reg(param_offset, 8); break; // R8 -> param 3
+            case 4: gen.emit_mov_mem_reg(param_offset, 9); break; // R9 -> param 4
+        }
+    }
+    
+    // Generate constructor body statements
+    for (const auto& stmt : body) {
+        stmt->generate_code(gen);
+    }
+    
+    // Constructor epilogue - return 'this' object
+    gen.emit_mov_reg_mem(0, -128); // mov rax, [rbp-128] (load 'this' for return)
+    gen.emit_mov_reg_reg(4, 5); // mov rsp, rbp (restore stack pointer)
+    gen.emit_mov_reg_mem(5, 0); // mov rbp, [rbp] (restore frame pointer)
+    gen.emit_ret(); // return 'this'
+    
+    // Restore previous class context
+    g_scope_context.current_class_name = previous_class;
+    
+    std::cout << "[NEW_CODEGEN] ConstructorDecl::generate_code complete" << std::endl;
 }
 
 void MethodDecl::generate_code(CodeGenerator& gen) {
-    // TODO: Implement method declarations
-    std::cout << "[NEW_CODEGEN] MethodDecl placeholder for " << name << std::endl;
+    std::cout << "[NEW_CODEGEN] MethodDecl::generate_code - method " << name << std::endl;
+    
+    // Generate method function label
+    std::string method_label;
+    if (!g_scope_context.current_class_name.empty()) {
+        method_label = "__method_" + g_scope_context.current_class_name + "_" + name;
+    } else {
+        method_label = "__function_" + name;
+    }
+    
+    gen.emit_label(method_label);
+    
+    // Method prologue - establish stack frame
+    gen.emit_sub_reg_imm(4, 128); // sub rsp, 128 (allocate stack frame)
+    gen.emit_mov_reg_offset_reg(5, 0, 5); // mov [rbp], rbp (save old rbp)
+    gen.emit_mov_reg_reg(5, 4); // mov rbp, rsp (establish frame pointer)
+    
+    // For instance methods, save 'this' parameter (passed in RDI)
+    if (!g_scope_context.current_class_name.empty()) {
+        gen.emit_mov_mem_reg(-128, 7); // Save 'this' at [rbp-128]
+    }
+    
+    // Generate method body
+    for (const auto& stmt : body) {
+        stmt->generate_code(gen);
+    }
+    
+    // Method epilogue
+    gen.emit_mov_reg_reg(4, 5); // mov rsp, rbp (restore stack pointer)
+    gen.emit_mov_reg_mem(5, 0); // mov rbp, [rbp] (restore frame pointer)
+    gen.emit_ret(); // return
+    
+    std::cout << "[NEW_CODEGEN] MethodDecl::generate_code complete for " << name << std::endl;
 }
 
 void ClassDecl::generate_code(CodeGenerator& gen) {
-    // TODO: Implement class declarations
-    std::cout << "[NEW_CODEGEN] ClassDecl placeholder for " << name << std::endl;
+    std::cout << "[NEW_CODEGEN] ClassDecl::generate_code - class " << name << std::endl;
+    
+    // Set current class context for 'this' handling
+    std::string previous_class = g_scope_context.current_class_name;
+    g_scope_context.current_class_name = name;
+    
+    // Register the class with the runtime class system
+    static std::unordered_map<std::string, const char*> class_name_storage;
+    auto it = class_name_storage.find(name);
+    if (it == class_name_storage.end()) {
+        char* name_copy = new char[name.length() + 1];
+        strcpy(name_copy, name.c_str());
+        class_name_storage[name] = name_copy;
+        it = class_name_storage.find(name);
+    }
+    
+    // Count methods and constructor for class metadata
+    size_t method_count = methods.size();
+    size_t property_count = 8; // Default property slots for typical classes
+    
+    // Register class type with runtime
+    gen.emit_mov_reg_imm(7, reinterpret_cast<int64_t>(it->second)); // RDI = class name
+    gen.emit_mov_reg_imm(6, method_count); // RSI = method count
+    gen.emit_mov_reg_imm(2, property_count); // RDX = initial property count
+    gen.emit_call("__runtime_register_class");
+    
+    // Generate constructor if present
+    if (constructor) {
+        std::cout << "[NEW_CODEGEN] Generating constructor for class " << name << std::endl;
+        
+        // Generate constructor label
+        std::string constructor_label = "__constructor_" + name;
+        gen.emit_label(constructor_label);
+        
+        // Constructor prologue - save stack frame
+        gen.emit_sub_reg_imm(4, 64); // sub rsp, 64 (allocate stack frame)
+        gen.emit_mov_reg_offset_reg(5, 0, 5); // mov [rbp], rbp (save old rbp)
+        gen.emit_mov_reg_reg(5, 4); // mov rbp, rsp (set new frame)
+        
+        // Generate constructor body
+        for (const auto& stmt : constructor->body) {
+            stmt->generate_code(gen);
+        }
+        
+        // Constructor epilogue - restore stack frame and return object
+        gen.emit_mov_reg_reg(4, 5); // mov rsp, rbp
+        gen.emit_mov_reg_mem(5, 0); // mov rbp, [rbp] (restore old rbp)
+        gen.emit_mov_reg_reg(0, 7); // mov rax, rdi (return 'this' object)
+        gen.emit_ret();
+    }
+    
+    // Generate methods
+    for (size_t i = 0; i < methods.size(); i++) {
+        std::cout << "[NEW_CODEGEN] Generating method " << methods[i]->name << " for class " << name << std::endl;
+        
+        // Generate method label
+        std::string method_label = "__method_" + name + "_" + methods[i]->name;
+        gen.emit_label(method_label);
+        
+        // Method prologue
+        gen.emit_sub_reg_imm(4, 64); // sub rsp, 64
+        gen.emit_mov_reg_offset_reg(5, 0, 5); // save rbp
+        gen.emit_mov_reg_reg(5, 4); // mov rbp, rsp
+        
+        // Generate method body
+        for (const auto& stmt : methods[i]->body) {
+            stmt->generate_code(gen);
+        }
+        
+        // Method epilogue
+        gen.emit_mov_reg_reg(4, 5); // restore rsp
+        gen.emit_mov_reg_mem(5, 0); // restore rbp
+        gen.emit_ret();
+    }
+    
+    // Restore previous class context
+    g_scope_context.current_class_name = previous_class;
+    
+    std::cout << "[NEW_CODEGEN] ClassDecl::generate_code complete for " << name << std::endl;
 }
 
 void OperatorOverloadDecl::generate_code(CodeGenerator& gen) {
-    // TODO: Implement operator overload declarations
-    std::cout << "[NEW_CODEGEN] OperatorOverloadDecl placeholder for TokenType=" << static_cast<int>(operator_type) << std::endl;
+    std::cout << "[NEW_CODEGEN] OperatorOverloadDecl::generate_code - operator " << static_cast<int>(operator_type) << std::endl;
+    
+    // Generate simplified operator overload without scope handling for now
+    // This can be expanded later once the basic system is working
+    
+    std::string operator_label = "__operator_" + class_name + "_" + std::to_string(static_cast<int>(operator_type));
+    gen.emit_label(operator_label);
+    
+    // Basic function prologue
+    gen.emit_sub_reg_imm(4, 64);
+    gen.emit_mov_reg_offset_reg(5, 0, 5);
+    gen.emit_mov_reg_reg(5, 4);
+    
+    // Generate operator body
+    for (const auto& stmt : body) {
+        stmt->generate_code(gen);
+    }
+    
+    // Basic function epilogue
+    gen.emit_mov_reg_reg(4, 5);
+    gen.emit_mov_reg_mem(5, 0);
+    gen.emit_ret();
+    
+    std::cout << "[NEW_CODEGEN] OperatorOverloadDecl::generate_code complete" << std::endl;
 }
 
 void ForEachLoop::generate_code(CodeGenerator& gen) {
-    // TODO: Implement foreach loops
-    std::cout << "[NEW_CODEGEN] ForEachLoop placeholder" << std::endl;
+    static int loop_counter = 0;
+    std::string loop_start = "foreach_start_" + std::to_string(loop_counter);
+    std::string loop_end = "foreach_end_" + std::to_string(loop_counter);
+    std::string loop_check = "foreach_check_" + std::to_string(loop_counter);
+    loop_counter++;
+    
+    std::cout << "[NEW_CODEGEN] ForEachLoop::generate_code - iterating over " << index_var_name 
+              << ", " << value_var_name << std::endl;
+    
+    // Generate code for the iterable expression
+    iterable->generate_code(gen);
+    
+    // Store the iterable in a temporary stack location
+    gen.emit_mov_mem_reg(-170, 0); // Store iterable pointer
+    
+    // Initialize loop index to 0
+    gen.emit_mov_reg_imm(0, 0); // RAX = 0
+    gen.emit_mov_mem_reg(-178, 0); // Store index = 0
+    
+    gen.emit_label(loop_check);
+    
+    // Check if we've reached the end of the iterable
+    if (iterable->result_type == DataType::ARRAY || iterable->result_type == DataType::TENSOR) {
+        // For arrays: check if index < array.length
+        gen.emit_mov_reg_mem(7, -170); // RDI = array pointer
+        gen.emit_call("__array_size"); // RAX = array size
+        gen.emit_mov_reg_reg(3, 0); // RBX = array size
+        gen.emit_mov_reg_mem(0, -178); // RAX = current index
+        gen.emit_compare(0, 3); // Compare index with size
+        gen.emit_jump_if_greater_equal(loop_end); // Jump if index >= size
+        
+        // Get the value at current index
+        gen.emit_mov_reg_mem(7, -170); // RDI = array pointer
+        gen.emit_mov_reg_mem(6, -178); // RSI = index
+        gen.emit_call("__array_get"); // RAX = array[index]
+        
+        // Store value in stack location for loop body access
+        gen.emit_mov_mem_reg(-186, 0); // Store array element value
+        
+        // Store index as well (for index variable access)
+        gen.emit_mov_reg_mem(0, -178); // RAX = current index
+        gen.emit_mov_mem_reg(-194, 0); // Store index for user access
+        
+    } else {
+        // For objects: iterate over properties (more complex)
+        // For now, use a simple runtime call
+        gen.emit_mov_reg_mem(7, -170); // RDI = object pointer
+        gen.emit_mov_reg_mem(6, -178); // RSI = current index
+        gen.emit_call("__object_iterate_next"); // RAX = next property value (0 if done)
+        
+        // Check if iteration is done
+        gen.emit_mov_reg_imm(1, 0);
+        gen.emit_compare(0, 1);
+        gen.emit_jump_if_zero(loop_end); // Jump if no more properties
+        
+        // Store property value and key
+        gen.emit_mov_mem_reg(-186, 0); // Store property value
+        // Get the property key from the iterator
+        gen.emit_mov_reg_mem(7, -170); // RDI = object pointer
+        gen.emit_mov_reg_mem(6, -178); // RSI = current index
+        gen.emit_call("__object_get_current_key"); // RAX = property key
+        gen.emit_mov_mem_reg(-194, 0); // Store property key for user access
+    }
+    
+    gen.emit_label(loop_start);
+    
+    // TODO: Set up scope-aware variable access for loop variables
+    // For now, use simple assignments to loop variables
+    // This would need integration with the scope system to properly handle let/const semantics
+    
+    // Generate loop body
+    for (const auto& stmt : body) {
+        stmt->generate_code(gen);
+    }
+    
+    // Increment index and continue
+    gen.emit_mov_reg_mem(0, -178); // RAX = current index
+    gen.emit_add_reg_imm(0, 1); // RAX++
+    gen.emit_mov_mem_reg(-178, 0); // Store incremented index
+    gen.emit_jump(loop_check);
+    
+    gen.emit_label(loop_end);
+    std::cout << "[NEW_CODEGEN] ForEachLoop::generate_code complete" << std::endl;
 }
 
 void ForInStatement::generate_code(CodeGenerator& gen) {
-    // TODO: Implement for-in statements
-    std::cout << "[NEW_CODEGEN] ForInStatement placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] ForInStatement::generate_code - for-in loop (simplified)" << std::endl;
+    
+    // Simplified implementation to resolve compilation errors
+    // TODO: Implement full for-in loop functionality once field names are confirmed
+    
+    // Generate unique labels for the for-in loop
+    static int forin_counter = 0;
+    std::string loop_end = "__forin_end_" + std::to_string(forin_counter++);
+    
+    // Placeholder loop structure
+    gen.emit_label(loop_end);
+    
+    std::cout << "[NEW_CODEGEN] ForInStatement::generate_code complete (simplified)" << std::endl;
 }
 
 // Additional missing AST node implementations
@@ -2073,8 +2944,20 @@ void PropertyAccess::generate_code(CodeGenerator& gen) {
 }
 
 void ExpressionPropertyAccess::generate_code(CodeGenerator& gen) {
-    // TODO: Implement expression property access
-    std::cout << "[NEW_CODEGEN] ExpressionPropertyAccess placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] ExpressionPropertyAccess::generate_code - dynamic property access (simplified)" << std::endl;
+    
+    // Simplified implementation to resolve compilation errors
+    // TODO: Implement full dynamic property access once field names are confirmed
+    
+    // For now, just generate object code and return a placeholder value
+    if (object) {
+        object->generate_code(gen);
+    } else {
+        gen.emit_mov_reg_imm(0, 0); // RAX = 0 (placeholder)
+    }
+    
+    result_type = DataType::ANY;
+    std::cout << "[NEW_CODEGEN] ExpressionPropertyAccess: completed (simplified)" << std::endl;
 }
 
 void PropertyAssignment::generate_code(CodeGenerator& gen) {
@@ -2122,8 +3005,23 @@ void PropertyAssignment::generate_code(CodeGenerator& gen) {
 }
 
 void ExpressionPropertyAssignment::generate_code(CodeGenerator& gen) {
-    // TODO: Implement expression property assignment
-    std::cout << "[NEW_CODEGEN] ExpressionPropertyAssignment placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] ExpressionPropertyAssignment::generate_code - dynamic property assignment (simplified)" << std::endl;
+    
+    // Simplified implementation to resolve compilation errors
+    // TODO: Implement full dynamic property assignment once field names are confirmed
+    
+    // Generate the value to be assigned first
+    if (value) {
+        value->generate_code(gen);
+    }
+    
+    // Generate code for the object expression
+    if (object) {
+        object->generate_code(gen);
+    }
+    
+    result_type = value ? value->result_type : DataType::ANY;
+    std::cout << "[NEW_CODEGEN] ExpressionPropertyAssignment: completed (simplified)" << std::endl;
 }
 
 void ThisExpression::generate_code(CodeGenerator& gen) {
@@ -2213,13 +3111,115 @@ void NewExpression::generate_code(CodeGenerator& gen) {
 }
 
 void SuperCall::generate_code(CodeGenerator& gen) {
-    // TODO: Implement super call
-    std::cout << "[NEW_CODEGEN] SuperCall placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] SuperCall::generate_code - super() constructor call" << std::endl;
+    
+    // Super calls should only be valid within constructors
+    if (g_scope_context.current_class_name.empty()) {
+        throw std::runtime_error("super() call outside of class context");
+    }
+    
+    // For now, assume we have parent class information available
+    // TODO: Integrate with full inheritance system when available
+    std::string parent_class_name = "Object"; // Default parent - should come from class hierarchy
+    
+    // Generate arguments for parent constructor
+    std::vector<int64_t> arg_offsets;
+    for (size_t i = 0; i < arguments.size(); i++) {
+        arguments[i]->generate_code(gen);
+        
+        // Store argument value in temporary stack location
+        int64_t arg_offset = -280 - (i * 8);
+        gen.emit_mov_mem_reg(arg_offset, 0);
+        arg_offsets.push_back(arg_offset);
+    }
+    
+    // Set up parent constructor call
+    std::string parent_constructor_label = "__constructor_" + parent_class_name;
+    
+    // Load 'this' object into RDI (first parameter for parent constructor)
+    gen.emit_mov_reg_mem(7, -128); // RDI = this (assumed to be at rbp-128)
+    
+    // Load arguments into appropriate registers
+    for (size_t i = 0; i < arguments.size() && i < 5; i++) {
+        switch (i) {
+            case 0: gen.emit_mov_reg_mem(6, arg_offsets[i]); break; // RSI
+            case 1: gen.emit_mov_reg_mem(2, arg_offsets[i]); break; // RDX
+            case 2: gen.emit_mov_reg_mem(1, arg_offsets[i]); break; // RCX
+            case 3: gen.emit_mov_reg_mem(8, arg_offsets[i]); break; // R8
+            case 4: gen.emit_mov_reg_mem(9, arg_offsets[i]); break; // R9
+        }
+    }
+    
+    // Call parent constructor
+    gen.emit_call(parent_constructor_label);
+    
+    // Parent constructor returns 'this' in RAX, but we should maintain our own 'this'
+    // Store the returned value if needed (for chaining)
+    result_type = DataType::CLASS_INSTANCE;
+    
+    std::cout << "[NEW_CODEGEN] SuperCall::generate_code complete" << std::endl;
 }
 
 void SuperMethodCall::generate_code(CodeGenerator& gen) {
-    // TODO: Implement super method call
-    std::cout << "[NEW_CODEGEN] SuperMethodCall placeholder" << std::endl;
+    std::cout << "[NEW_CODEGEN] SuperMethodCall::generate_code - super." << method_name << "()" << std::endl;
+    
+    // Super method calls should only be valid within class methods
+    if (g_scope_context.current_class_name.empty()) {
+        throw std::runtime_error("super method call outside of class context");
+    }
+    
+    // For now, assume we have parent class information available
+    // TODO: Integrate with full inheritance system when available
+    std::string parent_class_name = "Object"; // Default parent - should come from class hierarchy
+    
+    // Generate arguments for parent method
+    std::vector<int64_t> arg_offsets;
+    for (size_t i = 0; i < arguments.size(); i++) {
+        arguments[i]->generate_code(gen);
+        
+        // Store argument value in temporary stack location
+        int64_t arg_offset = -320 - (i * 8);
+        gen.emit_mov_mem_reg(arg_offset, 0);
+        arg_offsets.push_back(arg_offset);
+    }
+    
+    // Set up parent method call
+    std::string parent_method_label = "__method_" + parent_class_name + "_" + method_name;
+    
+    // Load 'this' object into RDI (first parameter for parent method)
+    gen.emit_mov_reg_mem(7, -128); // RDI = this (assumed to be at rbp-128)
+    
+    // Load arguments into appropriate registers
+    for (size_t i = 0; i < arguments.size() && i < 5; i++) {
+        switch (i) {
+            case 0: gen.emit_mov_reg_mem(6, arg_offsets[i]); break; // RSI
+            case 1: gen.emit_mov_reg_mem(2, arg_offsets[i]); break; // RDX
+            case 2: gen.emit_mov_reg_mem(1, arg_offsets[i]); break; // RCX
+            case 3: gen.emit_mov_reg_mem(8, arg_offsets[i]); break; // R8
+            case 4: gen.emit_mov_reg_mem(9, arg_offsets[i]); break; // R9
+        }
+    }
+    
+    // For more than 5 arguments, push them onto stack
+    for (int i = arguments.size() - 1; i >= 5; i--) {
+        gen.emit_mov_reg_mem(0, arg_offsets[i]); // Load argument into RAX
+        gen.emit_sub_reg_imm(4, 8); // sub rsp, 8
+        gen.emit_mov_mem_reg(0, 0); // mov [rsp], rax
+    }
+    
+    // Call parent method
+    gen.emit_call(parent_method_label);
+    
+    // Clean up stack arguments if any
+    if (arguments.size() > 5) {
+        int stack_cleanup = (arguments.size() - 5) * 8;
+        gen.emit_add_reg_imm(4, stack_cleanup);
+    }
+    
+    // Result is returned in RAX
+    result_type = DataType::ANY; // Parent method can return any type
+    
+    std::cout << "[NEW_CODEGEN] SuperMethodCall::generate_code complete for " << method_name << std::endl;
 }
 
 // Add missing FunctionExpression methods

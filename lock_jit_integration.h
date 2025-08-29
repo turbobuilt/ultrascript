@@ -47,9 +47,16 @@ private:
 };
 
 // Lock-aware AST nodes for high-performance compilation
-struct LockCreation : ExpressionNode {
-    LockCreation() {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+class LockCreation : public ASTNode {
+public:
+    LockCreation(const std::string& lockName, const std::string& lockType = "mutex") 
+        : lockName_(lockName), lockType_(lockType) {}
+    
+    void generate_code(CodeGenerator& gen) override;
+
+private:
+    std::string lockName_;
+    std::string lockType_;
 };
 
 struct LockMethodCall : ExpressionNode {
@@ -59,7 +66,7 @@ struct LockMethodCall : ExpressionNode {
     
     LockMethodCall(const std::string& var, LockOperation op) 
         : lock_variable(var), operation(op) {}
-    void generate_code(CodeGenerator& gen, TypeInference& types) override;
+    void generate_code(CodeGenerator& gen) override;
 };
 
 // Lock pattern recognition for common usage patterns
