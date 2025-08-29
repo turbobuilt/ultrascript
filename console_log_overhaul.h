@@ -14,14 +14,12 @@ public:
     // Generate type-specific JIT code for console.log arguments
     static void generate_console_log_code(
         CodeGenerator& gen, 
-        TypeInference& types,
         const std::vector<ExpressionNode*>& arguments
     );
     
     // Generate code for a single argument based on its type
     static void generate_typed_argument_code(
         CodeGenerator& gen,
-        TypeInference& types,
         ExpressionNode* argument,
         bool is_first_argument
     );
@@ -38,7 +36,6 @@ public:
     // Generate code for any type (C++ fallback)
     static void generate_any_type_code(
         CodeGenerator& gen,
-        TypeInference& types,
         ExpressionNode* argument
     );
 
@@ -74,3 +71,4 @@ extern "C" void __console_log_final_newline();
 
 // Any type console.log (reads DynamicValue and prints with proper type information)
 extern "C" void __console_log_any_value_inspect(void* dynamic_value_ptr);
+extern "C" void __console_log_dynamic_value(void* dynamic_value_ptr);

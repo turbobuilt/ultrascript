@@ -583,15 +583,106 @@ void emit_variable_store(CodeGenerator& gen, const std::string& var_name) {
 //=============================================================================
 
 void NumberLiteral::generate_code(CodeGenerator& gen) {
-    std::cout << "[NEW_CODEGEN] NumberLiteral::generate_code - value=" << value << std::endl;
+    std::cout << "[NEW_CODEGEN] NumberLiteral::generate_code - raw_value=" << raw_value << std::endl;
     
-    // For JavaScript compatibility, always treat numbers as FLOAT64 by default
-    union { double d; int64_t i; } converter;
-    converter.d = value;
-    gen.emit_mov_reg_imm(0, converter.i);
-    result_type = DataType::FLOAT64;
+    // Default behavior: treat as FLOAT64 for JavaScript compatibility
+    generate_code_as(gen, DataType::FLOAT64);
+}
+
+void NumberLiteral::generate_code_as(CodeGenerator& gen, DataType target_type) {
+    std::cout << "[NEW_CODEGEN] NumberLiteral::generate_code_as - raw_value=" << raw_value 
+              << ", target_type=" << static_cast<int>(target_type) << std::endl;
     
-    std::cout << "[NEW_CODEGEN] NumberLiteral: Generated float64 value " << value << std::endl;
+    // Handle boolean values specially
+    if (raw_value == "true" || raw_value == "false") {
+        bool bool_val = (raw_value == "true");
+        if (target_type == DataType::BOOLEAN) {
+            gen.emit_mov_reg_imm(0, bool_val ? 1 : 0);
+            result_type = DataType::BOOLEAN;
+            std::cout << "[NEW_CODEGEN] NumberLiteral: Generated boolean value " << bool_val << std::endl;
+            return;
+        } else {
+            // Convert boolean to target numeric type
+            int64_t numeric_val = bool_val ? 1 : 0;
+            // Fall through to numeric conversion with numeric_val
+            // For simplicity, we'll treat it as the string "1" or "0"
+            std::string temp_raw = std::to_string(numeric_val);
+            std::swap(raw_value, temp_raw);
+        }
+    }
+    
+    switch (target_type) {
+        case DataType::INT8: {
+            int8_t val = static_cast<int8_t>(std::stoll(raw_value));
+            gen.emit_mov_reg_imm(0, val);
+            result_type = DataType::INT8;
+            break;
+        }
+        case DataType::INT16: {
+            int16_t val = static_cast<int16_t>(std::stoll(raw_value));
+            gen.emit_mov_reg_imm(0, val);
+            result_type = DataType::INT16;
+            break;
+        }
+        case DataType::INT32: {
+            int32_t val = static_cast<int32_t>(std::stoll(raw_value));
+            gen.emit_mov_reg_imm(0, val);
+            result_type = DataType::INT32;
+            std::cout << "[NEW_CODEGEN] NumberLiteral: Generated int32 value " << val << std::endl;
+            break;
+        }
+        case DataType::INT64: {
+            int64_t val = std::stoll(raw_value);
+            gen.emit_mov_reg_imm(0, val);
+            result_type = DataType::INT64;
+            std::cout << "[NEW_CODEGEN] NumberLiteral: Generated int64 value " << val << std::endl;
+            break;
+        }
+        case DataType::UINT8: {
+            uint8_t val = static_cast<uint8_t>(std::stoull(raw_value));
+            gen.emit_mov_reg_imm(0, val);
+            result_type = DataType::UINT8;
+            break;
+        }
+        case DataType::UINT16: {
+            uint16_t val = static_cast<uint16_t>(std::stoull(raw_value));
+            gen.emit_mov_reg_imm(0, val);
+            result_type = DataType::UINT16;
+            break;
+        }
+        case DataType::UINT32: {
+            uint32_t val = static_cast<uint32_t>(std::stoull(raw_value));
+            gen.emit_mov_reg_imm(0, val);
+            result_type = DataType::UINT32;
+            break;
+        }
+        case DataType::UINT64: {
+            uint64_t val = std::stoull(raw_value);
+            gen.emit_mov_reg_imm(0, val);
+            result_type = DataType::UINT64;
+            break;
+        }
+        case DataType::FLOAT32: {
+            float val = std::stof(raw_value);
+            union { float f; int32_t i; } converter;
+            converter.f = val;
+            gen.emit_mov_reg_imm(0, converter.i);
+            result_type = DataType::FLOAT32;
+            std::cout << "[NEW_CODEGEN] NumberLiteral: Generated float32 value " << val << std::endl;
+            break;
+        }
+        case DataType::FLOAT64:
+        default: {
+            // Default case - JavaScript numbers are float64
+            double val = std::stod(raw_value);
+            union { double d; int64_t i; } converter;
+            converter.d = val;
+            gen.emit_mov_reg_imm(0, converter.i);
+            result_type = DataType::FLOAT64;
+            std::cout << "[NEW_CODEGEN] NumberLiteral: Generated float64 value " << val << std::endl;
+            break;
+        }
+    }
 }
 
 void StringLiteral::generate_code(CodeGenerator& gen) {
@@ -632,6 +723,63 @@ void StringLiteral::generate_code(CodeGenerator& gen) {
     
     // Result is now in RAX (pointer to GoTSString)
     result_type = DataType::STRING;
+}
+
+void BooleanLiteral::generate_code(CodeGenerator& gen) {
+    // Default behavior: generate as boolean type
+    generate_code_as(gen, DataType::BOOLEAN);
+}
+
+void BooleanLiteral::generate_code_as(CodeGenerator& gen, DataType target_type) {
+    std::cout << "[NEW_CODEGEN] BooleanLiteral::generate_code_as - value=" << value 
+              << ", target_type=" << static_cast<int>(target_type) << std::endl;
+    
+    switch (target_type) {
+        case DataType::BOOLEAN: {
+            gen.emit_mov_reg_imm(0, value ? 1 : 0);
+            result_type = DataType::BOOLEAN;
+            std::cout << "[NEW_CODEGEN] BooleanLiteral: Generated boolean value " << value << std::endl;
+            break;
+        }
+        case DataType::INT8:
+        case DataType::INT16:
+        case DataType::INT32:
+        case DataType::INT64: {
+            int64_t numeric_val = value ? 1 : 0;
+            gen.emit_mov_reg_imm(0, numeric_val);
+            result_type = target_type;
+            std::cout << "[NEW_CODEGEN] BooleanLiteral: Generated " << static_cast<int>(target_type) 
+                      << " value " << numeric_val << std::endl;
+            break;
+        }
+        case DataType::UINT8:
+        case DataType::UINT16:
+        case DataType::UINT32:
+        case DataType::UINT64: {
+            uint64_t numeric_val = value ? 1 : 0;
+            gen.emit_mov_reg_imm(0, numeric_val);
+            result_type = target_type;
+            break;
+        }
+        case DataType::FLOAT32: {
+            float numeric_val = value ? 1.0f : 0.0f;
+            union { float f; int32_t i; } converter;
+            converter.f = numeric_val;
+            gen.emit_mov_reg_imm(0, converter.i);
+            result_type = DataType::FLOAT32;
+            break;
+        }
+        case DataType::FLOAT64:
+        default: {
+            double numeric_val = value ? 1.0 : 0.0;
+            union { double d; int64_t i; } converter;
+            converter.d = numeric_val;
+            gen.emit_mov_reg_imm(0, converter.i);
+            result_type = DataType::FLOAT64;
+            std::cout << "[NEW_CODEGEN] BooleanLiteral: Generated float64 value " << numeric_val << std::endl;
+            break;
+        }
+    }
 }
 
 void Identifier::generate_code(CodeGenerator& gen) {
@@ -712,7 +860,59 @@ void Assignment::generate_code(CodeGenerator& gen) {
     
     // Generate value first
     if (value) {
-        value->generate_code(gen);
+        // For BooleanLiterals and NumberLiterals, use context-aware generation if we have a declared type
+        if (declared_type != DataType::ANY) {
+            if (auto bool_literal = dynamic_cast<BooleanLiteral*>(value.get())) {
+                // Use context-aware generation for BooleanLiteral
+                std::cout << "[NEW_CODEGEN] Using context-aware BooleanLiteral generation for declared_type=" 
+                          << static_cast<int>(declared_type) << std::endl;
+                bool_literal->generate_code_as(gen, declared_type);
+            } else if (auto num_literal = dynamic_cast<NumberLiteral*>(value.get())) {
+                // Use context-aware generation for NumberLiteral
+                std::cout << "[NEW_CODEGEN] Using context-aware NumberLiteral generation for declared_type=" 
+                          << static_cast<int>(declared_type) << std::endl;
+                num_literal->generate_code_as(gen, declared_type);
+            } else {
+                // Non-literal - generate normally and handle conversion below
+                value->generate_code(gen);
+            }
+        } else {
+            // No declared type - handle untyped variables by creating DynamicValue
+            if (auto bool_literal = dynamic_cast<BooleanLiteral*>(value.get())) {
+                std::cout << "[NEW_CODEGEN] Creating DynamicValue for untyped BooleanLiteral: " << bool_literal->value << std::endl;
+                
+                // Boolean literal -> DynamicValue
+                gen.emit_mov_reg_imm(7, bool_literal->value ? 1 : 0); // RDI = boolean value
+                gen.emit_call("__dynamic_value_create_from_bool");
+                // RAX now contains DynamicValue* pointing to boolean
+                
+                // Set result type to ANY for DynamicValue
+                value->result_type = DataType::ANY;
+                
+            } else if (auto num_literal = dynamic_cast<NumberLiteral*>(value.get())) {
+                std::cout << "[NEW_CODEGEN] Creating DynamicValue for untyped NumberLiteral: " << num_literal->raw_value << std::endl;
+                
+                // Numeric literal - create DynamicValue containing double (JavaScript compatibility)
+                double val = std::stod(num_literal->raw_value);
+                gen.emit_mov_reg_imm(7, *reinterpret_cast<int64_t*>(&val)); // RDI = double bits
+                gen.emit_call("__dynamic_value_create_from_double");
+                // RAX now contains DynamicValue* pointing to double
+                
+                // Set result type to ANY for DynamicValue
+                value->result_type = DataType::ANY;
+                
+            } else {
+                // Non-literal nodes - generate normally (string literals, etc. should also create DynamicValues)
+                value->generate_code(gen);
+                
+                // If result is string, wrap in DynamicValue  
+                if (value->result_type == DataType::STRING) {
+                    gen.emit_mov_reg_reg(7, 0); // RDI = string pointer from RAX
+                    gen.emit_call("__dynamic_value_create_from_string");
+                    value->result_type = DataType::ANY;
+                }
+            }
+        }
         
         // Determine variable type
         DataType variable_type;
@@ -721,6 +921,9 @@ void Assignment::generate_code(CodeGenerator& gen) {
         } else {
             variable_type = value->result_type;
         }
+        
+        // Type conversion is now handled by context-aware NumberLiteral generation
+        // No need for post-generation conversion since NumberLiterals generate the right type directly
         
         // ULTRA-FAST DIRECT POINTER STORE
         if (variable_declaration_info) {
@@ -1396,31 +1599,14 @@ void MethodCall::generate_code(CodeGenerator& gen) {
     // Handle built-in methods
     if (object_name == "console") {
         if (method_name == "log") {
-            // Simple console.log implementation for now
-            // TODO: Implement full type-aware console.log with new scope system
-            
-            for (size_t i = 0; i < arguments.size() && i < 6; i++) {
-                arguments[i]->generate_code(gen);
-                
-                // Move result to appropriate argument register
-                switch (i) {
-                    case 0: gen.emit_mov_reg_reg(7, 0); break;  // RDI = RAX
-                    case 1: gen.emit_mov_reg_reg(6, 0); break;  // RSI = RAX
-                    case 2: gen.emit_mov_reg_reg(2, 0); break;  // RDX = RAX
-                    case 3: gen.emit_mov_reg_reg(1, 0); break;  // RCX = RAX
-                    case 4: gen.emit_mov_reg_reg(8, 0); break;  // R8 = RAX
-                    case 5: gen.emit_mov_reg_reg(9, 0); break;  // R9 = RAX
-                }
+            // Type-aware console.log implementation using the sophisticated console log system
+            std::vector<ExpressionNode*> arg_ptrs;
+            for (const auto& arg : arguments) {
+                arg_ptrs.push_back(arg.get());
             }
             
-            // Call appropriate runtime function based on argument count
-            if (arguments.size() == 0) {
-                gen.emit_call("__console_log_empty");
-            } else if (arguments.size() == 1) {
-                gen.emit_call("__console_log_single");
-            } else {
-                gen.emit_call("__console_log_multiple");
-            }
+            // Use the advanced TypeAwareConsoleLog system (now without TypeInference dependency)
+            TypeAwareConsoleLog::generate_console_log_code(gen, arg_ptrs);
             
             result_type = DataType::VOID;
         } else if (method_name == "time") {

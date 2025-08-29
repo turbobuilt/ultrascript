@@ -460,6 +460,7 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         (*runtime_functions)["__console_log_space_separator"] = reinterpret_cast<void*>(__console_log_space_separator);
         (*runtime_functions)["__console_log_final_newline"] = reinterpret_cast<void*>(__console_log_final_newline);
         (*runtime_functions)["__console_log_any_value_inspect"] = reinterpret_cast<void*>(__console_log_any_value_inspect);
+        (*runtime_functions)["__console_log_dynamic_value"] = reinterpret_cast<void*>(__console_log_dynamic_value);
         (*runtime_functions)["__console_time"] = reinterpret_cast<void*>(__console_time);
         (*runtime_functions)["__console_timeEnd"] = reinterpret_cast<void*>(__console_timeEnd);
         

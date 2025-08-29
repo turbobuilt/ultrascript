@@ -35,7 +35,6 @@ const std::unordered_map<DataType, std::string> TypeAwareConsoleLog::type_functi
 
 void TypeAwareConsoleLog::generate_console_log_code(
     CodeGenerator& gen, 
-    TypeInference& types,
     const std::vector<ExpressionNode*>& arguments
 ) {
     // For each argument, emit a space (except first) and then the typed output
@@ -48,7 +47,7 @@ void TypeAwareConsoleLog::generate_console_log_code(
         }
         
         // Generate type-specific code for this argument
-        generate_typed_argument_code(gen, types, arguments[i], is_first);
+        generate_typed_argument_code(gen, arguments[i], is_first);
     }
     
     // Emit final newline
@@ -57,25 +56,22 @@ void TypeAwareConsoleLog::generate_console_log_code(
 
 void TypeAwareConsoleLog::generate_typed_argument_code(
     CodeGenerator& gen,
-    TypeInference& types,
     ExpressionNode* argument,
     bool is_first_argument
 ) {
     // Generate code for the argument expression
     argument->generate_code(gen);
     
-    // Get the result type from the argument
+    // Get the result type from the argument node itself
     DataType arg_type = argument->result_type;
     
-    // Handle ANY types with C++ fallback
+    // Handle ANY types properly - they represent DynamicValue objects
     if (arg_type == DataType::ANY) {
-        generate_any_type_code(gen, types, argument);
+        // For ANY type, we need to inspect the DynamicValue at runtime
+        // The argument result is already in RAX as a pointer to DynamicValue
+        gen.emit_mov_reg_reg(7, 0); // RDI = RAX (DynamicValue* pointer)
+        gen.emit_call("__console_log_dynamic_value");
         return;
-    }
-    
-    // Handle FLOAT64 directly
-    if (arg_type == DataType::FLOAT64) {
-        // Already handled by get_console_log_function_name below
     }
     
     // Get the runtime function name for this type
@@ -83,7 +79,7 @@ void TypeAwareConsoleLog::generate_typed_argument_code(
     
     if (func_name.empty()) {
         // Fallback to any type for unknown types
-        generate_any_type_code(gen, types, argument);
+        generate_any_type_code(gen, argument);
         return;
     }
     
@@ -115,7 +111,6 @@ void TypeAwareConsoleLog::generate_typed_argument_code(
 
 void TypeAwareConsoleLog::generate_any_type_code(
     CodeGenerator& gen,
-    TypeInference& types,
     ExpressionNode* argument
 ) {
     // For ANY types, we need to figure out the actual runtime type
@@ -270,6 +265,75 @@ extern "C" void __console_log_space_separator() {
 extern "C" void __console_log_final_newline() {
     std::lock_guard<std::mutex> lock(console_mutex);
     std::cout << std::endl;
+}
+
+extern "C" void __console_log_dynamic_value(void* dynamic_value_ptr) {
+    std::lock_guard<std::mutex> lock(console_mutex);
+    
+    if (!dynamic_value_ptr) {
+        std::cout << "null";
+        std::cout.flush();
+        return;
+    }
+    
+    // Cast to DynamicValue and read the stored type and value
+    DynamicValue* dyn_val = static_cast<DynamicValue*>(dynamic_value_ptr);
+    
+    // Use the stored type information to print correctly
+    switch (dyn_val->type) {
+        case DataType::INT8:
+            std::cout << static_cast<int>(dyn_val->as<int8_t>());
+            break;
+        case DataType::INT16:
+            std::cout << dyn_val->as<int16_t>();
+            break;
+        case DataType::INT32:
+            std::cout << dyn_val->as<int32_t>();
+            break;
+        case DataType::INT64:
+            std::cout << dyn_val->as<int64_t>();
+            break;
+        case DataType::UINT8:
+            std::cout << static_cast<unsigned int>(dyn_val->as<uint8_t>());
+            break;
+        case DataType::UINT16:
+            std::cout << dyn_val->as<uint16_t>();
+            break;
+        case DataType::UINT32:
+            std::cout << dyn_val->as<uint32_t>();
+            break;
+        case DataType::UINT64:
+            std::cout << dyn_val->as<uint64_t>();
+            break;
+        case DataType::FLOAT32:
+            std::cout << dyn_val->as<float>();
+            break;
+        case DataType::FLOAT64:
+            std::cout << dyn_val->as<double>();
+            break;
+        case DataType::BOOLEAN:
+            std::cout << (dyn_val->as<bool>() ? "true" : "false");
+            break;
+        case DataType::STRING:
+            std::cout << dyn_val->as<std::string>();
+            break;
+        case DataType::ARRAY:
+        case DataType::CLASS_INSTANCE: {
+            void* ptr = dyn_val->as<void*>();
+            if (ptr) {
+                std::cout << "[Object@" << std::hex << reinterpret_cast<uintptr_t>(ptr) << std::dec << "]";
+            } else {
+                std::cout << "null";
+            }
+            break;
+        }
+        default:
+            std::cout << "[DynamicValue with unknown type " 
+                      << static_cast<int>(dyn_val->type) << "]";
+            break;
+    }
+    
+    std::cout.flush();
 }
 
 extern "C" void __console_log_any_value_inspect(void* dynamic_value_ptr) {

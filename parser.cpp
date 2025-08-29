@@ -651,8 +651,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_call() {
 
 std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (match(TokenType::NUMBER)) {
-        double value = std::stod(tokens[pos - 1].value);
-        return std::make_unique<NumberLiteral>(value);
+        // Store the raw string value instead of converting to double
+        // This preserves full precision for all integer types
+        std::string raw_value = tokens[pos - 1].value;
+        return std::make_unique<NumberLiteral>(raw_value);
     }
     
     if (match(TokenType::STRING)) {
@@ -682,8 +684,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
     
     if (match(TokenType::BOOLEAN)) {
-        double value = (tokens[pos - 1].value == "true") ? 1.0 : 0.0;
-        return std::make_unique<NumberLiteral>(value);
+        // Create proper BooleanLiteral nodes for true/false
+        std::string raw_value = tokens[pos - 1].value;
+        bool bool_value = (raw_value == "true");
+        return std::make_unique<BooleanLiteral>(bool_value);
     }
     
     if (match(TokenType::IDENTIFIER)) {

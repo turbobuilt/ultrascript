@@ -471,9 +471,26 @@ struct ExpressionNode : ASTNode {
 };
 
 struct NumberLiteral : ExpressionNode {
-    double value;
-    NumberLiteral(double v) : value(v) {}
+    std::string raw_value;  // Store the original string representation
+    
+    NumberLiteral(const std::string& raw) : raw_value(raw) {}
+    
+    // Legacy constructor for backwards compatibility (converts double to string)
+    NumberLiteral(double v) : raw_value(std::to_string(v)) {}
+    
     void generate_code(CodeGenerator& gen) override;
+    
+    // Context-aware code generation - generates code for specific target type
+    void generate_code_as(CodeGenerator& gen, DataType target_type);
+};
+
+struct BooleanLiteral : ExpressionNode {
+    bool value;
+    BooleanLiteral(bool v) : value(v) {}
+    void generate_code(CodeGenerator& gen) override;
+    
+    // Context-aware code generation - generates code for specific target type
+    void generate_code_as(CodeGenerator& gen, DataType target_type);
 };
 
 struct StringLiteral : ExpressionNode {
