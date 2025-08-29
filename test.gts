@@ -1,7 +1,10 @@
 var x = 42;
 
 function test() {
-    console.log(x);
+    function test2() {
+        console.log(x);
+        test()
+    }
 }
 
-test();
+test2();

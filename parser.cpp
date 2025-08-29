@@ -960,9 +960,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             gc_integration_->enter_scope("function_expr", true);
         }
         
-        // NEW: Enter lexical scope for function expression
+        // NEW: Enter lexical scope for function expression with function scope flag
         if (lexical_scope_analyzer_) {
-            lexical_scope_analyzer_->enter_scope();
+            lexical_scope_analyzer_->enter_scope(true);  // Function scope
             
             // Declare parameters in the new scope
             for (const auto& param : func_expr->parameters) {
@@ -1177,14 +1177,22 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
     std::string func_name = tokens[pos - 1].value;
     auto func_decl = std::make_unique<FunctionDecl>(func_name);
     
+    // PHASE 1: Register function in current scope BEFORE parsing body (hoisting)
+    if (lexical_scope_analyzer_) {
+        // Functions are hoisted to the nearest function scope
+        lexical_scope_analyzer_->register_function_in_current_scope(func_decl.get());
+        // Also declare the function name as a variable in the current scope
+        lexical_scope_analyzer_->declare_variable(func_name, "function");
+    }
+    
     // GC Integration: Enter function scope
     if (gc_integration_) {
         gc_integration_->enter_scope(func_name, true);
     }
     
-    // NEW: Enter lexical scope for function
+    // NEW: Enter lexical scope for function with function scope flag
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(true);  // Function scope
     }
     
     if (!match(TokenType::LPAREN)) {
@@ -1372,9 +1380,9 @@ std::unique_ptr<ASTNode> Parser::parse_if_statement() {
         throw std::runtime_error("Expected ')' after if condition");
     }
     
-    // Enter lexical scope for then branch
+    // Enter lexical scope for then branch (block scope)
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
     }
     
     if (match(TokenType::LBRACE)) {
@@ -1398,9 +1406,9 @@ std::unique_ptr<ASTNode> Parser::parse_if_statement() {
     if (current_token().type == TokenType::IDENTIFIER && current_token().value == "else") {
         advance(); // consume "else"
         
-        // Enter lexical scope for else branch
+        // Enter lexical scope for else branch (block scope)
         if (lexical_scope_analyzer_) {
-            lexical_scope_analyzer_->enter_scope();
+            lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
         }
         
         if (match(TokenType::LBRACE)) {
@@ -1433,7 +1441,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
     
     // Enter lexical scope for for loop (ES6 for loops create block scope for let/const)
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
     }
     
     bool has_parens = false;
@@ -1575,9 +1583,9 @@ std::unique_ptr<ASTNode> Parser::parse_while_statement() {
     
     auto while_loop = std::make_unique<WhileLoop>(std::move(condition));
     
-    // Enter lexical scope for while loop body
+    // Enter lexical scope for while loop body (block scope)
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
     }
     
     // Parse body - support both braced and single statement
@@ -1610,9 +1618,9 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
         throw std::runtime_error("Expected 'each' after 'for'");
     }
     
-    // Enter lexical scope for for-each loop
+    // Enter lexical scope for for-each loop (block scope)
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
     }
     
     // Parse: index, value (where index represents index for arrays or key for objects)
@@ -1676,9 +1684,9 @@ std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
         throw std::runtime_error("Expected 'for'");
     }
     
-    // Enter lexical scope for for-in loop
+    // Enter lexical scope for for-in loop (block scope)
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
     }
     
     // Check if parentheses are used
@@ -2375,9 +2383,9 @@ std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
         gc_integration_->enter_scope("global", false);
     }
     
-    // Lexical Scope System: Initialize global scope
+    // Lexical Scope System: Initialize global scope as function scope (top-level function)
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(true);  // Global scope is a function scope for hoisting
     }
     
     while (!check(TokenType::EOF_TOKEN)) {
@@ -2560,9 +2568,9 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_identifier(cons
     param.type = DataType::ANY;  // Infer later
     arrow_func->parameters.push_back(param);
     
-    // Enter lexical scope for arrow function (even single expressions create scope)
+    // Enter lexical scope for arrow function with function scope flag
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(true);  // Function scope
         
         // Declare parameter in the new scope
         lexical_scope_analyzer_->declare_variable(param_name, "let");
@@ -2605,9 +2613,9 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_params(const st
     auto arrow_func = std::make_unique<ArrowFunction>();
     arrow_func->parameters = params;
     
-    // Enter lexical scope for arrow function
+    // Enter lexical scope for arrow function with function scope flag  
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(true);  // Function scope
         
         // Declare all parameters in the new scope
         for (const auto& param : params) {
@@ -2761,9 +2769,9 @@ std::unique_ptr<ASTNode> Parser::parse_block_statement() {
         gc_integration_->enter_scope("block", false);
     }
     
-    // NEW: Enter lexical scope for block
+    // NEW: Enter lexical scope for block (block scope)
     if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope();
+        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
     }
     
     while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {

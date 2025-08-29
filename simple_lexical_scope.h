@@ -74,7 +74,7 @@ public:
     }
     
     // Called when entering a new lexical scope (function, block, etc.)
-    void enter_scope();
+    void enter_scope(bool is_function_scope = false);
     
     // Called when exiting a lexical scope - returns LexicalScopeNode with all scope info
     std::unique_ptr<LexicalScopeNode> exit_scope();
@@ -85,6 +85,13 @@ public:
     
     // Called when a variable is accessed
     void access_variable(const std::string& name);
+    
+    // Function registration methods
+    void register_function_in_current_scope(class FunctionDecl* func_decl);
+    void register_function_expression_in_current_scope(class FunctionExpression* func_expr);
+    
+    // Find the nearest function scope for proper function hoisting
+    LexicalScopeNode* find_nearest_function_scope();
     
     // Get the current depth
     int get_current_depth() const { return current_depth_; }

@@ -422,11 +422,20 @@ struct ASTNode {
 struct ScopeDependency;
 struct VariableDeclarationInfo;
 
+// Forward declarations for function nodes
+struct FunctionDecl;
+struct FunctionExpression;
+
 // Comprehensive lexical scope node containing all scope analysis information
 struct LexicalScopeNode : ASTNode {
     // Basic scope information
-    int scope_depth;                                           // Absolute depth of this scope
+    int scope_depth;                                           // Absolute depth of this scope (1=global, 2=first function, etc.)
+    bool is_function_scope;                                    // true for global + functions (hoisting), false for blocks
     std::unordered_set<std::string> declared_variables;       // Variables declared in THIS scope
+    
+    // Function registration for proper hoisting
+    std::vector<FunctionDecl*> declared_functions;            // Function declarations in this scope
+    std::vector<FunctionExpression*> declared_function_expressions; // Function expressions in this scope
     
     // Advanced dependency tracking (moved from LexicalScopeInfo)
     std::vector<ScopeDependency> self_dependencies;           // Variables accessed in this scope from outer scopes
@@ -443,10 +452,28 @@ struct LexicalScopeNode : ASTNode {
     // Legacy compatibility
     std::unordered_map<std::string, int> variable_access_depths; // var_name -> definition depth
     
-    LexicalScopeNode(int depth) : scope_depth(depth) {}
+    LexicalScopeNode(int depth, bool is_func_scope = false) : scope_depth(depth), is_function_scope(is_func_scope) {}
     
     void declare_variable(const std::string& name) {
         declared_variables.insert(name);
+    }
+    
+    // Function registration methods
+    void register_function_declaration(FunctionDecl* func_decl) {
+        declared_functions.push_back(func_decl);
+    }
+    
+    void register_function_expression(FunctionExpression* func_expr) {
+        declared_function_expressions.push_back(func_expr);
+    }
+    
+    // Get all functions registered in this scope
+    const std::vector<FunctionDecl*>& get_declared_functions() const {
+        return declared_functions;
+    }
+    
+    const std::vector<FunctionExpression*>& get_declared_function_expressions() const {
+        return declared_function_expressions;
     }
     
     void record_variable_access(const std::string& name, int definition_depth) {

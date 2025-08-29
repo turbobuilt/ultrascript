@@ -6,13 +6,13 @@
 #include <unordered_map>
 
 // Called when entering a new lexical scope (function, block, etc.)
-void SimpleLexicalScopeAnalyzer::enter_scope() {
+void SimpleLexicalScopeAnalyzer::enter_scope(bool is_function_scope) {
     std::cout << "[SimpleLexicalScope] ENTER_SCOPE CALL: current_depth_ before increment: " << current_depth_ << std::endl;
     std::cout << "[SimpleLexicalScope] ENTER_SCOPE CALL: scope_stack_.size() = " << scope_stack_.size() << std::endl;
     current_depth_++;
     
-    // NEW: Create LexicalScopeNode immediately so pointers are always available
-    auto lexical_scope_node = std::make_shared<LexicalScopeNode>(current_depth_);
+    // NEW: Create LexicalScopeNode immediately with function scope flag
+    auto lexical_scope_node = std::make_shared<LexicalScopeNode>(current_depth_, is_function_scope);
     
     // Register the scope node for direct access right away
     depth_to_scope_node_[current_depth_] = lexical_scope_node.get();  // Store raw pointer
@@ -21,7 +21,7 @@ void SimpleLexicalScopeAnalyzer::enter_scope() {
     scope_stack_.push_back(lexical_scope_node);
     
     std::cout << "[SimpleLexicalScope] Entered scope at depth " << current_depth_ 
-              << " (shared_ptr available)" << std::endl;
+              << " (is_function_scope=" << is_function_scope << ", shared_ptr available)" << std::endl;
 }
 
 // Called when exiting a lexical scope - returns LexicalScopeNode with all scope info
@@ -492,6 +492,56 @@ VariableDeclarationInfo* SimpleLexicalScopeAnalyzer::get_variable_declaration_in
     
     // Return the most recent declaration (last in the vector)
     return it->second.back().get();
+}
+
+// Function registration methods
+void SimpleLexicalScopeAnalyzer::register_function_in_current_scope(FunctionDecl* func_decl) {
+    if (scope_stack_.empty()) {
+        std::cerr << "[SimpleLexicalScope] ERROR: No current scope to register function in!" << std::endl;
+        return;
+    }
+    
+    // Find the nearest function scope for proper hoisting
+    LexicalScopeNode* function_scope = find_nearest_function_scope();
+    if (!function_scope) {
+        std::cerr << "[SimpleLexicalScope] ERROR: No function scope found for function hoisting!" << std::endl;
+        return;
+    }
+    
+    function_scope->register_function_declaration(func_decl);
+    std::cout << "[SimpleLexicalScope] Registered function declaration '" 
+              << (func_decl ? "valid" : "null") << "' in function scope at depth " 
+              << function_scope->scope_depth << std::endl;
+}
+
+void SimpleLexicalScopeAnalyzer::register_function_expression_in_current_scope(FunctionExpression* func_expr) {
+    if (scope_stack_.empty()) {
+        std::cerr << "[SimpleLexicalScope] ERROR: No current scope to register function expression in!" << std::endl;
+        return;
+    }
+    
+    // Find the nearest function scope for proper lexical scoping
+    LexicalScopeNode* function_scope = find_nearest_function_scope();
+    if (!function_scope) {
+        std::cerr << "[SimpleLexicalScope] ERROR: No function scope found for function expression!" << std::endl;
+        return;
+    }
+    
+    function_scope->register_function_expression(func_expr);
+    std::cout << "[SimpleLexicalScope] Registered function expression in function scope at depth " 
+              << function_scope->scope_depth << std::endl;
+}
+
+// Find the nearest function scope for proper function hoisting
+LexicalScopeNode* SimpleLexicalScopeAnalyzer::find_nearest_function_scope() {
+    // Walk up the scope stack to find the nearest function scope (including global)
+    for (auto it = scope_stack_.rbegin(); it != scope_stack_.rend(); ++it) {
+        LexicalScopeNode* scope = it->get();
+        if (scope->is_function_scope) {
+            return scope;
+        }
+    }
+    return nullptr;  // No function scope found
 }
 
 
