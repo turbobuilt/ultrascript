@@ -254,6 +254,37 @@ void SimpleLexicalScopeAnalyzer::access_variable(const std::string& name) {
     }
 }
 
+// Called when a variable is modified/assigned to (tracks modification count)
+void SimpleLexicalScopeAnalyzer::modify_variable(const std::string& name) {
+    // Find the most recent declaration of this variable
+    int definition_depth = get_variable_definition_depth(name);
+    
+    if (definition_depth == -1) {
+        std::cout << "[SimpleLexicalScope] WARNING: Variable '" << name 
+                  << "' modified but not found in declarations" << std::endl;
+        return;
+    }
+    
+    std::cout << "[SimpleLexicalScope] Modifying variable '" << name 
+              << "' defined at depth " << definition_depth 
+              << " from depth " << current_depth_ << std::endl;
+    
+    // Update modification count for this declaration
+    auto& declarations = variable_declarations_[name];
+    for (auto& decl : declarations) {
+        if (decl->depth == definition_depth) {
+            decl->modification_count++;
+            std::cout << "[SimpleLexicalScope] Variable '" << name 
+                      << "' modification count now: " << decl->modification_count 
+                      << " (after initial declaration)" << std::endl;
+            break;
+        }
+    }
+    
+    // Also mark as accessed (modifications count as access too)
+    access_variable(name);
+}
+
 // Get the absolute depth where a variable was last declared
 int SimpleLexicalScopeAnalyzer::get_variable_definition_depth(const std::string& name) const {
     auto it = variable_declarations_.find(name);
@@ -263,6 +294,17 @@ int SimpleLexicalScopeAnalyzer::get_variable_definition_depth(const std::string&
     
     // Return the depth of the most recent declaration (last in the vector)
     return it->second.back()->depth;
+}
+
+// Get the modification count for a variable (number of assignments after declaration)
+size_t SimpleLexicalScopeAnalyzer::get_variable_modification_count(const std::string& name) const {
+    auto it = variable_declarations_.find(name);
+    if (it == variable_declarations_.end() || it->second.empty()) {
+        return 0; // Not found
+    }
+    
+    // Return the modification count of the most recent declaration
+    return it->second.back()->modification_count;
 }
 
 // Debug: Print current state

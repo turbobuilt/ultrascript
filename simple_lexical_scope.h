@@ -17,6 +17,7 @@ struct VariableDeclarationInfo {
     std::string declaration_type; // "let", "const", "var"
     DataType data_type;          // Actual data type for size calculation
     size_t usage_count = 0;      // How many times this declaration is accessed
+    size_t modification_count = 0; // How many times this variable is modified after first declaration
     
     // Packing information (calculated at scope close)
     size_t size_bytes = 0;       // Size in bytes
@@ -93,6 +94,9 @@ public:
     // Called when a variable is accessed
     void access_variable(const std::string& name);
     
+    // Called when a variable is modified/assigned to (tracks modification count)
+    void modify_variable(const std::string& name);
+    
     // Function registration methods
     void register_function_in_current_scope(class FunctionDecl* func_decl);
     void register_function_expression_in_current_scope(class FunctionExpression* func_expr);
@@ -117,6 +121,9 @@ public:
     
     // NEW: Get direct pointer to variable declaration info for ultra-fast access
     VariableDeclarationInfo* get_variable_declaration_info(const std::string& name) const;
+    
+    // Get the modification count for a variable (number of assignments after declaration)
+    size_t get_variable_modification_count(const std::string& name) const;
     
     // Function instance size computation (based on FUNCTION.md specification)
     size_t compute_function_instance_size(const LexicalScopeNode* lexical_scope) const;

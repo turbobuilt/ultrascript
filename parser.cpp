@@ -145,6 +145,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
                         lexical_scope_analyzer_->track_function_assignment(var_name, arrow_func->function_instance_size);
                     }
                 }
+                
+                // NEW: Track variable modification for assignment counting
+                lexical_scope_analyzer_->modify_variable(var_name);
             }
             
             // GC Integration: Track assignment for escape analysis
