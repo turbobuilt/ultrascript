@@ -131,6 +131,9 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
         }
     }
     
+    // NEW: Finalize function variable sizes before packing
+    finalize_function_variable_sizes();
+    
     // NEW: Perform optimal variable packing for this scope
     std::unordered_map<std::string, size_t> variable_offsets;
     std::vector<std::string> packed_order;
@@ -416,26 +419,34 @@ void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<s
             pack.name = var_name;
             pack.data_type = decl->data_type;
             
-            // Check if this variable is a function - if so, use its computed instance size
+            // Check if this variable is a function - prioritize Conservative Maximum Size
             bool is_function = false;
             size_t function_size = 0;
             
-            // Check function declarations
-            for (const auto* func_decl : scope_node->declared_functions) {
-                if (func_decl && func_decl->name == var_name) {
-                    is_function = true;
-                    function_size = func_decl->function_instance_size;
-                    break;
-                }
-            }
-            
-            // Check function expressions if not found in declarations
-            if (!is_function) {
-                for (const auto* func_expr : scope_node->declared_function_expressions) {
-                    if (func_expr && func_expr->name == var_name) {
+            // First, check if we have tracked function assignments for this variable
+            if (has_tracked_function_sizes(var_name)) {
+                is_function = true;
+                function_size = get_max_function_size(var_name);
+                std::cout << "[SimpleLexicalScope] Using Conservative Maximum Size for '" << var_name 
+                         << "': " << function_size << " bytes" << std::endl;
+            } else {
+                // Check function declarations
+                for (const auto* func_decl : scope_node->declared_functions) {
+                    if (func_decl && func_decl->name == var_name) {
                         is_function = true;
-                        function_size = func_expr->function_instance_size;
+                        function_size = func_decl->function_instance_size;
                         break;
+                    }
+                }
+                
+                // Check function expressions if not found in declarations
+                if (!is_function) {
+                    for (const auto* func_expr : scope_node->declared_function_expressions) {
+                        if (func_expr && func_expr->name == var_name) {
+                            is_function = true;
+                            function_size = func_expr->function_instance_size;
+                            break;
+                        }
                     }
                 }
             }
@@ -604,3 +615,47 @@ size_t SimpleLexicalScopeAnalyzer::compute_function_instance_size(const LexicalS
     return total_size;
 }
 
+// Conservative Maximum Size approach - Function assignment tracking methods
+
+void SimpleLexicalScopeAnalyzer::track_function_assignment(const std::string& variable_name, size_t function_size) {
+    std::cout << "[FunctionTracking] Tracking assignment: " << variable_name << " = function of size " << function_size << " bytes" << std::endl;
+    
+    // Add this size to the set of sizes for this variable
+    variable_function_sizes_[variable_name].insert(function_size);
+    
+    // Update the maximum size cache
+    auto& current_max = variable_max_function_size_[variable_name];
+    if (function_size > current_max) {
+        current_max = function_size;
+        std::cout << "[FunctionTracking] New maximum size for " << variable_name << ": " << current_max << " bytes" << std::endl;
+    }
+}
+
+void SimpleLexicalScopeAnalyzer::finalize_function_variable_sizes() {
+    std::cout << "[FunctionTracking] Finalizing function variable sizes..." << std::endl;
+    
+    for (const auto& [variable_name, sizes] : variable_function_sizes_) {
+        // Find the maximum size for this variable
+        size_t max_size = *std::max_element(sizes.begin(), sizes.end());
+        variable_max_function_size_[variable_name] = max_size;
+        
+        std::cout << "[FunctionTracking] " << variable_name << ": " << sizes.size() 
+                  << " assignments, sizes: ";
+        for (size_t size : sizes) {
+            std::cout << size << " ";
+        }
+        std::cout << "-> max: " << max_size << " bytes" << std::endl;
+    }
+}
+
+size_t SimpleLexicalScopeAnalyzer::get_max_function_size(const std::string& variable_name) const {
+    auto it = variable_max_function_size_.find(variable_name);
+    if (it != variable_max_function_size_.end()) {
+        return it->second;
+    }
+    return 0; // Variable has no function assignments tracked
+}
+
+bool SimpleLexicalScopeAnalyzer::has_tracked_function_sizes(const std::string& variable_name) const {
+    return variable_function_sizes_.find(variable_name) != variable_function_sizes_.end();
+}

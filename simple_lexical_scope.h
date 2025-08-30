@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
 #include <memory>
 #include <iostream>
 
@@ -55,6 +56,12 @@ private:
     
     // Storage for completed scope nodes to keep them alive
     std::vector<std::shared_ptr<LexicalScopeNode>> completed_scopes_;
+    
+    // Function assignment tracking for Conservative Maximum Size approach
+    // Maps variable_name -> set of function instance sizes assigned to it
+    std::unordered_map<std::string, std::set<size_t>> variable_function_sizes_;
+    // Maps variable_name -> maximum function size (cached for performance)
+    std::unordered_map<std::string, size_t> variable_max_function_size_;
     
     int current_depth_ = 0;      // Current absolute depth
     
@@ -113,6 +120,12 @@ public:
     
     // Function instance size computation (based on FUNCTION.md specification)
     size_t compute_function_instance_size(const LexicalScopeNode* lexical_scope) const;
+    
+    // Function assignment tracking for variable-size function assignments
+    void track_function_assignment(const std::string& var_name, size_t function_instance_size);
+    void finalize_function_variable_sizes();
+    size_t get_max_function_size(const std::string& var_name) const;
+    bool has_tracked_function_sizes(const std::string& var_name) const;
     
     // Debug: Print current state
     void print_debug_info() const;

@@ -133,6 +133,20 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
             std::string var_name = identifier->name;
             auto value = parse_assignment_expression();
             
+            // NEW: Conservative Maximum Size - Track function assignments
+            if (lexical_scope_analyzer_) {
+                // Check if we're assigning a function expression to a variable
+                if (auto func_expr = dynamic_cast<FunctionExpression*>(value.get())) {
+                    if (func_expr->function_instance_size > 0) {
+                        lexical_scope_analyzer_->track_function_assignment(var_name, func_expr->function_instance_size);
+                    }
+                } else if (auto arrow_func = dynamic_cast<ArrowFunction*>(value.get())) {
+                    if (arrow_func->function_instance_size > 0) {
+                        lexical_scope_analyzer_->track_function_assignment(var_name, arrow_func->function_instance_size);
+                    }
+                }
+            }
+            
             // GC Integration: Track assignment for escape analysis
             if (gc_integration_) {
                 gc_integration_->assign_variable(var_name);

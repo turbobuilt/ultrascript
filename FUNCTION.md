@@ -57,7 +57,7 @@ The scope access frequency ranking is computed and stored in `priority_sorted_pa
 Example:
 - Function accesses global + parent scope directly, plus descendant needs grandparent scope = `16 + (3 * 8) = 40 bytes`
 - Function accesses parent scope directly, descendant needs global scope = `16 + (2 * 8) = 32 bytes`  
-- Function accesses no scopes directly, but descendant needs parent scope = `16 + (1 * 8) = 24 bytes`
+- Function accesses no scopes directly, but descendant needs ancestor scope = `16 + (1 * 8) = 24 bytes`
 - Function has no closures and no descendants with closures = `16 + (0 * 8) = 16 bytes`
 
 ## Lexical Scope Integration
