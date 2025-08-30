@@ -136,7 +136,7 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     std::vector<std::string> packed_order;
     size_t total_frame_size = 0;
     
-    pack_scope_variables(current_scope_node->declared_variables, variable_offsets, packed_order, total_frame_size);
+    pack_scope_variables(current_scope_node->declared_variables, variable_offsets, packed_order, total_frame_size, current_scope_node.get());
     
     // Store packing results in the lexical scope node
     current_scope_node->variable_offsets = variable_offsets;
@@ -395,7 +395,8 @@ size_t SimpleLexicalScopeAnalyzer::get_datatype_alignment(DataType type) const {
 void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<std::string>& variables, 
                                                       std::unordered_map<std::string, size_t>& offsets,
                                                       std::vector<std::string>& packed_order,
-                                                      size_t& total_size) const {
+                                                      size_t& total_size,
+                                                      const LexicalScopeNode* scope_node) const {
     struct VariablePacking {
         std::string name;
         size_t size;
@@ -414,8 +415,41 @@ void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<s
             VariablePacking pack;
             pack.name = var_name;
             pack.data_type = decl->data_type;
-            pack.size = get_datatype_size(decl->data_type);
-            pack.alignment = get_datatype_alignment(decl->data_type);
+            
+            // Check if this variable is a function - if so, use its computed instance size
+            bool is_function = false;
+            size_t function_size = 0;
+            
+            // Check function declarations
+            for (const auto* func_decl : scope_node->declared_functions) {
+                if (func_decl && func_decl->name == var_name) {
+                    is_function = true;
+                    function_size = func_decl->function_instance_size;
+                    break;
+                }
+            }
+            
+            // Check function expressions if not found in declarations
+            if (!is_function) {
+                for (const auto* func_expr : scope_node->declared_function_expressions) {
+                    if (func_expr && func_expr->name == var_name) {
+                        is_function = true;
+                        function_size = func_expr->function_instance_size;
+                        break;
+                    }
+                }
+            }
+            
+            if (is_function) {
+                pack.size = function_size;
+                pack.alignment = 8; // Function instances are always 8-byte aligned
+                std::cout << "[SimpleLexicalScope] Function '" << var_name << "' using computed instance size: " 
+                         << function_size << " bytes" << std::endl;
+            } else {
+                pack.size = get_datatype_size(decl->data_type);
+                pack.alignment = get_datatype_alignment(decl->data_type);
+            }
+            
             vars_to_pack.push_back(pack);
         }
     }
@@ -544,4 +578,29 @@ LexicalScopeNode* SimpleLexicalScopeAnalyzer::find_nearest_function_scope() {
     return nullptr;  // No function scope found
 }
 
+// Function instance size computation (based on FUNCTION.md specification)
+size_t SimpleLexicalScopeAnalyzer::compute_function_instance_size(const LexicalScopeNode* lexical_scope) const {
+    if (!lexical_scope) {
+        std::cerr << "[SimpleLexicalScope] ERROR: Cannot compute function instance size for null scope!" << std::endl;
+        return 0;
+    }
+    
+    // According to FUNCTION.md:
+    // Function instance structure:
+    // - uint64_t size (8 bytes)
+    // - void* function_code_addr (8 bytes)  
+    // - void* lex_addr1, lex_addr2, ... (8 bytes each)
+    // Total: 16 + (scope_count * 8) bytes
+    
+    size_t scope_count = lexical_scope->priority_sorted_parent_scopes.size();
+    size_t total_size = 16 + (scope_count * 8);
+    
+    std::cout << "[SimpleLexicalScope] Computing function instance size:" << std::endl;
+    std::cout << "  - Header size: 16 bytes (uint64_t size + void* function_code_addr)" << std::endl;
+    std::cout << "  - Captured scopes: " << scope_count << " scopes" << std::endl;
+    std::cout << "  - Scope pointers: " << (scope_count * 8) << " bytes (" << scope_count << " * 8)" << std::endl;
+    std::cout << "  - Total function instance size: " << total_size << " bytes" << std::endl;
+    
+    return total_size;
+}
 

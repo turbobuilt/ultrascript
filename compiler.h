@@ -603,6 +603,9 @@ struct FunctionExpression : ExpressionNode {
     // Lexical scope information for this function
     std::unique_ptr<LexicalScopeNode> lexical_scope;
     
+    // Function instance size (computed when scope closes)
+    size_t function_instance_size = 0;
+    
     FunctionExpression() : name("") {}
     FunctionExpression(const std::string& n) : name(n) {}
     void generate_code(CodeGenerator& gen) override;
@@ -628,6 +631,9 @@ struct ArrowFunction : ExpressionNode {
     
     // Lexical scope information for this function (even single expression arrows create scope)
     std::unique_ptr<LexicalScopeNode> lexical_scope;
+    
+    // Function instance size (computed when scope closes)
+    size_t function_instance_size = 0;
     
     ArrowFunction() {}
     void generate_code(CodeGenerator& gen) override;
@@ -783,6 +789,9 @@ struct FunctionDecl : ASTNode {
     
     // Lexical scope information for this function
     std::unique_ptr<LexicalScopeNode> lexical_scope;
+    
+    // Function instance size (computed when scope closes)
+    size_t function_instance_size = 0;
     
     FunctionDecl(const std::string& n) : name(n) {}
     void generate_code(CodeGenerator& gen) override;

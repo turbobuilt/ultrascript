@@ -111,6 +111,9 @@ public:
     // NEW: Get direct pointer to variable declaration info for ultra-fast access
     VariableDeclarationInfo* get_variable_declaration_info(const std::string& name) const;
     
+    // Function instance size computation (based on FUNCTION.md specification)
+    size_t compute_function_instance_size(const LexicalScopeNode* lexical_scope) const;
+    
     // Debug: Print current state
     void print_debug_info() const;
     
@@ -124,5 +127,6 @@ private:
     void pack_scope_variables(const std::unordered_set<std::string>& variables, 
                              std::unordered_map<std::string, size_t>& offsets,
                              std::vector<std::string>& packed_order,
-                             size_t& total_size) const;
+                             size_t& total_size,
+                             const LexicalScopeNode* scope_node) const;
 };

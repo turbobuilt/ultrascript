@@ -988,6 +988,13 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         // NEW: Exit lexical scope for function expression and capture scope info
         if (lexical_scope_analyzer_) {
             func_expr->lexical_scope = lexical_scope_analyzer_->exit_scope();
+            
+            // Compute and store function instance size
+            if (func_expr->lexical_scope) {
+                func_expr->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(func_expr->lexical_scope.get());
+                std::cout << "[DEBUG] Function expression '" << (func_expr->name.empty() ? "<anonymous>" : func_expr->name) 
+                         << "' instance size: " << func_expr->function_instance_size << " bytes" << std::endl;
+            }
         }
         
         // GC INTEGRATION: Exit function scope
@@ -1252,6 +1259,13 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
     // NEW: Exit lexical scope for function and capture scope info
     if (lexical_scope_analyzer_) {
         func_decl->lexical_scope = lexical_scope_analyzer_->exit_scope();
+        
+        // Compute and store function instance size
+        if (func_decl->lexical_scope) {
+            func_decl->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(func_decl->lexical_scope.get());
+            std::cout << "[DEBUG] Function declaration '" << func_decl->name 
+                     << "' instance size: " << func_decl->function_instance_size << " bytes" << std::endl;
+        }
     }
     
     // GC Integration: Exit function scope
@@ -2599,6 +2613,12 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_identifier(cons
     // Exit lexical scope for arrow function and capture scope info
     if (lexical_scope_analyzer_) {
         arrow_func->lexical_scope = lexical_scope_analyzer_->exit_scope();
+        
+        // Compute and store function instance size
+        if (arrow_func->lexical_scope) {
+            arrow_func->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(arrow_func->lexical_scope.get());
+            std::cout << "[DEBUG] Arrow function (expression body) instance size: " << arrow_func->function_instance_size << " bytes" << std::endl;
+        }
     }
     
     return arrow_func;
@@ -2645,6 +2665,12 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_params(const st
     // Exit lexical scope for arrow function and capture scope info
     if (lexical_scope_analyzer_) {
         arrow_func->lexical_scope = lexical_scope_analyzer_->exit_scope();
+        
+        // Compute and store function instance size
+        if (arrow_func->lexical_scope) {
+            arrow_func->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(arrow_func->lexical_scope.get());
+            std::cout << "[DEBUG] Arrow function (from params) instance size: " << arrow_func->function_instance_size << " bytes" << std::endl;
+        }
     }
     
     return arrow_func;
