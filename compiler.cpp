@@ -5,7 +5,12 @@
 #include "runtime_syscalls.h"
 #include "goroutine_system_v2.h"
 #include "function_compilation_manager.h"
+#include "function_address_patching.h"
 #include "ffi_syscalls.h"  // FFI integration
+
+// Runtime function declarations
+extern "C" void __register_function_code_address(const char* function_name, void* address);
+extern "C" void         patch_all_function_addresses(void* exec_mem);
 
 
 // External console mutex for thread safety
@@ -244,6 +249,13 @@ void GoTSCompiler::compile(const std::string& source) {
         // Set the global scope as current for main function code generation
         LexicalScopeNode* global_scope = parser.get_lexical_scope_analyzer()->get_scope_node_for_depth(1);
         if (global_scope) {
+            // CRITICAL: Pack global scope variables before main function generation
+            if (global_scope->variable_offsets.empty() && !global_scope->declared_variables.empty()) {
+                std::cout << "[MAIN_SCOPE_DEBUG] Triggering deferred packing for global scope with " 
+                          << global_scope->declared_variables.size() << " variables" << std::endl;
+                parser.get_lexical_scope_analyzer()->perform_deferred_packing_for_scope(global_scope);
+            }
+            
             set_current_scope(global_scope);
             std::cout << "[MAIN_SCOPE_DEBUG] Set global scope (depth 1) as current scope for main function" << std::endl;
             std::cout << "[MAIN_SCOPE_DEBUG] Global scope address: " << (void*)global_scope << std::endl;
@@ -482,15 +494,15 @@ void GoTSCompiler::execute() {
         // PRODUCTION FIX: Resolve any unresolved runtime function calls now that the registry is populated
         // We need to patch the code while it's still writable
         codegen->resolve_runtime_function_calls();
-        
+
         // Apply the patches to the executable memory
         auto updated_code = codegen->get_code();
         memcpy(exec_mem, updated_code.data(), updated_code.size());
-        
+
         // PRODUCTION FIX: Compile all deferred function expressions AFTER stubs are generated
         // This ensures function expressions are placed after stubs at the correct offset
         compile_deferred_function_expressions(*codegen, type_system);
-        
+
         // Update the executable memory with the function expressions
         updated_code = codegen->get_code();
         memcpy(exec_mem, updated_code.data(), updated_code.size());
@@ -508,25 +520,57 @@ void GoTSCompiler::execute() {
         FunctionCompilationManager::instance().register_function_in_runtime();
         FunctionCompilationManager::instance().print_function_registry();
         
-        // Register all functions in the runtime registry
+        // Register all functions in the runtime registry with debug output
         auto& label_offsets = codegen->get_label_offsets();
         for (const auto& label : label_offsets) {
             std::cout << "  " << label.first << " -> " << label.second << std::endl;
         }
-        
+
+        // First, update all FunctionDecl AST nodes with their final addresses
         for (const auto& label : label_offsets) {
             const std::string& name = label.first;
             int64_t offset = label.second;
             
-            // Skip internal labels like __main, but allow static method labels and function expressions
-            if (name.find("__") == 0 && name.find("__static_") != 0 && name.find("__func_expr_") != 0) continue;
+            // Skip internal labels
+            if (name == "__main" || name == "__main_epilogue" || 
+                name.find("func_already_init_") == 0 ||
+                name.find("function_call_continue_") == 0 ||
+                name.find("function_type_error_") == 0) {
+                continue;
+            }
             
             // Calculate actual function address
             void* func_addr = reinterpret_cast<void*>(
                 reinterpret_cast<uintptr_t>(exec_mem) + offset
             );
             
-            __register_function_fast(func_addr, 0, 0);
+            // TODO: Update FunctionDecl AST nodes with their final addresses
+            // This requires storing the AST in the compiler class
+            // For now, function addresses are handled by the function compilation manager
+            
+            // Also register with runtime for compatibility
+            std::cout << "[EXECUTION] Registering function '" << name 
+                      << "' at address " << func_addr << " (offset " << offset << ")" << std::endl;
+            __register_function_code_address(name.c_str(), func_addr);
+        }
+        
+        // PATCH ALL FUNCTION ADDRESSES: Use the new zero-cost patching system
+        std::cout << "[EXECUTION] Patching all function addresses using new patching system..." << std::endl;
+        
+        // Temporarily make memory writable for patching
+        if (mprotect(exec_mem, aligned_size, PROT_READ | PROT_WRITE) != 0) {
+            std::cerr << "Failed to make memory writable for patching" << std::endl;
+            munmap(exec_mem, aligned_size);
+            return;
+        }
+        
+        patch_all_function_addresses(exec_mem);
+        
+        // Make memory executable again after patching
+        if (mprotect(exec_mem, aligned_size, PROT_READ | PROT_EXEC) != 0) {
+            std::cerr << "Failed to make memory executable after patching" << std::endl;
+            munmap(exec_mem, aligned_size);
+            return;
         }
         
         // Find and execute main function

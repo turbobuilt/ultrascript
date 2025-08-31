@@ -127,6 +127,9 @@ enum class DataType {
     TENSOR, PROMISE, FUNCTION, SLICE, ARRAY,
     CLASS_INSTANCE,  // For class instances
     RUNTIME_OBJECT,  // For runtime.x property access optimization
+    DYNAMIC_VALUE,   // For variables that can hold multiple types including functions
+    LOCAL_FUNCTION_INSTANCE,   // For statically-known function variables (Strategy 1 & 2)
+    POINTER_FUNCTION_INSTANCE, // For function parameters passed by pointer
     UNKNOWN = ANY     // UNKNOWN is an alias for ANY (untyped variables)
 };
 
@@ -792,6 +795,9 @@ struct FunctionDecl : ASTNode {
     
     // Function instance size (computed when scope closes)
     size_t function_instance_size = 0;
+    
+    // Generated function offset from executable memory base (set during code generation for patching)
+    size_t code_offset = 0;
     
     FunctionDecl(const std::string& n) : name(n) {}
     void generate_code(CodeGenerator& gen) override;

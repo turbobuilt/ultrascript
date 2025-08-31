@@ -19,6 +19,22 @@ static std::string generate_unique_label(const std::string& base) {
 #include <cstring>  // For strlen
 #include <execinfo.h>
 
+// Forward declarations for function system runtime functions
+extern "C" {
+    void __register_scope_address_for_depth(int depth, void* address);
+    void* __get_scope_address_for_depth(int depth);
+    void __unregister_scope_address_for_depth(int depth);
+    void __register_function_code_address(const char* function_name, void* address);
+    void* __get_function_code_address(const char* function_name);
+    void* __create_function_instance(size_t total_size, void* function_code_addr, void** scope_addresses, size_t num_scopes);
+    void* __get_function_instance_scope_address(void* function_instance, size_t scope_index);
+    size_t __get_function_instance_size(void* function_instance);
+    void __throw_function_type_error();
+    void* __get_current_code_address();
+    void __register_function_instance_for_patching(void* instance_ptr, const char* function_name, size_t code_addr_offset);
+    void __patch_all_function_instances(void* executable_memory_base);
+}
+
 // Forward declarations for goroutine V2 functions
 extern "C" {
     int64_t __gots_set_timeout_v2(void* function_address, int64_t delay_ms);
@@ -604,6 +620,24 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         (*runtime_functions)["execute_ffi_call"] = reinterpret_cast<void*>(execute_ffi_call);
         (*runtime_functions)["migrate_to_ffi_thread"] = reinterpret_cast<void*>(migrate_to_ffi_thread);
         (*runtime_functions)["is_goroutine_ffi_bound"] = reinterpret_cast<void*>(is_goroutine_ffi_bound);
+        
+        // Function system runtime functions - FUNCTION.md implementation
+        (*runtime_functions)["__register_scope_address_for_depth"] = reinterpret_cast<void*>(__register_scope_address_for_depth);
+        (*runtime_functions)["__get_scope_address_for_depth"] = reinterpret_cast<void*>(__get_scope_address_for_depth);
+        (*runtime_functions)["__unregister_scope_address_for_depth"] = reinterpret_cast<void*>(__unregister_scope_address_for_depth);
+        (*runtime_functions)["__register_function_code_address"] = reinterpret_cast<void*>(__register_function_code_address);
+        (*runtime_functions)["__get_function_code_address"] = reinterpret_cast<void*>(__get_function_code_address);
+        (*runtime_functions)["__create_function_instance"] = reinterpret_cast<void*>(__create_function_instance);
+        (*runtime_functions)["__get_function_instance_scope_address"] = reinterpret_cast<void*>(__get_function_instance_scope_address);
+        (*runtime_functions)["__get_function_instance_size"] = reinterpret_cast<void*>(__get_function_instance_size);
+        (*runtime_functions)["__throw_function_type_error"] = reinterpret_cast<void*>(__throw_function_type_error);
+        (*runtime_functions)["__get_current_code_address"] = reinterpret_cast<void*>(__get_current_code_address);
+        (*runtime_functions)["__register_function_instance_for_patching"] = reinterpret_cast<void*>(__register_function_instance_for_patching);
+        (*runtime_functions)["__patch_all_function_instances"] = reinterpret_cast<void*>(__patch_all_function_instances);
+        
+        // Standard C library functions for memory management
+        (*runtime_functions)["malloc"] = reinterpret_cast<void*>(malloc);
+        (*runtime_functions)["free"] = reinterpret_cast<void*>(free);
     }
     
     auto it = (*runtime_functions).find(function_name);
@@ -1293,6 +1327,47 @@ void X86CodeGenV2::emit_inline_heap_alloc(size_t size, int result_reg) {
     }
     
     std::cout << "[HEAP_ALLOC_DEBUG] Allocated " << size << " bytes, address in register R" << result_reg << std::endl;
+}
+
+// Function instance patching system for high-performance function calls
+void X86CodeGenV2::register_function_instance_for_patching(void* instance_ptr, const std::string& function_name, size_t code_addr_offset) {
+    std::cout << "[FUNCTION_PATCH] Registering function instance at " << instance_ptr 
+              << " for function '" << function_name << "' with code address offset " << code_addr_offset << std::endl;
+    
+    function_instances_to_patch.emplace_back(instance_ptr, function_name, code_addr_offset);
+}
+
+void X86CodeGenV2::patch_all_function_instances(void* executable_memory_base) {
+    std::cout << "[FUNCTION_PATCH] Patching " << function_instances_to_patch.size() 
+              << " function instances with executable base " << executable_memory_base << std::endl;
+    
+    for (const auto& patch_info : function_instances_to_patch) {
+        // Look up the function's label offset
+        auto label_it = label_offsets.find(patch_info.function_name);
+        if (label_it == label_offsets.end()) {
+            std::cerr << "[FUNCTION_PATCH] ERROR: Function '" << patch_info.function_name 
+                      << "' not found in label offsets!" << std::endl;
+            continue;
+        }
+        
+        // Calculate the absolute address
+        uintptr_t absolute_address = reinterpret_cast<uintptr_t>(executable_memory_base) + label_it->second;
+        
+        // Patch the function instance with the absolute address
+        void** code_addr_ptr = reinterpret_cast<void**>(
+            reinterpret_cast<uintptr_t>(patch_info.instance_ptr) + patch_info.code_addr_offset
+        );
+        *code_addr_ptr = reinterpret_cast<void*>(absolute_address);
+        
+        std::cout << "[FUNCTION_PATCH] Patched function '" << patch_info.function_name 
+                  << "' at instance " << patch_info.instance_ptr
+                  << " with address " << std::hex << absolute_address << std::dec
+                  << " (offset " << label_it->second << ")" << std::endl;
+    }
+    
+    // Clear the patch list since all instances are now patched
+    function_instances_to_patch.clear();
+    std::cout << "[FUNCTION_PATCH] All function instances patched successfully!" << std::endl;
 }
 
 

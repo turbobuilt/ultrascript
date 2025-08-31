@@ -73,11 +73,29 @@ f = function() { return 5; };  // Now f becomes DYNAMIC_VALUE forever
 f = "hello";  // Still DYNAMIC_VALUE, can hold any type
 ```
 
+**Function Declaration Hoisting Conflicts**: When a function declaration shares a name with variable assignments, the variable becomes a `DataType::DYNAMIC_VALUE` with the hoisted function as its initial value.
+
+```javascript
+console.log(x); // prints function (function declaration hoisted)
+var x = 5;      // x becomes DYNAMIC_VALUE, assignment happens at runtime
+function x() {  // Hoisted to top, becomes initial value of variable x
+    return 42;
+}
+var x = 10;     // Additional assignment, x remains DYNAMIC_VALUE
+```
+
+**Hoisting Analysis Requirements**:
+1. **Parse-time Detection**: Identify variables that conflict with function declarations
+2. **Type Classification**: Such variables become `DYNAMIC_VALUE` immediately
+3. **Initial Value Tracking**: Function declaration becomes the variable's hoisted initial value
+4. **Assignment Tracking**: All subsequent assignments are tracked for Conservative Maximum Size
+
 **Packing Algorithm**:
 1. **Regular Variables**: Standard-typed variables (never assigned functions) packed first
 2. **DynamicValue Variables**: All variables that ever hold functions, grouped at the end
 3. **Function Declarations**: Dedicated function declarations (`function test() {}`) packed with DynamicValues
-4. **Optimal Alignment**: All DynamicValues and functions use 8-byte alignment
+4. **Hoisted Function Variables**: Variables that conflict with function declarations, treated as DynamicValues
+5. **Optimal Alignment**: All DynamicValues and functions use 8-byte alignment
 
 ### Memory Layout Strategy
 The key thing to note is that functions can take up different sizes based on how many lexical scope addresses they need
@@ -90,6 +108,84 @@ The key thing to note is that functions can take up different sizes based on how
 - `variable_function_sizes_`: Tracks all function instance sizes assigned to each variable
 - `get_max_function_size(var_name)`: Returns maximum size for DynamicValue allocation
 - **Allocation**: DynamicValue gets sized to hold largest possible function instance
+
+## Function Declaration Conflicts and Hoisting
+
+### The Problem: JavaScript Hoisting Semantics
+
+JavaScript function declarations are hoisted to the top of their containing scope and take precedence over variable declarations with the same name:
+
+```javascript
+console.log(x); // prints function (not undefined)
+var x = 5;
+function x() { return 42; }
+var x = 10;
+
+// Equivalent to:
+function x() { return 42; }  // Hoisted function declaration
+var x;                       // Hoisted variable declaration (doesn't overwrite function)
+console.log(x);             // Prints the function
+x = 5;                      // Runtime assignment
+x = 10;                     // Runtime assignment
+```
+
+### Static Analysis Strategy
+
+**Parse-time Conflict Detection**: During parsing, track when function declarations and variable names collide:
+
+1. **Function Declaration Registration**: When parsing `function x() {}`, register it in the hoisting table
+2. **Variable Assignment Tracking**: When parsing `var x = 5`, check if `x` conflicts with a function declaration
+3. **Type Promotion**: If conflict detected, immediately promote variable to `DataType::DYNAMIC_VALUE`
+4. **Initial Value Setup**: Set the hoisted function as the variable's initial value
+
+**Implementation Requirements**:
+- **Hoisting Conflict Table**: Map variable names to their conflicting function declarations
+- **Parse-time Type Resolution**: Determine DYNAMIC_VALUE classification during parsing, not code generation
+- **Conservative Maximum Size**: Include function declaration size in variable sizing calculations
+
+### Code Generation Strategy
+
+**Function Declaration Conflicts** are handled as Strategy 3 (Any-Typed Variables):
+
+```javascript
+var x = 5;
+function x() { return 42; }
+console.log(x); // Must handle both function and non-function cases
+```
+
+**Storage Strategy**:
+- **Runtime type**: `DynamicValue subtype LocalFunctionInstance` (when holding function)
+- **Storage allocation**: DynamicValue wrapper + Conservative Maximum Size including the hoisted function
+- **Initial value**: Hoisted function declaration loaded at scope initialization
+- **Runtime type checks**: Required on every function call attempt
+
+**Generated Code Pattern**:
+```asm
+; Scope initialization - load hoisted function as initial value
+mov rdi, r15
+add rdi, x_offset
+mov rax, FUNCTION_TYPE_TAG
+mov [rdi], rax                    ; Set type tag to function
+lea rax, [hoisted_function_data]  ; Load address of hoisted function
+mov [rdi + 8], rax               ; Set function data pointer
+
+; Later assignments: x = 5
+mov rdi, r15
+add rdi, x_offset
+mov rax, NUMBER_TYPE_TAG
+mov [rdi], rax                    ; Change type tag to number
+mov rax, 5
+mov [rdi + 8], rax               ; Store number value
+
+; Function calls: x()
+mov rdi, r15
+add rdi, x_offset
+mov rax, [rdi]                    ; Load type tag
+cmp rax, FUNCTION_TYPE_TAG        ; Check if still a function
+jne .not_a_function               ; Branch if not function
+mov rdi, [rdi + 8]                ; Load function data pointer
+call [rdi + 8]                    ; Call the function
+```
 
 ## Function Variable Storage & Calling Strategies
 
@@ -423,3 +519,10 @@ inner_function_code:
 ```
 
 This system provides native-level performance for closures while maintaining full lexical scoping semantics and supporting all advanced JavaScript/TypeScript closure features.
+
+
+when you write the functions to memory, you need to keep a data structure that remembers the memory address of each function call where the address should be, and you leave that empty, but you put in the data structure the function ast node pointer and the offset. so yo have an array of places that need to be patched.
+
+as you generate each function you put it's address on teh function ast node.
+
+Then you have the list of all the places where each function address is supposed to be. So you then go through the list grabing the address from the function ast node and putting it in there at the correct offset/address.

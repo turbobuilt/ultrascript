@@ -138,6 +138,8 @@ void X86InstructionBuilder::mov(X86Reg dst, X86Reg src, OpSize size) {
 }
 
 void X86InstructionBuilder::mov(X86Reg dst, const ImmediateOperand& imm) {
+    // this->mark_instruction_start();  // Track start of this instruction
+    
     if (imm.size == OpSize::QWORD && 
         imm.value >= -2147483648LL && imm.value <= 2147483647LL) {
         // Use 32-bit immediate that gets sign-extended

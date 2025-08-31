@@ -222,6 +222,10 @@ public:
     
     // Get current position for label resolution
     size_t get_current_position() const { return code_buffer.size(); }
+    
+    // Utility methods for instruction length tracking
+    // size_t get_last_instruction_length() const; 
+    // void mark_instruction_start();
 
 private:
     // Instance-based label management for thread safety and reliability

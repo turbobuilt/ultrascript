@@ -734,6 +734,13 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         VariableDeclarationInfo* var_info = nullptr;
         if (lexical_scope_analyzer_) {
             var_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
+            // If variable is not yet declared, add to unresolved references
+            if (!var_info) {
+                // Create identifier first, then add to unresolved list
+                auto identifier = std::make_unique<Identifier>(var_name, nullptr, definition_scope, access_scope);
+                lexical_scope_analyzer_->add_unresolved_reference(var_name, identifier.get());
+                return identifier;
+            }
         }
         
         // Use ultra-fast constructor with direct variable declaration pointer
@@ -1205,8 +1212,7 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
     if (lexical_scope_analyzer_) {
         // Functions are hoisted to the nearest function scope
         lexical_scope_analyzer_->register_function_in_current_scope(func_decl.get());
-        // Also declare the function name as a variable in the current scope
-        lexical_scope_analyzer_->declare_variable(func_name, "function");
+        // NOTE: Don't declare variable here - let variable declarations handle conflicts
     }
     
     // GC Integration: Enter function scope
@@ -1282,6 +1288,13 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
             func_decl->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(func_decl->lexical_scope.get());
             std::cout << "[DEBUG] Function declaration '" << func_decl->name 
                      << "' instance size: " << func_decl->function_instance_size << " bytes" << std::endl;
+                     
+            // NEW: Track function size for hoisting conflict variables
+            if (lexical_scope_analyzer_->is_hoisting_conflict_variable(func_decl->name) && func_decl->function_instance_size > 0) {
+                lexical_scope_analyzer_->track_function_assignment(func_decl->name, func_decl->function_instance_size);
+                std::cout << "[HoistingConflict] Tracked function size " << func_decl->function_instance_size 
+                          << " bytes for hoisting conflict variable '" << func_decl->name << "'" << std::endl;
+            }
         }
     }
     
@@ -1360,6 +1373,11 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
         
         // NEW: Set direct pointer to variable declaration info for ultra-fast access
         assignment->variable_declaration_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
+        
+        // NEW: Copy definition depth to avoid use-after-free issues
+        if (assignment->variable_declaration_info) {
+            assignment->definition_depth = assignment->variable_declaration_info->depth;
+        }
         
         std::cout << "[Parser] Variable declaration '" << var_name 
                   << "' def_scope=" << assignment->definition_scope
@@ -1535,6 +1553,11 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
                 
                 // NEW: Set direct pointer to variable declaration info for ultra-fast access
                 assignment->variable_declaration_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
+                
+                // NEW: Copy definition depth to avoid use-after-free issues
+                if (assignment->variable_declaration_info) {
+                    assignment->definition_depth = assignment->variable_declaration_info->depth;
+                }
                 
                 std::cout << "[Parser] For-loop declaration '" << var_name 
                           << "' def_scope=" << assignment->definition_scope
@@ -2432,6 +2455,9 @@ std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
     // Lexical Scope System: Close global scope and perform variable packing
     if (lexical_scope_analyzer_) {
         lexical_scope_analyzer_->exit_scope();
+        
+        // NEW: Resolve all unresolved references now that parsing is complete
+        lexical_scope_analyzer_->resolve_all_unresolved_references();
     }
     
     return statements;

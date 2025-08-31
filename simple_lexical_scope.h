@@ -41,6 +41,7 @@ struct ScopeDependency {
 
 // Forward declaration
 class LexicalScopeNode;
+struct Identifier; // Forward declare Identifier
 
 // Main lexical scope analyzer - simple and parse-time integrated
 class SimpleLexicalScopeAnalyzer {
@@ -48,6 +49,17 @@ private:
     // Core data structure: variable_name -> list of declarations at different depths
     // Variable declarations tracking - use pointers for stable addresses
     std::unordered_map<std::string, std::vector<std::unique_ptr<VariableDeclarationInfo>>> variable_declarations_;
+    
+    // Structure to track unresolved variable references with their access context
+    struct UnresolvedReference {
+        Identifier* identifier;
+        int access_depth;
+        
+        UnresolvedReference(Identifier* id, int depth) : identifier(id), access_depth(depth) {}
+    };
+    
+    // Track unresolved variable references that need to be resolved when definitions are found
+    std::unordered_map<std::string, std::vector<UnresolvedReference>> unresolved_references_;
     
     // Stack of active lexical scope NODES during parsing (immediate creation)
     std::vector<std::shared_ptr<LexicalScopeNode>> scope_stack_;
@@ -64,6 +76,18 @@ private:
     // Maps variable_name -> maximum function size (cached for performance)
     std::unordered_map<std::string, size_t> variable_max_function_size_;
     
+    // NEW: Function declaration conflict tracking for hoisting
+    // Maps variable_name -> FunctionDecl* if there's a conflicting function declaration
+    std::unordered_map<std::string, class FunctionDecl*> function_declaration_conflicts_;
+    // Track which variables have been promoted to DYNAMIC_VALUE due to conflicts
+    std::unordered_set<std::string> hoisting_conflict_variables_;
+    
+    // NEW: Variable assignment type tracking for function variable classification
+    // Maps variable_name -> set of DataTypes that have been assigned to this variable
+    std::unordered_map<std::string, std::set<DataType>> variable_assignment_types_;
+    // Track variables that have received non-function assignments after function assignments
+    std::unordered_set<std::string> mixed_assignment_variables_;
+    
     int current_depth_ = 0;      // Current absolute depth
     
 public:
@@ -73,12 +97,41 @@ public:
         std::cout << "[SimpleLexicalScope] CONSTRUCTOR: after explicit set, current_depth_ = " << current_depth_ << std::endl;
     }
     ~SimpleLexicalScopeAnalyzer() {
-        std::cout << "[SimpleLexicalScope] DESTRUCTOR: Clearing " << completed_scopes_.size() << " completed scopes" << std::endl;
-        // Explicitly clear all shared_ptr references to ensure proper cleanup
-        completed_scopes_.clear();
-        scope_stack_.clear();
-        depth_to_scope_node_.clear();
-        std::cout << "[SimpleLexicalScope] DESTRUCTOR: Cleanup completed" << std::endl;
+        try {
+            std::cout << "[SimpleLexicalScope] DESTRUCTOR: Starting cleanup" << std::endl;
+            
+            // Clear all containers safely
+            if (!variable_declarations_.empty()) {
+                std::cout << "[SimpleLexicalScope] DESTRUCTOR: Clearing variable declarations" << std::endl;
+                variable_declarations_.clear();
+            }
+            
+            if (!unresolved_references_.empty()) {
+                std::cout << "[SimpleLexicalScope] DESTRUCTOR: Clearing unresolved references" << std::endl;
+                unresolved_references_.clear();
+            }
+            
+            if (!scope_stack_.empty()) {
+                std::cout << "[SimpleLexicalScope] DESTRUCTOR: Clearing scope stack" << std::endl;
+                scope_stack_.clear();
+            }
+            
+            if (!depth_to_scope_node_.empty()) {
+                std::cout << "[SimpleLexicalScope] DESTRUCTOR: Clearing depth to scope node map" << std::endl;
+                depth_to_scope_node_.clear();
+            }
+            
+            if (!completed_scopes_.empty()) {
+                std::cout << "[SimpleLexicalScope] DESTRUCTOR: Clearing " << completed_scopes_.size() << " completed scopes" << std::endl;
+                completed_scopes_.clear();
+            }
+            
+            std::cout << "[SimpleLexicalScope] DESTRUCTOR: Cleanup completed successfully" << std::endl;
+        } catch (const std::exception& e) {
+            std::cout << "[SimpleLexicalScope] DESTRUCTOR: Exception during cleanup: " << e.what() << std::endl;
+        } catch (...) {
+            std::cout << "[SimpleLexicalScope] DESTRUCTOR: Unknown exception during cleanup" << std::endl;
+        }
     }
     
     // Called when entering a new lexical scope (function, block, etc.)
@@ -133,6 +186,38 @@ public:
     void finalize_function_variable_sizes();
     size_t get_max_function_size(const std::string& var_name) const;
     bool has_tracked_function_sizes(const std::string& var_name) const;
+    
+    // NEW: Function variable type classification (for FUNCTION.md strategies)
+    enum class FunctionVariableStrategy {
+        STATIC_SINGLE_ASSIGNMENT,    // Strategy 1: Static single function assignment
+        FUNCTION_TYPED,             // Strategy 2: Function-typed variables  
+        ANY_TYPED_DYNAMIC          // Strategy 3: Any-typed variables with mixed assignment
+    };
+    
+    FunctionVariableStrategy classify_function_variable_strategy(const std::string& var_name) const;
+    bool is_static_single_function_assignment(const std::string& var_name) const;
+    bool is_function_typed_variable(const std::string& var_name) const;
+    bool is_mixed_assignment_variable(const std::string& var_name) const;
+    DataType get_function_variable_storage_type(const std::string& var_name) const;
+    
+    // NEW: Variable assignment type tracking
+    void track_variable_assignment_type(const std::string& var_name, DataType assigned_type);
+    bool has_mixed_type_assignments(const std::string& var_name) const;
+    
+    // NEW: Function declaration conflict detection and hoisting support
+    bool has_function_declaration_conflict(const std::string& var_name) const;
+    class FunctionDecl* get_conflicting_function_declaration(const std::string& var_name) const;
+    void mark_variable_as_hoisting_conflict(const std::string& var_name);
+    bool is_hoisting_conflict_variable(const std::string& var_name) const;
+    void resolve_hoisting_conflicts_in_current_scope(); // NEW: Resolve conflicts at scope close
+    
+    // NEW: Unresolved reference tracking for hoisting
+    void add_unresolved_reference(const std::string& var_name, Identifier* identifier);
+    void resolve_references_for_variable(const std::string& var_name);
+    void resolve_all_unresolved_references(); // Called at end of parsing
+    
+    // NEW: Deferred variable packing (called during AST generation)
+    void perform_deferred_packing_for_scope(LexicalScopeNode* scope_node);
     
     // Debug: Print current state
     void print_debug_info() const;

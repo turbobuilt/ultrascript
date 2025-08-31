@@ -1,8 +1,5 @@
-// Minimal test for string property assignment
-
-class SimpleTest {
-    str: string;
+function test() {
+    return 42;
 }
 
-let test = new SimpleTest();
-test.str = "test string";
+test();

@@ -1746,3 +1746,271 @@ extern "C" void* __dynamic_value_extract_object_with_refcount(void* dynamic_valu
     // Return null if not a class instance
     return nullptr;
 }
+
+//=============================================================================
+// FUNCTION INSTANCE RUNTIME SUPPORT
+// Runtime functions to support the high-performance function system
+//=============================================================================
+
+// Global scope context for function instance creation
+struct GlobalScopeAddressRegistry {
+    std::unordered_map<int, void*> depth_to_scope_address;
+    std::mutex registry_mutex;
+    
+    void register_scope_address(int depth, void* address) {
+        std::lock_guard<std::mutex> lock(registry_mutex);
+        depth_to_scope_address[depth] = address;
+        std::cout << "[SCOPE_REGISTRY] Registered scope depth " << depth << " -> " << address << std::endl;
+    }
+    
+    void* get_scope_address(int depth) {
+        std::lock_guard<std::mutex> lock(registry_mutex);
+        auto it = depth_to_scope_address.find(depth);
+        if (it != depth_to_scope_address.end()) {
+            std::cout << "[SCOPE_REGISTRY] Retrieved scope depth " << depth << " -> " << it->second << std::endl;
+            return it->second;
+        }
+        std::cout << "[SCOPE_REGISTRY] WARNING: Scope depth " << depth << " not found" << std::endl;
+        return nullptr;
+    }
+    
+    void unregister_scope_address(int depth) {
+        std::lock_guard<std::mutex> lock(registry_mutex);
+        depth_to_scope_address.erase(depth);
+        std::cout << "[SCOPE_REGISTRY] Unregistered scope depth " << depth << std::endl;
+    }
+};
+
+static GlobalScopeAddressRegistry g_scope_registry;
+
+// Global function code address registry
+struct FunctionCodeAddressRegistry {
+    std::unordered_map<std::string, void*> function_name_to_address;
+    std::mutex registry_mutex;
+    
+    void register_function_address(const std::string& name, void* address) {
+        std::lock_guard<std::mutex> lock(registry_mutex);
+        function_name_to_address[name] = address;
+        std::cout << "[FUNCTION_REGISTRY] Registered function '" << name << "' -> " << address << std::endl;
+    }
+    
+    void* get_function_address(const std::string& name) {
+        std::lock_guard<std::mutex> lock(registry_mutex);
+        auto it = function_name_to_address.find(name);
+        if (it != function_name_to_address.end()) {
+            return it->second;
+        }
+        std::cout << "[FUNCTION_REGISTRY] WARNING: Function '" << name << "' not found" << std::endl;
+        return nullptr;
+    }
+};
+
+static FunctionCodeAddressRegistry g_function_registry;
+
+extern "C" void __register_scope_address_for_depth(int depth, void* address) {
+    g_scope_registry.register_scope_address(depth, address);
+}
+
+extern "C" void* __get_scope_address_for_depth(int depth) {
+    return g_scope_registry.get_scope_address(depth);
+}
+
+extern "C" void __unregister_scope_address_for_depth(int depth) {
+    g_scope_registry.unregister_scope_address(depth);
+}
+
+extern "C" void __register_function_code_address(const char* function_name, void* address) {
+    std::cout << "[DEBUG] __register_function_code_address('" << (function_name ? function_name : "null") 
+              << "', " << address << ")" << std::endl;
+    if (function_name && address) {
+        g_function_registry.register_function_address(std::string(function_name), address);
+        std::cout << "[DEBUG] Function registered successfully" << std::endl;
+    } else {
+        std::cout << "[DEBUG] Function registration failed - null parameter" << std::endl;
+    }
+}
+
+extern "C" void* __get_function_code_address(const char* function_name) {
+    if (!function_name) {
+        std::cout << "[DEBUG] __get_function_code_address: null function name" << std::endl;
+        return nullptr;
+    }
+    void* address = g_function_registry.get_function_address(std::string(function_name));
+    std::cout << "[DEBUG] __get_function_code_address('" << function_name << "') -> " << address << std::endl;
+    return address;
+}
+
+// Function instance creation and management
+extern "C" void* __create_function_instance(size_t total_size, void* function_code_addr, 
+                                           void** scope_addresses, size_t num_scopes) {
+    std::cout << "[FUNCTION_INSTANCE] Creating function instance: size=" << total_size 
+              << ", code_addr=" << function_code_addr << ", scopes=" << num_scopes << std::endl;
+    
+    // Allocate memory for function instance
+    void* instance_memory = malloc(total_size);
+    if (!instance_memory) {
+        std::cout << "[FUNCTION_INSTANCE] ERROR: Failed to allocate " << total_size << " bytes" << std::endl;
+        return nullptr;
+    }
+    
+    // Initialize function instance header
+    uint64_t* header = static_cast<uint64_t*>(instance_memory);
+    header[0] = total_size;  // size field
+    header[1] = reinterpret_cast<uint64_t>(function_code_addr);  // function_code_addr
+    
+    // Copy scope addresses
+    uint64_t* scope_addrs = &header[2];  // Start after header
+    for (size_t i = 0; i < num_scopes; i++) {
+        scope_addrs[i] = reinterpret_cast<uint64_t>(scope_addresses[i]);
+        std::cout << "[FUNCTION_INSTANCE] Scope " << i << ": " << scope_addresses[i] << std::endl;
+    }
+    
+    std::cout << "[FUNCTION_INSTANCE] Created function instance at " << instance_memory << std::endl;
+    return instance_memory;
+}
+
+extern "C" void __destroy_function_instance(void* function_instance) {
+    if (function_instance) {
+        std::cout << "[FUNCTION_INSTANCE] Destroying function instance at " << function_instance << std::endl;
+        free(function_instance);
+    }
+}
+
+// Function instance calling support
+extern "C" void* __get_function_instance_code_address(void* function_instance) {
+    if (!function_instance) return nullptr;
+    
+    uint64_t* header = static_cast<uint64_t*>(function_instance);
+    void* code_addr = reinterpret_cast<void*>(header[1]);
+    
+    std::cout << "[FUNCTION_INSTANCE] Retrieved code address " << code_addr 
+              << " from instance " << function_instance << std::endl;
+    
+    return code_addr;
+}
+
+extern "C" void* __get_function_instance_scope_address(void* function_instance, size_t scope_index) {
+    if (!function_instance) return nullptr;
+    
+    uint64_t* header = static_cast<uint64_t*>(function_instance);
+    uint64_t* scope_addrs = &header[2];  // Skip header
+    void* scope_addr = reinterpret_cast<void*>(scope_addrs[scope_index]);
+    
+    std::cout << "[FUNCTION_INSTANCE] Retrieved scope address " << scope_addr 
+              << " (index " << scope_index << ") from instance " << function_instance << std::endl;
+    
+    return scope_addr;
+}
+
+// Function instance patching system for high-performance function calls
+struct FunctionInstancePatchInfo {
+    void* instance_ptr;
+    std::string function_name;
+    size_t code_addr_offset;
+};
+
+static std::vector<FunctionInstancePatchInfo> g_function_instances_to_patch;
+
+extern "C" void __register_function_instance_for_patching(void* instance_ptr, void* function_name_gots_ptr, size_t code_addr_offset) {
+    // Debug: Check what we're receiving
+    std::cout << "[RUNTIME_PATCH_DEBUG] Called with instance_ptr=" << instance_ptr 
+              << ", function_name_gots_ptr=" << function_name_gots_ptr 
+              << ", code_addr_offset=" << code_addr_offset << std::endl;
+    
+    // Extract the function name from GoTSString
+    GoTSString* gots_str = static_cast<GoTSString*>(function_name_gots_ptr);
+    std::cout << "[RUNTIME_PATCH_DEBUG] Casting to GoTSString*: " << gots_str << std::endl;
+    
+    const char* function_name = "unknown";
+    if (gots_str) {
+        try {
+            function_name = gots_str->c_str();
+            std::cout << "[RUNTIME_PATCH_DEBUG] Extracted function name: " << function_name << std::endl;
+        } catch (...) {
+            std::cout << "[RUNTIME_PATCH_DEBUG] Error extracting function name from GoTSString" << std::endl;
+            return; // Early return on error
+        }
+    } else {
+        std::cout << "[RUNTIME_PATCH_DEBUG] GoTSString pointer is null!" << std::endl;
+        return; // Early return on null pointer
+    }
+    
+    std::cout << "[RUNTIME_PATCH] Registering function instance " << instance_ptr 
+              << " for function '" << function_name << "' with offset " << code_addr_offset << std::endl;
+    
+    // Test if the issue is with the vector operation
+    std::cout << "[RUNTIME_PATCH_DEBUG] About to call emplace_back..." << std::endl;
+    
+    try {
+        g_function_instances_to_patch.emplace_back();
+        std::cout << "[RUNTIME_PATCH_DEBUG] emplace_back completed successfully" << std::endl;
+        
+        auto& patch_info = g_function_instances_to_patch.back();
+        std::cout << "[RUNTIME_PATCH_DEBUG] Got reference to back element" << std::endl;
+        
+        patch_info.instance_ptr = instance_ptr;
+        std::cout << "[RUNTIME_PATCH_DEBUG] Set instance_ptr" << std::endl;
+        
+        // Make a copy of the function name string
+        std::cout << "[RUNTIME_PATCH_DEBUG] About to copy function name: " << function_name << std::endl;
+        patch_info.function_name = function_name; // This will create a copy of the C string
+        std::cout << "[RUNTIME_PATCH_DEBUG] Function name copied successfully" << std::endl;
+        
+        patch_info.code_addr_offset = code_addr_offset;
+        std::cout << "[RUNTIME_PATCH_DEBUG] Set code_addr_offset" << std::endl;
+        
+        std::cout << "[RUNTIME_PATCH_DEBUG] Registration completed successfully" << std::endl;
+    } catch (const std::exception& e) {
+        std::cout << "[RUNTIME_PATCH_DEBUG] Exception caught: " << e.what() << std::endl;
+    } catch (...) {
+        std::cout << "[RUNTIME_PATCH_DEBUG] Unknown exception caught" << std::endl;
+    }
+}
+
+extern "C" void __patch_all_function_instances(void* executable_memory_base) {
+    std::cout << "[RUNTIME_PATCH] Patching " << g_function_instances_to_patch.size() 
+              << " function instances with executable base " << executable_memory_base << std::endl;
+    
+    for (const auto& patch_info : g_function_instances_to_patch) {
+        // Look up the function's address from the registry
+        void* function_address = g_function_registry.get_function_address(patch_info.function_name);
+        
+        if (!function_address) {
+            std::cerr << "[RUNTIME_PATCH] ERROR: Function '" << patch_info.function_name 
+                      << "' not found in registry!" << std::endl;
+            continue;
+        }
+        
+        // Patch the function instance with the absolute address
+        void** code_addr_ptr = reinterpret_cast<void**>(
+            reinterpret_cast<uintptr_t>(patch_info.instance_ptr) + patch_info.code_addr_offset
+        );
+        *code_addr_ptr = function_address;
+        
+        std::cout << "[RUNTIME_PATCH] Patched function '" << patch_info.function_name 
+                  << "' at instance " << patch_info.instance_ptr
+                  << " with address " << function_address << std::endl;
+    }
+    
+    std::cout << "[RUNTIME_PATCH] All function instances patched successfully!" << std::endl;
+}
+
+extern "C" size_t __get_function_instance_size(void* function_instance) {
+    if (!function_instance) return 0;
+    
+    uint64_t* header = static_cast<uint64_t*>(function_instance);
+    return static_cast<size_t>(header[0]);
+}
+
+// Function call error handling
+extern "C" void __throw_function_type_error() {
+    std::cout << "[RUNTIME_ERROR] TypeError: Variable is not a function" << std::endl;
+    throw std::runtime_error("TypeError: Variable is not a function");
+}
+
+// Placeholder for getting current code address during compilation
+extern "C" void* __get_current_code_address() {
+    // This will be implemented by the code generator to return current code position
+    // For now return a placeholder
+    return reinterpret_cast<void*>(0x1000000);  // Placeholder address
+}

@@ -39,6 +39,17 @@ private:
     std::unordered_map<std::string, int64_t> label_offsets;
     std::vector<std::pair<std::string, size_t>> unresolved_jumps;
     
+    // Function instance patching system
+    struct FunctionInstancePatchInfo {
+        void* instance_ptr;           // Pointer to the function instance
+        std::string function_name;    // Name of the function to resolve
+        size_t code_addr_offset;      // Offset within instance where to store the address
+        
+        FunctionInstancePatchInfo(void* ptr, const std::string& name, size_t offset)
+            : instance_ptr(ptr), function_name(name), code_addr_offset(offset) {}
+    };
+    std::vector<FunctionInstancePatchInfo> function_instances_to_patch;
+    
     // Helper methods for register management
     X86Reg allocate_register();
     void free_register(X86Reg reg);
@@ -155,6 +166,7 @@ public:
     void emit_call_with_double_arg(const std::string& function_name, int value_gpr_reg);
     void emit_call_with_xmm_arg(const std::string& function_name, int xmm_reg);
     size_t get_current_offset() const override { return code_buffer.size(); }
+    // size_t get_last_instruction_length() const { return instruction_builder->get_last_instruction_length(); }
     const std::unordered_map<std::string, int64_t>& get_label_offsets() const override;
     
     // New high-level APIs for better code generation
@@ -199,6 +211,10 @@ public:
     // Direct access to builders for advanced usage
     X86InstructionBuilder& get_instruction_builder() { return *instruction_builder; }
     X86PatternBuilder& get_pattern_builder() { return *pattern_builder; }
+    
+    // Function instance patching system for high-performance function calls
+    void register_function_instance_for_patching(void* instance_ptr, const std::string& function_name, size_t code_addr_offset);
+    void patch_all_function_instances(void* executable_memory_base);
 };
 
 // Factory function for creating optimized code generators

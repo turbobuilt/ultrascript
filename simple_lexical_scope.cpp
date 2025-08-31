@@ -1,4 +1,5 @@
 #include "simple_lexical_scope.h"
+#include "function_instance.h"  // For FunctionDynamicValue and function structures
 #include "compiler.h"  // For LexicalScopeNode and DataType enum
 #include <algorithm>
 #include <iostream>
@@ -134,38 +135,11 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     // NEW: Finalize function variable sizes before packing
     finalize_function_variable_sizes();
     
-    // NEW: Perform optimal variable packing for this scope
-    std::unordered_map<std::string, size_t> variable_offsets;
-    std::vector<std::string> packed_order;
-    size_t total_frame_size = 0;
+    // TODO: DEFERRED PACKING - Move to AST generation time when we have complete hoisting info
+    // Variable packing is now deferred until AST generation when LexicalScopeNode is encountered
+    // This ensures we have complete information about all variable declarations and hoisting conflicts
     
-    pack_scope_variables(current_scope_node->declared_variables, variable_offsets, packed_order, total_frame_size, current_scope_node.get());
-    
-    // Store packing results in the lexical scope node
-    current_scope_node->variable_offsets = variable_offsets;
-    current_scope_node->packed_variable_order = packed_order;
-    current_scope_node->total_scope_frame_size = total_frame_size;
-    
-    // CRITICAL: Update individual VariableDeclarationInfo objects with their calculated offsets
-    for (const auto& var : packed_order) {
-        VariableDeclarationInfo* var_info = get_variable_declaration_info(var);
-        if (var_info) {
-            var_info->offset = variable_offsets[var];
-            std::cout << "[SimpleLexicalScope] Updated VariableDeclarationInfo->offset for '" << var 
-                      << "' to " << var_info->offset << std::endl;
-        }
-    }
-    
-    std::cout << "[SimpleLexicalScope] Variable packing completed: " << total_frame_size << " bytes total" << std::endl;
-    for (const auto& var : packed_order) {
-        std::cout << "[SimpleLexicalScope]   " << var << " -> offset " << variable_offsets[var] << std::endl;
-    }
-    
-    std::cout << "[SimpleLexicalScope] Priority-sorted parent scopes: ";
-    for (int depth : current_scope_node->priority_sorted_parent_scopes) {
-        std::cout << depth << " ";
-    }
-    std::cout << std::endl;
+    std::cout << "[SimpleLexicalScope] Scope exit completed - packing deferred to AST generation" << std::endl;
     
     // NOTE: Scope node was already registered in depth_to_scope_node_ when entering scope
     std::cout << "[SimpleLexicalScope] Scope node at depth " << current_scope_node->scope_depth 
@@ -193,6 +167,15 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
 
 // Called when a variable is declared (new version with DataType)
 void SimpleLexicalScopeAnalyzer::declare_variable(const std::string& name, const std::string& declaration_type, DataType data_type) {
+    // NEW: Check if this variable is already a hoisting conflict variable
+    if (is_hoisting_conflict_variable(name)) {
+        // Don't add additional declarations for hoisting conflict variables
+        // They should remain DYNAMIC_VALUE and we don't want to overwrite the promoted type
+        std::cout << "[HoistingConflict] Skipping additional declaration for hoisting conflict variable '" 
+                  << name << "' (remains DYNAMIC_VALUE)" << std::endl;
+        return;
+    }
+    
     // Add to the variable declarations map
     variable_declarations_[name].emplace_back(std::make_unique<VariableDeclarationInfo>(current_depth_, declaration_type, data_type));
     
@@ -203,6 +186,9 @@ void SimpleLexicalScopeAnalyzer::declare_variable(const std::string& name, const
     
     std::cout << "[SimpleLexicalScope] Declared variable '" << name << "' as " << declaration_type 
               << " (DataType=" << static_cast<int>(data_type) << ") at depth " << current_depth_ << std::endl;
+    
+    // NEW: Resolve any unresolved references for this newly declared variable
+    resolve_references_for_variable(name);
 }
 
 // Called when a variable is declared (legacy version - assumes DataType::ANY)
@@ -399,6 +385,11 @@ size_t SimpleLexicalScopeAnalyzer::get_datatype_size(DataType type) const {
         case DataType::CLASS_INSTANCE:
         case DataType::RUNTIME_OBJECT:
             return 8; // Pointer size on 64-bit systems
+        case DataType::LOCAL_FUNCTION_INSTANCE:
+        case DataType::POINTER_FUNCTION_INSTANCE:
+            return 8; // Function instance pointers
+        case DataType::DYNAMIC_VALUE:
+            return sizeof(FunctionDynamicValue); // Size of FunctionDynamicValue structure
         case DataType::ANY:
         default:
             return 16; // DynamicValue or unknown type - conservative estimate
@@ -429,6 +420,9 @@ size_t SimpleLexicalScopeAnalyzer::get_datatype_alignment(DataType type) const {
         case DataType::PROMISE:
         case DataType::CLASS_INSTANCE:
         case DataType::RUNTIME_OBJECT:
+        case DataType::LOCAL_FUNCTION_INSTANCE:
+        case DataType::POINTER_FUNCTION_INSTANCE:
+        case DataType::DYNAMIC_VALUE:
             return 8; // Natural alignment for 8-byte types and pointers
         case DataType::ANY:
         default:
@@ -461,22 +455,52 @@ void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<s
             pack.name = var_name;
             pack.data_type = decl->data_type;
             
-            // Check if this variable is a function - prioritize Conservative Maximum Size
+            // Check if this variable is a function - use new classification system
             bool is_function = false;
             size_t function_size = 0;
+            DataType storage_type = decl->data_type;
             
-            // First, check if we have tracked function assignments for this variable
+            // Use new function variable classification
             if (has_tracked_function_sizes(var_name)) {
+                FunctionVariableStrategy strategy = classify_function_variable_strategy(var_name);
                 is_function = true;
-                function_size = get_max_function_size(var_name);
-                std::cout << "[SimpleLexicalScope] Using Conservative Maximum Size for '" << var_name 
-                         << "': " << function_size << " bytes" << std::endl;
+                
+                switch (strategy) {
+                    case FunctionVariableStrategy::STATIC_SINGLE_ASSIGNMENT: {
+                        // Strategy 1: Direct storage of single function instance
+                        function_size = get_max_function_size(var_name);
+                        storage_type = DataType::LOCAL_FUNCTION_INSTANCE;
+                        std::cout << "[SimpleLexicalScope] Strategy 1 (Static Single) for '" << var_name 
+                                 << "': " << function_size << " bytes" << std::endl;
+                        break;
+                    }
+                    
+                    case FunctionVariableStrategy::FUNCTION_TYPED: {
+                        // Strategy 2: Conservative Maximum Size for function-typed variables
+                        function_size = get_max_function_size(var_name);
+                        storage_type = DataType::LOCAL_FUNCTION_INSTANCE;
+                        std::cout << "[SimpleLexicalScope] Strategy 2 (Function-Typed) for '" << var_name 
+                                 << "': " << function_size << " bytes (conservative max)" << std::endl;
+                        break;
+                    }
+                    
+                    case FunctionVariableStrategy::ANY_TYPED_DYNAMIC: {
+                        // Strategy 3: DynamicValue wrapper + Conservative Maximum Size
+                        size_t max_function_size = get_max_function_size(var_name);
+                        function_size = sizeof(FunctionDynamicValue) + max_function_size;
+                        storage_type = DataType::DYNAMIC_VALUE;
+                        std::cout << "[SimpleLexicalScope] Strategy 3 (Any-Typed Dynamic) for '" << var_name 
+                                 << "': " << function_size << " bytes (DynamicValue + max function)" << std::endl;
+                        break;
+                    }
+                }
             } else {
-                // Check function declarations
+                // Check function declarations for direct function size
                 for (const auto* func_decl : scope_node->declared_functions) {
                     if (func_decl && func_decl->name == var_name) {
                         is_function = true;
                         function_size = func_decl->function_instance_size;
+                        storage_type = DataType::LOCAL_FUNCTION_INSTANCE;
                         break;
                     }
                 }
@@ -487,6 +511,7 @@ void SimpleLexicalScopeAnalyzer::pack_scope_variables(const std::unordered_set<s
                         if (func_expr && func_expr->name == var_name) {
                             is_function = true;
                             function_size = func_expr->function_instance_size;
+                            storage_type = DataType::LOCAL_FUNCTION_INSTANCE;
                             break;
                         }
                     }
@@ -574,7 +599,18 @@ LexicalScopeNode* SimpleLexicalScopeAnalyzer::get_current_scope_node() const {
 VariableDeclarationInfo* SimpleLexicalScopeAnalyzer::get_variable_declaration_info(const std::string& name) const {
     auto it = variable_declarations_.find(name);
     if (it == variable_declarations_.end() || it->second.empty()) {
+        std::cout << "[DEBUG] get_variable_declaration_info: No declarations found for '" << name << "'" << std::endl;
         return nullptr;
+    }
+    
+    // Debug: Print all declarations
+    std::cout << "[DEBUG] get_variable_declaration_info: Found " << it->second.size() 
+              << " declarations for '" << name << "':" << std::endl;
+    for (size_t i = 0; i < it->second.size(); i++) {
+        const auto& decl = it->second[i];
+        std::cout << "[DEBUG]   [" << i << "]: depth=" << decl->depth 
+                  << ", type=" << decl->declaration_type 
+                  << ", data_type=" << static_cast<int>(decl->data_type) << std::endl;
     }
     
     // Return the most recent declaration (last in the vector)
@@ -596,8 +632,59 @@ void SimpleLexicalScopeAnalyzer::register_function_in_current_scope(FunctionDecl
     }
     
     function_scope->register_function_declaration(func_decl);
+    
+    // NEW: Immediate conflict detection and variable declaration
+    if (func_decl && !func_decl->name.empty()) {
+        const std::string& func_name = func_decl->name;
+        function_declaration_conflicts_[func_name] = func_decl;
+        
+        // Check if there are any existing variable declarations with the same name in the function scope
+        bool has_var_decl = function_scope->declared_variables.find(func_name) != function_scope->declared_variables.end();
+        
+        if (has_var_decl) {
+            // Conflict detected! Promote existing variables to DYNAMIC_VALUE
+            std::cout << "[HoistingConflict] Immediate conflict detected for '" << func_name 
+                      << "' - function declaration conflicts with existing variable" << std::endl;
+            
+            auto var_decl_it = variable_declarations_.find(func_name);
+            if (var_decl_it != variable_declarations_.end()) {
+                for (auto& decl : var_decl_it->second) {
+                    if (decl->depth == function_scope->scope_depth) {
+                        decl->data_type = DataType::DYNAMIC_VALUE;
+                        std::cout << "[HoistingConflict] Promoted existing variable '" << func_name 
+                                  << "' to DYNAMIC_VALUE at depth " << decl->depth << std::endl;
+                    }
+                }
+            } else {
+                // Create a DYNAMIC_VALUE variable for the function  
+                // Save current depth, set to function scope depth, declare, then restore
+                int saved_depth = current_depth_;
+                current_depth_ = function_scope->scope_depth;
+                declare_variable(func_name, "function", DataType::DYNAMIC_VALUE);
+                current_depth_ = saved_depth;
+                std::cout << "[HoistingConflict] Created DYNAMIC_VALUE variable for function '" 
+                          << func_name << "' in scope depth " << function_scope->scope_depth << std::endl;
+            }
+            
+            mark_variable_as_hoisting_conflict(func_name);
+            // NOTE: Function size will be tracked later when computed
+        } else {
+            // No conflict - declare function as regular FUNCTION variable
+            // Save current depth, set to function scope depth, declare, then restore  
+            int saved_depth = current_depth_;
+            current_depth_ = function_scope->scope_depth;
+            declare_variable(func_name, "function", DataType::FUNCTION);
+            current_depth_ = saved_depth;
+            std::cout << "[HoistingConflict] No conflict for function '" << func_name 
+                      << "', declared as FUNCTION type in scope depth " << function_scope->scope_depth << std::endl;
+        }
+        
+        std::cout << "[HoistingConflict] Registered function declaration '" << func_name 
+                  << "' for conflict detection" << std::endl;
+    }
+    
     std::cout << "[SimpleLexicalScope] Registered function declaration '" 
-              << (func_decl ? "valid" : "null") << "' in function scope at depth " 
+              << (func_decl ? ("'" + func_decl->name + "'") : "null") << "' in function scope at depth " 
               << function_scope->scope_depth << std::endl;
 }
 
@@ -646,7 +733,7 @@ size_t SimpleLexicalScopeAnalyzer::compute_function_instance_size(const LexicalS
     // Total: 16 + (scope_count * 8) bytes
     
     size_t scope_count = lexical_scope->priority_sorted_parent_scopes.size();
-    size_t total_size = 16 + (scope_count * 8);
+    size_t total_size = 16 + (scope_count * 8); // 16 byte header + scopes (function name no longer stored)
     
     std::cout << "[SimpleLexicalScope] Computing function instance size:" << std::endl;
     std::cout << "  - Header size: 16 bytes (uint64_t size + void* function_code_addr)" << std::endl;
@@ -700,4 +787,363 @@ size_t SimpleLexicalScopeAnalyzer::get_max_function_size(const std::string& vari
 
 bool SimpleLexicalScopeAnalyzer::has_tracked_function_sizes(const std::string& variable_name) const {
     return variable_function_sizes_.find(variable_name) != variable_function_sizes_.end();
+}
+
+// NEW: Function declaration conflict detection and hoisting support
+bool SimpleLexicalScopeAnalyzer::has_function_declaration_conflict(const std::string& var_name) const {
+    return function_declaration_conflicts_.find(var_name) != function_declaration_conflicts_.end();
+}
+
+class FunctionDecl* SimpleLexicalScopeAnalyzer::get_conflicting_function_declaration(const std::string& var_name) const {
+    auto it = function_declaration_conflicts_.find(var_name);
+    if (it != function_declaration_conflicts_.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+void SimpleLexicalScopeAnalyzer::mark_variable_as_hoisting_conflict(const std::string& var_name) {
+    hoisting_conflict_variables_.insert(var_name);
+    std::cout << "[HoistingConflict] Marked variable '" << var_name << "' as hoisting conflict (DYNAMIC_VALUE)" << std::endl;
+}
+
+bool SimpleLexicalScopeAnalyzer::is_hoisting_conflict_variable(const std::string& var_name) const {
+    return hoisting_conflict_variables_.find(var_name) != hoisting_conflict_variables_.end();
+}
+
+void SimpleLexicalScopeAnalyzer::resolve_hoisting_conflicts_in_current_scope() {
+    if (scope_stack_.empty()) {
+        return;
+    }
+    
+    LexicalScopeNode* current_scope = scope_stack_.back().get();
+    
+    // Check each function declaration in the current scope
+    for (FunctionDecl* func_decl : current_scope->declared_functions) {
+        if (!func_decl || func_decl->name.empty()) {
+            continue;
+        }
+        
+        const std::string& func_name = func_decl->name;
+        
+        // Check if there are any variable declarations with the same name in this scope
+        bool has_var_decl = current_scope->declared_variables.find(func_name) != current_scope->declared_variables.end();
+        
+        if (has_var_decl) {
+            // Conflict detected! The variable should be promoted to DYNAMIC_VALUE
+            std::cout << "[HoistingConflict] Conflict detected for '" << func_name 
+                      << "' - function declaration conflicts with variable declaration" << std::endl;
+            
+            // Find all variable declarations with this name and promote them to DYNAMIC_VALUE
+            auto var_decl_it = variable_declarations_.find(func_name);
+            if (var_decl_it != variable_declarations_.end()) {
+                for (auto& decl : var_decl_it->second) {
+                    if (decl->depth == current_scope->scope_depth) {
+                        decl->data_type = DataType::DYNAMIC_VALUE;
+                        std::cout << "[HoistingConflict] Promoted variable '" << func_name 
+                                  << "' to DYNAMIC_VALUE at depth " << decl->depth << std::endl;
+                    }
+                }
+            } else {
+                // No existing variable declarations found, create one for the function
+                declare_variable(func_name, "function", DataType::DYNAMIC_VALUE);
+                std::cout << "[HoistingConflict] Created DYNAMIC_VALUE variable for function '" 
+                          << func_name << "'" << std::endl;
+            }
+            
+            // Mark as hoisting conflict and track function size
+            mark_variable_as_hoisting_conflict(func_name);
+            if (func_decl->function_instance_size > 0) {
+                track_function_assignment(func_name, func_decl->function_instance_size);
+            }
+        } else {
+            // No conflict - just declare the function as a regular variable
+            declare_variable(func_name, "function", DataType::FUNCTION);
+            std::cout << "[HoistingConflict] No conflict for function '" << func_name 
+                      << "', declared as FUNCTION type" << std::endl;
+        }
+    }
+}
+
+// NEW: Add an unresolved reference for a variable that hasn't been declared yet
+void SimpleLexicalScopeAnalyzer::add_unresolved_reference(const std::string& var_name, Identifier* identifier) {
+    unresolved_references_[var_name].emplace_back(identifier, current_depth_);
+    std::cout << "[UnresolvedRef] Added unresolved reference for '" << var_name 
+              << "' at depth " << current_depth_ 
+              << ", total unresolved: " << unresolved_references_[var_name].size() << std::endl;
+}
+
+// NEW: Resolve all unresolved references for a specific variable
+void SimpleLexicalScopeAnalyzer::resolve_references_for_variable(const std::string& var_name) {
+    auto it = unresolved_references_.find(var_name);
+    if (it == unresolved_references_.end()) {
+        return; // No unresolved references for this variable
+    }
+    
+    VariableDeclarationInfo* var_info = get_variable_declaration_info(var_name);
+    if (!var_info) {
+        std::cout << "[UnresolvedRef] Cannot resolve references for '" << var_name 
+                  << "' - variable declaration info not found" << std::endl;
+        return;
+    }
+    
+    std::cout << "[UnresolvedRef] Variable '" << var_name << "' declaration info: "
+              << "depth=" << var_info->depth 
+              << ", type=" << var_info->declaration_type
+              << ", data_type=" << static_cast<int>(var_info->data_type)
+              << ", offset=" << var_info->offset << std::endl;
+    
+    std::cout << "[UnresolvedRef] Resolving " << it->second.size() 
+              << " unresolved references for '" << var_name << "'" << std::endl;
+    
+    // Get the variable definition depth
+    int definition_depth = get_variable_definition_depth(var_name);
+    if (definition_depth == -1) {
+        std::cout << "[UnresolvedRef] WARNING: Could not find definition depth for '" << var_name << "'" << std::endl;
+        return;
+    }
+    
+    // Update all identifier nodes and track their accesses
+    for (const UnresolvedReference& unresolved_ref : it->second) {
+        if (unresolved_ref.identifier) {
+            // Copy essential info instead of storing pointer (prevents use-after-free)
+            unresolved_ref.identifier->definition_depth = var_info->depth;
+            unresolved_ref.identifier->variable_declaration_info = var_info;  // Keep for now, but rely on copied data
+            
+            // Track the variable access at the correct depth
+            // We need to simulate being at the access depth to properly track dependencies
+            int original_depth = current_depth_;
+            
+            // Find the scope at the access depth
+            auto scope_it = depth_to_scope_node_.find(unresolved_ref.access_depth);
+            if (scope_it != depth_to_scope_node_.end()) {
+                // Update usage count for this declaration  
+                auto& declarations = variable_declarations_[var_name];
+                for (auto& decl : declarations) {
+                    if (decl->depth == definition_depth) {
+                        decl->usage_count++;
+                        break;
+                    }
+                }
+                
+                // Add as dependency if accessing from different depth
+                if (definition_depth != unresolved_ref.access_depth) {
+                    auto scope_node = scope_it->second;
+                    
+                    // Check if we already have this dependency
+                    bool found = false;
+                    for (auto& dep : scope_node->self_dependencies) {
+                        if (dep.variable_name == var_name && dep.definition_depth == definition_depth) {
+                            dep.access_count++;
+                            found = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!found) {
+                        scope_node->self_dependencies.emplace_back(var_name, definition_depth);
+                    }
+                }
+                
+                std::cout << "[UnresolvedRef] Updated identifier and tracked access for '" << var_name 
+                          << "' from depth " << unresolved_ref.access_depth << " to depth " << definition_depth << std::endl;
+            } else {
+                std::cout << "[UnresolvedRef] WARNING: Could not find scope node for access depth " 
+                          << unresolved_ref.access_depth << std::endl;
+            }
+        }
+    }
+    
+    // Clear the unresolved references for this variable
+    unresolved_references_.erase(it);
+}
+
+// NEW: Resolve all remaining unresolved references at end of parsing
+void SimpleLexicalScopeAnalyzer::resolve_all_unresolved_references() {
+    std::cout << "[UnresolvedRef] Resolving all unresolved references. Total variables: " 
+              << unresolved_references_.size() << std::endl;
+    
+    for (const auto& pair : unresolved_references_) {
+        const std::string& var_name = pair.first;
+        resolve_references_for_variable(var_name);
+    }
+    
+    // Clear all unresolved references
+    unresolved_references_.clear();
+    std::cout << "[UnresolvedRef] All unresolved references cleared." << std::endl;
+}
+
+// NEW: Perform deferred variable packing for a scope during AST generation
+void SimpleLexicalScopeAnalyzer::perform_deferred_packing_for_scope(LexicalScopeNode* scope_node) {
+    if (!scope_node || scope_node->declared_variables.empty()) {
+        return;
+    }
+    
+    std::cout << "[DeferredPacking] Performing deferred packing for scope at depth " 
+              << scope_node->scope_depth << " with " << scope_node->declared_variables.size() << " variables" << std::endl;
+    
+    // Finalize function variable sizes before packing
+    finalize_function_variable_sizes();
+    
+    std::unordered_map<std::string, size_t> variable_offsets;
+    std::vector<std::string> packed_order;
+    size_t total_frame_size = 0;
+    
+    // Call the private packing method
+    pack_scope_variables(scope_node->declared_variables, variable_offsets, packed_order, 
+                        total_frame_size, scope_node);
+    
+    // Store packing results in the lexical scope node
+    scope_node->variable_offsets = variable_offsets;
+    scope_node->packed_variable_order = packed_order;
+    scope_node->total_scope_frame_size = total_frame_size;
+    
+    // Update individual VariableDeclarationInfo objects with their calculated offsets
+    for (const auto& var : packed_order) {
+        VariableDeclarationInfo* var_info = get_variable_declaration_info(var);
+        if (var_info) {
+            var_info->offset = variable_offsets[var];
+            std::cout << "[DeferredPacking] Updated VariableDeclarationInfo->offset for '" << var 
+                      << "' to " << var_info->offset << std::endl;
+        }
+    }
+    
+    std::cout << "[DeferredPacking] Deferred packing completed: " << total_frame_size << " bytes total" << std::endl;
+    for (const auto& var : packed_order) {
+        std::cout << "[DeferredPacking]   " << var << " -> offset " << variable_offsets[var] << std::endl;
+    }
+}
+
+//=============================================================================
+// FUNCTION VARIABLE TYPE CLASSIFICATION METHODS
+// Implementation of the three function storage strategies from FUNCTION.md
+//=============================================================================
+
+// Track variable assignment types for classification
+void SimpleLexicalScopeAnalyzer::track_variable_assignment_type(const std::string& var_name, DataType assigned_type) {
+    variable_assignment_types_[var_name].insert(assigned_type);
+    
+    // Check if this creates a mixed assignment scenario
+    const auto& types = variable_assignment_types_[var_name];
+    bool has_function = (types.count(DataType::FUNCTION) > 0 || 
+                        types.count(DataType::LOCAL_FUNCTION_INSTANCE) > 0);
+    bool has_non_function = false;
+    
+    for (DataType type : types) {
+        if (type != DataType::FUNCTION && type != DataType::LOCAL_FUNCTION_INSTANCE) {
+            has_non_function = true;
+            break;
+        }
+    }
+    
+    if (has_function && has_non_function) {
+        mixed_assignment_variables_.insert(var_name);
+        std::cout << "[FunctionClassification] Variable '" << var_name << "' marked as mixed assignment (Strategy 3)" << std::endl;
+    }
+}
+
+// Check if variable has mixed type assignments
+bool SimpleLexicalScopeAnalyzer::has_mixed_type_assignments(const std::string& var_name) const {
+    return mixed_assignment_variables_.count(var_name) > 0;
+}
+
+// Classify function variable strategy based on FUNCTION.md
+SimpleLexicalScopeAnalyzer::FunctionVariableStrategy 
+SimpleLexicalScopeAnalyzer::classify_function_variable_strategy(const std::string& var_name) const {
+    
+    // Strategy 3: Any-Typed Variables with Mixed Assignment
+    if (has_mixed_type_assignments(var_name) || is_hoisting_conflict_variable(var_name)) {
+        return FunctionVariableStrategy::ANY_TYPED_DYNAMIC;
+    }
+    
+    // Check if variable receives any function assignments at all
+    bool has_function_assignment = has_tracked_function_sizes(var_name);
+    if (!has_function_assignment) {
+        return FunctionVariableStrategy::ANY_TYPED_DYNAMIC; // Not a function variable
+    }
+    
+    // Strategy 1: Static Single Function Assignment
+    if (is_static_single_function_assignment(var_name)) {
+        return FunctionVariableStrategy::STATIC_SINGLE_ASSIGNMENT;
+    }
+    
+    // Strategy 2: Function-Typed Variables (Conservative Maximum Size)
+    if (is_function_typed_variable(var_name)) {
+        return FunctionVariableStrategy::FUNCTION_TYPED;
+    }
+    
+    // Default to Strategy 3 for safety
+    return FunctionVariableStrategy::ANY_TYPED_DYNAMIC;
+}
+
+// Check if variable is static single function assignment (Strategy 1)
+bool SimpleLexicalScopeAnalyzer::is_static_single_function_assignment(const std::string& var_name) const {
+    // Must have exactly one function assignment and no other assignments
+    auto it = variable_function_sizes_.find(var_name);
+    if (it == variable_function_sizes_.end() || it->second.size() != 1) {
+        return false;
+    }
+    
+    // Must not have any non-function assignments
+    auto type_it = variable_assignment_types_.find(var_name);
+    if (type_it == variable_assignment_types_.end()) {
+        return true; // Only function assignment
+    }
+    
+    // Check that all assignments are function-related
+    for (DataType type : type_it->second) {
+        if (type != DataType::FUNCTION && type != DataType::LOCAL_FUNCTION_INSTANCE) {
+            return false;
+        }
+    }
+    
+    // Must not be involved in hoisting conflicts
+    return !is_hoisting_conflict_variable(var_name) && !has_mixed_type_assignments(var_name);
+}
+
+// Check if variable is function-typed (Strategy 2)
+bool SimpleLexicalScopeAnalyzer::is_function_typed_variable(const std::string& var_name) const {
+    // Must have function assignments but potentially multiple function assignments
+    // (Conservative Maximum Size handles this)
+    bool has_function_assignments = has_tracked_function_sizes(var_name);
+    if (!has_function_assignments) {
+        return false;
+    }
+    
+    // Must not have mixed type assignments (that would be Strategy 3)
+    if (has_mixed_type_assignments(var_name) || is_hoisting_conflict_variable(var_name)) {
+        return false;
+    }
+    
+    // Check that all assignments are function-related
+    auto type_it = variable_assignment_types_.find(var_name);
+    if (type_it != variable_assignment_types_.end()) {
+        for (DataType type : type_it->second) {
+            if (type != DataType::FUNCTION && type != DataType::LOCAL_FUNCTION_INSTANCE) {
+                return false; // Has non-function assignment
+            }
+        }
+    }
+    
+    return true;
+}
+
+// Check if variable is mixed assignment (Strategy 3)
+bool SimpleLexicalScopeAnalyzer::is_mixed_assignment_variable(const std::string& var_name) const {
+    return classify_function_variable_strategy(var_name) == FunctionVariableStrategy::ANY_TYPED_DYNAMIC;
+}
+
+// Get appropriate storage DataType for function variable
+DataType SimpleLexicalScopeAnalyzer::get_function_variable_storage_type(const std::string& var_name) const {
+    FunctionVariableStrategy strategy = classify_function_variable_strategy(var_name);
+    
+    switch (strategy) {
+        case FunctionVariableStrategy::STATIC_SINGLE_ASSIGNMENT:
+        case FunctionVariableStrategy::FUNCTION_TYPED:
+            return DataType::LOCAL_FUNCTION_INSTANCE;
+            
+        case FunctionVariableStrategy::ANY_TYPED_DYNAMIC:
+        default:
+            return DataType::DYNAMIC_VALUE;
+    }
 }
