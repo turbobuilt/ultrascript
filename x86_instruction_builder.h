@@ -223,14 +223,33 @@ public:
     // Get current position for label resolution
     size_t get_current_position() const { return code_buffer.size(); }
     
-    // Utility methods for instruction length tracking
-    // size_t get_last_instruction_length() const; 
-    // void mark_instruction_start();
+    // Utility methods for instruction length tracking and patching
+    size_t get_last_instruction_length() const { return last_instruction_length_; }
+    
+    // Robust patching API - returns exact offset where immediate field was placed
+    struct PatchInfo {
+        size_t immediate_offset;    // Exact byte offset where immediate field is located
+        size_t instruction_length;  // Total length of the instruction
+        size_t immediate_size;      // Size of immediate field (4 or 8 bytes)
+    };
+    
+    // Enhanced MOV with patch information
+    PatchInfo mov_with_patch_info(X86Reg dst, const ImmediateOperand& imm);
+    
+    // Dedicated function address MOV - ALWAYS uses 64-bit immediate for function pointers
+    PatchInfo mov_function_address(X86Reg dst, uint64_t placeholder_address = 0);
 
 private:
     // Instance-based label management for thread safety and reliability
     std::unordered_map<std::string, size_t> label_addresses_;
     std::unordered_map<std::string, std::vector<size_t>> unresolved_labels_;
+    
+    // Instruction length tracking
+    mutable size_t last_instruction_length_ = 0;
+    mutable size_t instruction_start_pos_ = 0;
+    
+    // Helper method
+    void mark_instruction_start() { instruction_start_pos_ = code_buffer.size(); }
 };
 
 // High-level instruction patterns for common operations

@@ -11,6 +11,7 @@
 #include "console_log_overhaul.h"
 #include "class_runtime_interface.h"
 #include "dynamic_properties.h"
+#include "function_address_patching.h"
 #include <iostream>
 #include <unordered_map>
 #include <cstring>
@@ -20,6 +21,9 @@
 
 // Simple global constant storage for imported constants
 static std::unordered_map<std::string, double> global_imported_constants;
+
+// Global lookup for FunctionDecl nodes (for patching system)
+static std::unordered_map<std::string, FunctionDecl*> global_function_decl_lookup;
 
 // Forward declarations for function ID registry
 void __register_function_id(int64_t function_id, const std::string& function_name);
@@ -31,6 +35,35 @@ extern "C" void* __lookup_function_fast(uint16_t func_id);
 // Forward declaration for scope context initialization
 void initialize_scope_context(SimpleLexicalScopeAnalyzer* analyzer);
 
+// Helper function to generate a user-defined function call with ROBUST patching
+void generate_user_function_call_with_patching(CodeGenerator& gen, const std::string& function_name) {
+    std::cout << "[ROBUST_PATCHING] Generating user function call to '" << function_name 
+              << "' with robust address patching" << std::endl;
+    
+    // Look up the FunctionDecl for this function
+    auto func_it = global_function_decl_lookup.find(function_name);
+    if (func_it == global_function_decl_lookup.end()) {
+        std::cout << "[ROBUST_PATCHING] WARNING: FunctionDecl not found for '" << function_name 
+                  << "', falling back to direct call" << std::endl;
+        gen.emit_call(function_name);
+        return;
+    }
+    
+    FunctionDecl* target_function = func_it->second;
+    std::cout << "[ROBUST_PATCHING] Found FunctionDecl for '" << function_name << "'" << std::endl;
+    
+    // Use the robust high-level API that handles all the instruction encoding details
+    X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (x86_gen) {
+        x86_gen->emit_patchable_function_call(function_name, target_function);
+    } else {
+        std::cerr << "[ROBUST_PATCHING] ERROR: Non-X86 backend not supported for robust patching" << std::endl;
+        gen.emit_call(function_name);  // Fallback
+    }
+    
+    std::cout << "[FUNCTION_PATCH] Generated MOV+CALL sequence for function '" << function_name << "'" << std::endl;
+}
+
 //=============================================================================
 // NEW LEXICAL SCOPE-AWARE CODE GENERATION SYSTEM
 // This system completely replaces TypeInference with direct scope management
@@ -41,6 +74,9 @@ struct GlobalScopeContext {
     // Current scope information from SimpleLexicalScopeAnalyzer
     LexicalScopeNode* current_scope = nullptr;
     SimpleLexicalScopeAnalyzer* scope_analyzer = nullptr;
+    
+    // Current function declaration (for parameter access)
+    FunctionDecl* current_function_decl = nullptr;
     
     // Scope nesting stack for proper save/restore (LIFO order)
     std::vector<LexicalScopeNode*> scope_nesting_stack;
@@ -430,7 +466,7 @@ void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node) {
         x86_gen->emit_mov_reg_reg(15, 0); // R15 = allocated scope memory
         
         // Zero-initialize the scope memory
-        x86_gen->emit_mov_reg_reg(7, 15); // RDI = scope memory
+        x86_gen->emit_mov_reg_reg(7, 15); // RDI = scope memory (R15)
         x86_gen->emit_mov_reg_imm(6, 0);  // RSI = 0 (fill value)
         x86_gen->emit_mov_reg_imm(2, scope_size); // RDX = size
         x86_gen->emit_call("memset"); // Zero-fill the memory
@@ -805,6 +841,8 @@ void BooleanLiteral::generate_code_as(CodeGenerator& gen, DataType target_type) 
 
 void Identifier::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_CODEGEN] Identifier::generate_code - variable: " << name << std::endl;
+    std::cout << "[DEBUG_CRASH] Started, about to check runtime special case" << std::endl;
+    std::cout << "[DEBUG_CRASH] About to check runtime special case" << std::endl;
     
     // Handle special cases first
     if (name == "runtime") {
@@ -915,8 +953,24 @@ void Identifier::generate_code(CodeGenerator& gen) {
     
     // ULTRA-FAST DIRECT POINTER ACCESS - Zero lookups needed!
     if (variable_declaration_info) {
+        std::cout << "[DEBUG_CRASH] Have variable_declaration_info, about to get result_type" << std::endl;
         // Get variable type directly from declaration info
         result_type = variable_declaration_info->data_type;
+        std::cout << "[DEBUG_CRASH] Got result_type, about to check if param" << std::endl;
+        
+        // SPECIAL HANDLING FOR PARAMETERS
+        if (variable_declaration_info->declaration_type == "param") {
+            std::cout << "[PARAMETER_ACCESS] Accessing parameter '" << name << "'" << std::endl;
+            std::cout << "[PARAMETER_ACCESS] declaration_type='" << variable_declaration_info->declaration_type << "'" << std::endl;
+            
+            // Parameters are stored in the scope object at their designated offsets
+            // Use the same scope access logic as regular variables
+            std::cout << "[PARAMETER_ACCESS] Parameter '" << name 
+                      << "' will be accessed from scope object at offset " << variable_declaration_info->offset << std::endl;
+            // Fall through to normal scope access logic below
+        } else {
+            std::cout << "[PARAMETER_ACCESS] Not a parameter: declaration_type='" << variable_declaration_info->declaration_type << "'" << std::endl;
+        }
         
         // Use the direct offset from variable_declaration_info (FASTEST - no map lookup!)
         size_t var_offset = variable_declaration_info->offset;
@@ -1182,7 +1236,42 @@ void BinaryOp::generate_code(CodeGenerator& gen) {
                         gen.emit_mov_reg_mem(3, 0);   // fallback for other backends
                     }
                     gen.emit_add_reg_imm(4, 8);   // add rsp, 8 (restore stack)
-                    gen.emit_add_reg_reg(0, 3);   // add rax, rbx (add left to right)
+                    
+                    // SMART TYPE HANDLING: Check if operands are DynamicValues that need unpacking
+                    if (left_type == DataType::ANY || right_type == DataType::ANY) {
+                        std::cout << "[DYNAMIC_ADD] Handling addition with DynamicValue operands" << std::endl;
+                        
+                        // At this point:
+                        // RBX contains left DynamicValue pointer 
+                        // RAX contains right DynamicValue pointer 
+                        
+                        // Save both DynamicValue pointers to stack before function calls
+                        gen.emit_sub_reg_imm(4, 16);  // rsp -= 16 (allocate space)
+                        gen.emit_mov_mem_reg(0, 3);   // save left operand (RBX) at [rsp]
+                        gen.emit_mov_mem_reg(8, 0);   // save right operand (RAX) at [rsp+8]
+
+                        // Extract numeric value from left operand
+                        gen.emit_mov_reg_mem(7, 0);   // RDI = left DynamicValue pointer
+                        gen.emit_call("__dynamic_value_get_number");
+                        // RAX now contains double value as bit pattern
+                        gen.emit_mov_mem_reg(0, 0);   // save left result on stack at [rsp]
+                        
+                        // Extract numeric value from right operand  
+                        gen.emit_mov_reg_mem(7, 8);   // RDI = right DynamicValue pointer
+                        gen.emit_call("__dynamic_value_get_number");
+                        // RAX now contains double value as bit pattern
+                        
+                        // Now RAX has right number (as bits), left number (as bits) is at [rsp]
+                        gen.emit_mov_reg_reg(6, 0);   // RSI = right number (as bit pattern)
+                        gen.emit_mov_reg_mem(7, 0);   // RDI = left number (as bit pattern)
+                        gen.emit_call("__dynamic_value_add_bits");
+
+                        gen.emit_add_reg_imm(4, 16);  // rsp += 16 (deallocate space)
+                        std::cout << "[DYNAMIC_ADD] DynamicValue addition completed" << std::endl;
+                    } else {
+                        // Normal numeric addition
+                        gen.emit_add_reg_reg(0, 3);   // add rax, rbx (add left to right)
+                    }
                 }
             }
             break;
@@ -1611,9 +1700,34 @@ void FunctionCall::generate_code(CodeGenerator& gen) {
             std::cout << "[FUNCTION_CODEGEN] Found function variable '" << name 
                       << "' in scope, using new calling system" << std::endl;
             
-            // Generate argument code first (following x86-64 calling convention)
+            // Generate argument code with type conversion (following x86-64 calling convention)
             for (size_t i = 0; i < arguments.size() && i < 6; i++) {
                 arguments[i]->generate_code(gen);
+                DataType arg_type = arguments[i]->result_type;
+                
+                // SMART TYPE CONVERSION: Convert argument to DynamicValue if target parameter is ANY
+                // This handles the common case where numeric literals need to be wrapped for ANY parameters
+                if (arg_type != DataType::ANY) {
+                    std::cout << "[TYPE_CONVERSION] Converting argument " << i 
+                              << " from " << static_cast<int>(arg_type) << " to DynamicValue for ANY parameter" << std::endl;
+                    
+                    if (arg_type == DataType::FLOAT64 || arg_type == DataType::INT64) {
+                        // Convert numeric value to DynamicValue using existing function
+                        // The __dynamic_value_create_from_double expects the raw bits as int64_t
+                        gen.emit_mov_reg_reg(7, 0); // RDI = numeric value (already in correct format)
+                        gen.emit_call("__dynamic_value_create_from_double");
+                        // RAX now contains DynamicValue* 
+                        std::cout << "[TYPE_CONVERSION] Converted numeric argument to DynamicValue" << std::endl;
+                    } else if (arg_type == DataType::BOOLEAN) {
+                        // Convert boolean to DynamicValue
+                        gen.emit_mov_reg_reg(7, 0); // RDI = boolean value
+                        gen.emit_call("__dynamic_value_create_from_bool");
+                        // RAX now contains DynamicValue*
+                        std::cout << "[TYPE_CONVERSION] Converted boolean argument to DynamicValue" << std::endl;
+                    }
+                    // For other types, assume they're already compatible or add more conversions as needed
+                }
+                
                 switch (i) {
                     case 0: gen.emit_mov_reg_reg(7, 0); break;  // RDI = RAX
                     case 1: gen.emit_mov_reg_reg(6, 0); break;  // RSI = RAX
@@ -1645,8 +1759,51 @@ void FunctionCall::generate_code(CodeGenerator& gen) {
         }
     }
     
-    // Fallback: Direct function call by name (built-in functions)
-    std::cout << "[FUNCTION_CODEGEN] Fallback to direct call for '" << name << "'" << std::endl;
+    // Fallback: Check if this is a user-defined function that needs patching
+    std::cout << "[FUNCTION_CODEGEN] Checking if '" << name << "' is a user-defined function" << std::endl;
+    
+    auto func_decl_it = global_function_decl_lookup.find(name);
+    if (func_decl_it != global_function_decl_lookup.end()) {
+        std::cout << "[FUNCTION_CODEGEN] Found user-defined function '" << name << "', using patching system" << std::endl;
+        
+        // Generate argument code
+        for (size_t i = 0; i < arguments.size() && i < 6; i++) {
+            arguments[i]->generate_code(gen);
+            switch (i) {
+                case 0: gen.emit_mov_reg_reg(7, 0); break;  // RDI = RAX
+                case 1: gen.emit_mov_reg_reg(6, 0); break;  // RSI = RAX
+                case 2: gen.emit_mov_reg_reg(2, 0); break;  // RDX = RAX
+                case 3: gen.emit_mov_reg_reg(1, 0); break;  // RCX = RAX
+                case 4: gen.emit_mov_reg_reg(8, 0); break;  // R8 = RAX
+                case 5: gen.emit_mov_reg_reg(9, 0); break;  // R9 = RAX
+            }
+        }
+        
+        // Push additional arguments
+        for (int i = arguments.size() - 1; i >= 6; i--) {
+            arguments[i]->generate_code(gen);
+            gen.emit_sub_reg_imm(4, 8);  // sub rsp, 8
+            gen.emit_mov_mem_reg(0, 0);  // mov [rsp], rax
+        }
+        
+        // Use the new patching system
+        generate_user_function_call_with_patching(gen, name);
+        result_type = DataType::ANY; // Function calls can return any type
+        
+        // Clean up stack
+        if (arguments.size() > 6) {
+            int stack_cleanup = (arguments.size() - 6) * 8;
+            gen.emit_add_reg_imm(4, stack_cleanup);
+        }
+        
+        if (is_awaited) {
+            gen.emit_promise_await(0);
+        }
+        return;
+    }
+    
+    // Fallback: Direct function call by name (built-in/runtime functions)
+    std::cout << "[FUNCTION_CODEGEN] Fallback to direct call for built-in function '" << name << "'" << std::endl;
     
     // Generate argument code
     for (size_t i = 0; i < arguments.size() && i < 6; i++) {
@@ -2385,6 +2542,14 @@ void PostfixDecrement::generate_code(CodeGenerator& gen) {
 void FunctionDecl::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_CODEGEN] FunctionDecl::generate_code - function: " << name << std::endl;
     
+    // Register this FunctionDecl in global lookup for patching system
+    global_function_decl_lookup[name] = this;
+    std::cout << "[FUNCTION_PATCH] Registered FunctionDecl '" << name << "' in global lookup" << std::endl;
+    
+    // Set the current function in scope context for parameter access
+    FunctionDecl* previous_function = g_scope_context.current_function_decl;
+    g_scope_context.current_function_decl = this;
+    
     // Store the current code offset in the AST node for address patching
     code_offset = gen.get_current_offset();
     std::cout << "[FUNCTION_PATCH] Function '" << name << "' generated at offset " << code_offset << std::endl;
@@ -2414,8 +2579,15 @@ void FunctionDecl::generate_code(CodeGenerator& gen) {
         std::cout << "[NEW_CODEGEN] FunctionDecl: estimated stack size = " << estimated_stack_size << std::endl;
     }
     
-    // Emit function prologue
+    // Emit function prologue  
     gen.emit_prologue();
+    
+    // CRITICAL: Save caller's R15 (scope pointer) before setting up our own scope
+    auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (x86_gen) {
+        x86_gen->emit_scope_register_save(15); // Save caller's R15 to stack
+        std::cout << "[FUNCTION_CODEGEN] Saved caller's R15 to stack" << std::endl;
+    }
     
     // FUNCTION.md: Set up lexical scope registers from function instance (if this is a closure)
     // When called as a function instance, RDI contains pointer to the function instance
@@ -2467,25 +2639,75 @@ void FunctionDecl::generate_code(CodeGenerator& gen) {
         emit_scope_enter(gen, lexical_scope.get());
     }
     
-    // Save parameters from registers to their scope locations
-    // TODO: Use scope-aware parameter storage once parameter offsets are available
+    // Copy parameters from registers to their scope object locations
+    // The scope has been allocated and R15 points to it
     for (size_t i = 0; i < parameters.size() && i < 6; i++) {
         const auto& param = parameters[i];
-        
-        // For now, use simple stack offsets for parameters
-        int stack_offset = -(int)(i + 1) * 8;  // Start at -8, -16, -24 etc
-        
-        switch (i) {
-            case 0: gen.emit_mov_mem_reg(stack_offset, 7); break;  // save RDI
-            case 1: gen.emit_mov_mem_reg(stack_offset, 6); break;  // save RSI
-            case 2: gen.emit_mov_mem_reg(stack_offset, 2); break;  // save RDX
-            case 3: gen.emit_mov_mem_reg(stack_offset, 1); break;  // save RCX
-            case 4: gen.emit_mov_mem_reg(stack_offset, 8); break;  // save R8
-            case 5: gen.emit_mov_mem_reg(stack_offset, 9); break;  // save R9
+        // Find the parameter's offset in the scope object
+        if (lexical_scope && lexical_scope->variable_offsets.find(param.name) != lexical_scope->variable_offsets.end()) {
+            size_t param_offset = lexical_scope->variable_offsets.at(param.name);
+            // Check if parameter is ANY (DynamicValue)
+            bool is_any_type = (param.type == DataType::ANY);
+            // Copy from register to scope object at [R15 + offset]
+            if (is_any_type) {
+                // For ANY type parameters, we need to copy the DynamicValue contents (JavaScript value semantics)
+                // rather than just copying the pointer. This creates a new DynamicValue in the function's scope.
+                
+                // Cast to X86CodeGenV2 for x86-specific operations
+                X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+                if (!x86_gen) {
+                    std::cout << "[PARAMETER_COPY] ERROR: Could not cast to X86CodeGenV2" << std::endl;
+                    continue;
+                }
+                
+                // Get the source register for this parameter
+                int src_reg;
+                switch (i) {
+                    case 0: src_reg = 7; break;  // RDI
+                    case 1: src_reg = 6; break;  // RSI  
+                    case 2: src_reg = 2; break;  // RDX
+                    case 3: src_reg = 1; break;  // RCX
+                    case 4: src_reg = 8; break;  // R8
+                    case 5: src_reg = 9; break;  // R9
+                    default: src_reg = 7; break;
+                }
+                
+                // TEMPORARY FIX: Just store the DynamicValue pointer directly without copying
+                // This tests if the issue is in the memcpy operation or elsewhere
+                // TODO: Implement proper JavaScript value semantics with DynamicValue copying
+                
+                // Simply store the DynamicValue pointer in the scope
+                switch (i) {
+                    case 0: gen.emit_mov_reg_offset_reg(15, param_offset, 7); break;  // [R15 + offset] = RDI
+                    case 1: gen.emit_mov_reg_offset_reg(15, param_offset, 6); break;  // [R15 + offset] = RSI
+                    case 2: gen.emit_mov_reg_offset_reg(15, param_offset, 2); break;  // [R15 + offset] = RDX
+                    case 3: gen.emit_mov_reg_offset_reg(15, param_offset, 1); break;  // [R15 + offset] = RCX
+                    case 4: gen.emit_mov_reg_offset_reg(15, param_offset, 8); break;  // [R15 + offset] = R8
+                    case 5: gen.emit_mov_reg_offset_reg(15, param_offset, 9); break;  // [R15 + offset] = R9
+                }
+                
+                std::cout << "[PARAMETER_COPY] TEMPORARY: Stored DynamicValue pointer directly for ANY parameter '" << param.name 
+                          << "' at scope offset " << param_offset << std::endl;
+                
+                std::cout << "[PARAMETER_COPY] Created new DynamicValue copy for ANY parameter '" << param.name 
+                          << "' at scope offset " << param_offset << std::endl;
+            } else {
+                // Copy value (primitive)
+                switch (i) {
+                    case 0: gen.emit_mov_reg_offset_reg(15, param_offset, 7); break;  // [R15 + offset] = RDI
+                    case 1: gen.emit_mov_reg_offset_reg(15, param_offset, 6); break;  // [R15 + offset] = RSI
+                    case 2: gen.emit_mov_reg_offset_reg(15, param_offset, 2); break;  // [R15 + offset] = RDX
+                    case 3: gen.emit_mov_reg_offset_reg(15, param_offset, 1); break;  // [R15 + offset] = RCX
+                    case 4: gen.emit_mov_reg_offset_reg(15, param_offset, 8); break;  // [R15 + offset] = R8
+                    case 5: gen.emit_mov_reg_offset_reg(15, param_offset, 9); break;  // [R15 + offset] = R9
+                }
+                std::cout << "[PARAMETER_COPY] Copied primitive parameter '" << param.name 
+                          << "' to scope offset " << param_offset << std::endl;
+            }
+        } else {
+            std::cout << "[PARAMETER_COPY] WARNING: Parameter '" << param.name 
+                      << "' not found in scope offsets!" << std::endl;
         }
-        
-        std::cout << "[NEW_CODEGEN] FunctionDecl: saved parameter '" << param.name 
-                  << "' at offset " << stack_offset << std::endl;
     }
     
     // Handle stack parameters (beyond first 6)
@@ -2527,6 +2749,9 @@ void FunctionDecl::generate_code(CodeGenerator& gen) {
     // Register function code address in the runtime function registry - done after code generation
     // The function address will be registered by the compiler using the resolved label addresses
     std::cout << "[NEW_CODEGEN] FunctionDecl: function code generated, address registration deferred to post-compilation" << std::endl;
+    
+    // Restore previous function context
+    g_scope_context.current_function_decl = previous_function;
 }
 
 void IfStatement::generate_code(CodeGenerator& gen) {

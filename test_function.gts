@@ -1,5 +1,1 @@
-function testFunction() {
-    console.log("Function works");
-}
-
-testFunction();
+function test() { console.log('function works'); } test();

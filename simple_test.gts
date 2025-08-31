@@ -1,7 +1,5 @@
-var x = 42;
-
-function test() {
-    console.log(x);
+function simple() {
+    console.log("Hello from function");  
 }
 
-test();
+simple();

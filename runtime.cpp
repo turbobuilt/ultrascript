@@ -1272,7 +1272,19 @@ extern "C" void* __dynamic_value_create_from_double(int64_t double_bits) {
     } converter;
     converter.i = double_bits;
     
+    std::cout << "[DYNAMIC_VALUE_CREATE] Creating DynamicValue from double: " << converter.d << " (bits: " << double_bits << ")" << std::endl;
+    
     DynamicValue* dyn_val = new DynamicValue(converter.d);
+    
+    std::cout << "[DYNAMIC_VALUE_CREATE] Created DynamicValue at: " << dyn_val << std::endl;
+    
+    // Verify the value was stored correctly
+    if (std::holds_alternative<double>(dyn_val->value)) {
+        std::cout << "[DYNAMIC_VALUE_CREATE] Verification: Contains double " << std::get<double>(dyn_val->value) << std::endl;
+    } else {
+        std::cout << "[DYNAMIC_VALUE_CREATE] ERROR: Value not stored as double!" << std::endl;
+    }
+    
     return static_cast<void*>(dyn_val);
 }
 
@@ -1309,6 +1321,67 @@ extern "C" void* __dynamic_value_create_from_array(void* array_ptr) {
     DynamicValue* dyn_val = new DynamicValue(array_ptr);
     dyn_val->type = DataType::ARRAY;
     return static_cast<void*>(dyn_val);
+}
+
+// DynamicValue copy constructor for parameter passing (JavaScript value semantics)
+extern "C" void* __dynamic_value_copy_for_parameter(void* source_dynamic_value) {
+    if (!source_dynamic_value) {
+        std::cout << "[DYNAMIC_VALUE_COPY] Source is null, creating null DynamicValue" << std::endl;
+        return __dynamic_value_create_from_double(0); // Create default DynamicValue with 0
+    }
+    
+    DynamicValue* source = static_cast<DynamicValue*>(source_dynamic_value);
+    
+    std::cout << "[DYNAMIC_VALUE_COPY] Copying DynamicValue from " << source_dynamic_value << std::endl;
+    
+    // Create a new DynamicValue by copying the contents (not the pointer)
+    // This implements JavaScript value semantics for primitive types
+    DynamicValue* new_dyn_val = nullptr;
+    
+    try {
+        if (std::holds_alternative<double>(source->value)) {
+            double val = std::get<double>(source->value);
+            new_dyn_val = new DynamicValue(val);
+            std::cout << "[DYNAMIC_VALUE_COPY] Copied double value: " << val << std::endl;
+        }
+        else if (std::holds_alternative<int64_t>(source->value)) {
+            int64_t val = std::get<int64_t>(source->value);
+            new_dyn_val = new DynamicValue(val);
+            std::cout << "[DYNAMIC_VALUE_COPY] Copied int64_t value: " << val << std::endl;
+        }
+        else if (std::holds_alternative<bool>(source->value)) {
+            bool val = std::get<bool>(source->value);
+            new_dyn_val = new DynamicValue(val);
+            std::cout << "[DYNAMIC_VALUE_COPY] Copied bool value: " << (val ? "true" : "false") << std::endl;
+        }
+        else if (std::holds_alternative<std::string>(source->value)) {
+            std::string val = std::get<std::string>(source->value);
+            new_dyn_val = new DynamicValue(val);
+            std::cout << "[DYNAMIC_VALUE_COPY] Copied string value: " << val << std::endl;
+        }
+        else if (std::holds_alternative<void*>(source->value)) {
+            // For objects, we DO copy the pointer (objects are passed by reference in JS)
+            void* val = std::get<void*>(source->value);
+            new_dyn_val = new DynamicValue(val);
+            new_dyn_val->type = source->type; // Preserve the object type
+            std::cout << "[DYNAMIC_VALUE_COPY] Copied object pointer: " << val << std::endl;
+        }
+        else {
+            // Fallback: create a copy with the same variant value
+            new_dyn_val = new DynamicValue();
+            new_dyn_val->value = source->value;
+            new_dyn_val->type = source->type;
+            std::cout << "[DYNAMIC_VALUE_COPY] Fallback copy of variant value" << std::endl;
+        }
+        
+        std::cout << "[DYNAMIC_VALUE_COPY] Created new DynamicValue at: " << new_dyn_val << std::endl;
+        return static_cast<void*>(new_dyn_val);
+        
+    } catch (const std::exception& e) {
+        std::cout << "[DYNAMIC_VALUE_COPY] ERROR: " << e.what() << std::endl;
+        // Return a default DynamicValue with 0 if copying fails
+        return __dynamic_value_create_from_double(0);
+    }
 }
 
 // Object creation function removed - will be reimplemented according to new architecture
@@ -2013,4 +2086,83 @@ extern "C" void* __get_current_code_address() {
     // This will be implemented by the code generator to return current code position
     // For now return a placeholder
     return reinterpret_cast<void*>(0x1000000);  // Placeholder address
+}
+
+// DynamicValue extraction function for type conversion
+extern "C" int64_t __dynamic_value_get_number_bits(void* dv_ptr) {
+    std::cout << "[DYNAMIC_VALUE_GET_BITS] Called with pointer: " << dv_ptr << std::endl;
+    
+    if (!dv_ptr) {
+        std::cout << "[DYNAMIC_VALUE_GET_BITS] NULL pointer passed!" << std::endl;
+        return 0;
+    }
+    
+    DynamicValue* dv = static_cast<DynamicValue*>(dv_ptr);
+    
+    std::cout << "[DYNAMIC_VALUE_GET_BITS] Attempting to extract value from DynamicValue at " << dv << std::endl;
+    
+    // Try to extract numeric value from variant and convert to bit pattern
+    double result = 0.0;
+    if (std::holds_alternative<double>(dv->value)) {
+        result = std::get<double>(dv->value);
+        std::cout << "[DYNAMIC_VALUE_GET_BITS] Extracted double: " << result << std::endl;
+    } else if (std::holds_alternative<float>(dv->value)) {
+        result = static_cast<double>(std::get<float>(dv->value));
+        std::cout << "[DYNAMIC_VALUE_GET_BITS] Extracted float as double: " << result << std::endl;
+    } else if (std::holds_alternative<int64_t>(dv->value)) {
+        result = static_cast<double>(std::get<int64_t>(dv->value));
+        std::cout << "[DYNAMIC_VALUE_GET_BITS] Extracted int64 as double: " << result << std::endl;
+    } else if (std::holds_alternative<int32_t>(dv->value)) {
+        result = static_cast<double>(std::get<int32_t>(dv->value));
+        std::cout << "[DYNAMIC_VALUE_GET_BITS] Extracted int32 as double: " << result << std::endl;
+    } else {
+        std::cout << "[DYNAMIC_VALUE_GET_BITS] WARNING: Could not extract number from DynamicValue, returning 0.0" << std::endl;
+    }
+    
+    // Return the double as bit pattern in integer register
+    union {
+        double d;
+        int64_t bits;
+    } converter;
+    converter.d = result;
+    
+    std::cout << "[DYNAMIC_VALUE_GET_BITS] Returning bits: " << converter.bits << " (double: " << result << ")" << std::endl;
+    return converter.bits;
+}
+
+// Original function for compatibility
+extern "C" double __dynamic_value_get_number(void* dv_ptr) {
+    int64_t bits = __dynamic_value_get_number_bits(dv_ptr);
+    union {
+        int64_t bits;
+        double d;
+    } converter;
+    converter.bits = bits;
+    return converter.d;
+}
+
+// DynamicValue addition function that works with bit patterns
+extern "C" void* __dynamic_value_add_bits(int64_t left_bits, int64_t right_bits) {
+    std::cout << "[DYNAMIC_VALUE_ADD_BITS] Called with left_bits: " << left_bits << ", right_bits: " << right_bits << std::endl;
+    
+    // Convert bit patterns to doubles
+    union {
+        int64_t bits;
+        double d;
+    } left_conv, right_conv;
+    
+    left_conv.bits = left_bits;
+    right_conv.bits = right_bits;
+    
+    std::cout << "[DYNAMIC_VALUE_ADD_BITS] Converted to doubles: left=" << left_conv.d << ", right=" << right_conv.d << std::endl;
+    
+    double result = left_conv.d + right_conv.d;
+    
+    std::cout << "[DYNAMIC_VALUE_ADD_BITS] Addition result: " << result << std::endl;
+    
+    // Create new DynamicValue with the result
+    DynamicValue* dyn_val = new DynamicValue(result);
+    std::cout << "[DYNAMIC_VALUE_ADD_BITS] Created result DynamicValue at: " << dyn_val << std::endl;
+    
+    return static_cast<void*>(dyn_val);
 }

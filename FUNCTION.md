@@ -526,3 +526,49 @@ when you write the functions to memory, you need to keep a data structure that r
 as you generate each function you put it's address on teh function ast node.
 
 Then you have the list of all the places where each function address is supposed to be. So you then go through the list grabing the address from the function ast node and putting it in there at the correct offset/address.
+
+also when passing arguments to functions we will write ultra efficient asm. so we know the types of both variables and we write the correct code to translate with minimal overhead.
+
+we always take the declared type, it's any if not declared.
+
+so
+
+function test(a) { console.log(a) }
+var q: int64 = 0;
+test(q);
+
+will generate asm to construct a dynamicvalue from the int64.
+
+if function was typed would copy the int64 diret to location on scope.
+
+lastly in reverse case
+
+function test(a: int64) { console.log(a) }
+var b = 5;
+test(b);
+
+b is dynamicvalue it would assume it was type int64 and literally pull the value out at the correct offset, all written in asm hardcoded since both types are always known. we would want to do a check to ensure that the dyanmicvalue type jump if not int64 to to some error.   
+
+so it will be a lot of work to emit the correct code to do this.
+
+we also need to make dynamicvalue our code, not external like std variant. we need our own data structure we can put in asm and emit asm code to convert, not call external functions
+
+in sum, we need to, in any assignment or passing parameter to identify both types and emit proper asm for conversion (no function call).
+
+also
+
+var x = 5; // dynamicvalue
+var y : int64 = 2;
+var obj: Dog = new Dog();
+x = y; // write asm code to extract the int64 value out of y.
+var z = "hello would";
+x = z; // this is a string, so a tricky case since your supposed to consider a string a "value" even though it's not.  So you would unfortunately have to allocate a new string on the heap, copy the value from the old string, and put the pointer in a new dynamicvalue.
+x = obj; // would make a new dynamicvalue, would use the address of the object and increment ref count.
+
+for dynamicvalue we have a c++ struct, but the asm is most efficient if you compute the exact position the value we need will be at.
+
+function a(p: int64) {}
+var x: int64 = 2;
+a(x); 
+
+// emits max perf asm.

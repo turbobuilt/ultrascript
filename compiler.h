@@ -493,6 +493,7 @@ struct LexicalScopeNode : ASTNode {
     void generate_code(CodeGenerator& gen) override {
         // LexicalScopeNode doesn't generate code directly
         // It contains scope analysis information used by code generation
+        (void)gen; // Suppress unused parameter warning
     }
 };
 
@@ -733,13 +734,6 @@ struct Assignment : ExpressionNode {
     int definition_depth = -1;     // Lexical scope depth where variable was defined (legacy)
     int assignment_depth = -1;     // Lexical scope depth where assignment occurs (legacy)
     
-    // NEW: raw pointers to lexical scope nodes for safe access
-    LexicalScopeNode* definition_scope;    // Scope where variable was defined
-    LexicalScopeNode* assignment_scope;    // Scope where assignment occurs
-    
-    // ULTRA-FAST: Direct pointer to variable declaration info (zero lookup overhead)
-    VariableDeclarationInfo* variable_declaration_info;  // Direct pointer to the variable's declaration info
-    
     // ES6 declaration kind for proper block scoping
     enum DeclarationKind {
         VAR,    // Function-scoped, hoisted
@@ -747,6 +741,13 @@ struct Assignment : ExpressionNode {
         CONST   // Block-scoped, not hoisted, immutable
     };
     DeclarationKind declaration_kind = VAR;  // Default to var for compatibility
+    
+    // NEW: raw pointers to lexical scope nodes for safe access
+    LexicalScopeNode* definition_scope;    // Scope where variable was defined
+    LexicalScopeNode* assignment_scope;    // Scope where assignment occurs
+    
+    // ULTRA-FAST: Direct pointer to variable declaration info (zero lookup overhead)
+    VariableDeclarationInfo* variable_declaration_info;  // Direct pointer to the variable's declaration info
     
     Assignment(const std::string& name, std::unique_ptr<ExpressionNode> val, DeclarationKind kind = VAR)
         : variable_name(name), value(std::move(val)), declaration_kind(kind), 

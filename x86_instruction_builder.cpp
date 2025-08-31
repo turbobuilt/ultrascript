@@ -138,7 +138,7 @@ void X86InstructionBuilder::mov(X86Reg dst, X86Reg src, OpSize size) {
 }
 
 void X86InstructionBuilder::mov(X86Reg dst, const ImmediateOperand& imm) {
-    // this->mark_instruction_start();  // Track start of this instruction
+    mark_instruction_start();
     
     if (imm.size == OpSize::QWORD && 
         imm.value >= -2147483648LL && imm.value <= 2147483647LL) {
@@ -155,6 +155,67 @@ void X86InstructionBuilder::mov(X86Reg dst, const ImmediateOperand& imm) {
         code_buffer.push_back(0xB8 | (static_cast<uint8_t>(dst) & 7));  // MOV r64, imm64
         emit_immediate(imm);
     }
+    
+    last_instruction_length_ = code_buffer.size() - instruction_start_pos_;
+}
+
+// ROBUST PATCHING API - Returns exact offset information
+X86InstructionBuilder::PatchInfo X86InstructionBuilder::mov_with_patch_info(X86Reg dst, const ImmediateOperand& imm) {
+    size_t start_pos = code_buffer.size();
+    
+    PatchInfo patch_info;
+    
+    if (imm.size == OpSize::QWORD && 
+        imm.value >= -2147483648LL && imm.value <= 2147483647LL) {
+        // Use 32-bit immediate that gets sign-extended
+        emit_rex_if_needed(dst, X86Reg::NONE, OpSize::QWORD);
+        code_buffer.push_back(0xC7);  // MOV r/m64, imm32
+        code_buffer.push_back(0xC0 | (static_cast<uint8_t>(dst) & 7));
+        
+        // Record where the immediate field starts
+        patch_info.immediate_offset = code_buffer.size();
+        patch_info.immediate_size = 4;
+        
+        emit_immediate(ImmediateOperand(static_cast<int32_t>(imm.value)));
+    } else {
+        // Use full 64-bit immediate
+        uint8_t rex = 0x48;  // REX.W
+        if (static_cast<uint8_t>(dst) >= 8) rex |= 1;  // REX.B
+        code_buffer.push_back(rex);
+        code_buffer.push_back(0xB8 | (static_cast<uint8_t>(dst) & 7));  // MOV r64, imm64
+        
+        // Record where the immediate field starts
+        patch_info.immediate_offset = code_buffer.size();
+        patch_info.immediate_size = 8;
+        
+        emit_immediate(imm);
+    }
+    
+    patch_info.instruction_length = code_buffer.size() - start_pos;
+    return patch_info;
+}
+
+// DEDICATED FUNCTION ADDRESS MOV - ALWAYS 64-bit for function pointers
+X86InstructionBuilder::PatchInfo X86InstructionBuilder::mov_function_address(X86Reg dst, uint64_t placeholder_address) {
+    size_t start_pos = code_buffer.size();
+    
+    PatchInfo patch_info;
+    
+    // ALWAYS use 64-bit immediate for function addresses - no optimization
+    uint8_t rex = 0x48;  // REX.W
+    if (static_cast<uint8_t>(dst) >= 8) rex |= 1;  // REX.B
+    code_buffer.push_back(rex);
+    code_buffer.push_back(0xB8 | (static_cast<uint8_t>(dst) & 7));  // MOV r64, imm64
+    
+    // Record where the immediate field starts
+    patch_info.immediate_offset = code_buffer.size();
+    patch_info.immediate_size = 8;
+    
+    // Emit 8-byte placeholder
+    emit_immediate(ImmediateOperand(static_cast<int64_t>(placeholder_address), OpSize::QWORD));
+    
+    patch_info.instruction_length = code_buffer.size() - start_pos;
+    return patch_info;
 }
 
 void X86InstructionBuilder::mov(X86Reg dst, const MemoryOperand& src, OpSize size) {

@@ -74,6 +74,17 @@ public:
     void emit_prologue() override;
     void emit_epilogue() override;
     void emit_mov_reg_imm(int reg, int64_t value) override;
+    
+    // ROBUST PATCHING API - Enhanced MOV with exact patch information
+    struct MovPatchInfo {
+        size_t immediate_offset;    // Exact byte offset where immediate field is located
+        size_t instruction_length;  // Total length of the instruction
+        size_t immediate_size;      // Size of immediate field (4 or 8 bytes)
+    };
+    MovPatchInfo emit_mov_reg_imm_with_patch_info(int reg, int64_t value);
+    
+    // HIGH-LEVEL ROBUST PATCHING API FOR FUNCTION CALLS
+    void emit_patchable_function_call(const std::string& function_name, void* function_ast_node);
     void emit_mov_reg_reg(int dst, int src) override;
     void emit_mov_mem_reg(int64_t offset, int reg) override;
     void emit_mov_reg_mem(int reg, int64_t offset) override;

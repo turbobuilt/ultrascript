@@ -1138,4 +1138,10 @@ extern "C" {
     int64_t __match_result_get_index(void* match_array_ptr);
     void* __match_result_get_input(void* match_array_ptr);
     void* __match_result_get_groups(void* match_array_ptr);
+    
+    // DynamicValue type conversion functions
+    void* __dynamic_value_create_from_bool(bool boolean_value);
+    double __dynamic_value_get_number(void* dv_ptr);
+    int64_t __dynamic_value_get_number_bits(void* dv_ptr);
+    void* __dynamic_value_add_bits(int64_t left_bits, int64_t right_bits);
 }

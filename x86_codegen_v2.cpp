@@ -252,6 +252,52 @@ void X86CodeGenV2::emit_mov_reg_imm(int reg, int64_t value) {
     instruction_builder->mov(dst, ImmediateOperand(value));
 }
 
+X86CodeGenV2::MovPatchInfo X86CodeGenV2::emit_mov_reg_imm_with_patch_info(int reg, int64_t value) {
+    X86Reg dst = get_register_for_int(reg);
+    auto patch_info = instruction_builder->mov_with_patch_info(dst, ImmediateOperand(value));
+    
+    return {
+        patch_info.immediate_offset,
+        patch_info.instruction_length, 
+        patch_info.immediate_size
+    };
+}
+
+void X86CodeGenV2::emit_patchable_function_call(const std::string& function_name, void* function_ast_node) {
+    // Forward declaration for the patching system
+    extern void register_function_patch(size_t patch_offset, void* function_ast, size_t additional_offset, size_t instruction_length);
+    
+    std::cout << "[ROBUST_PATCHING] Generating patchable call to '" << function_name << "' using dedicated function address move" << std::endl;
+    
+    // Generate MOV RAX, function_address using DEDICATED function address method
+    // This ALWAYS uses 64-bit immediate, no optimization for function pointers
+    auto patch_info = instruction_builder->mov_function_address(X86Reg::RAX, 0);
+    
+    // Convert from instruction builder's PatchInfo to our MovPatchInfo
+    MovPatchInfo mov_patch_info{
+        patch_info.immediate_offset,
+        patch_info.instruction_length,
+        patch_info.immediate_size
+    };
+    
+    // Register the patch with EXACT information (no guessing!)
+    register_function_patch(
+        mov_patch_info.immediate_offset,       // Exact offset to immediate field
+        function_ast_node,                     // Function AST node
+        0,                                     // No additional offset needed
+        mov_patch_info.instruction_length     // Actual instruction length
+    );
+    
+    std::cout << "[ROBUST_PATCHING] Registered patch: immediate_offset=" << mov_patch_info.immediate_offset 
+              << ", instruction_length=" << mov_patch_info.instruction_length 
+              << ", immediate_size=" << mov_patch_info.immediate_size << " (GUARANTEED 64-bit)" << std::endl;
+    
+    // Generate CALL RAX
+    emit_call_reg(0);  // CALL RAX
+    
+    std::cout << "[ROBUST_PATCHING] Generated robust patchable function call" << std::endl;
+}
+
 void X86CodeGenV2::emit_mov_reg_reg(int dst, int src) {
     X86Reg dst_reg = get_register_for_int(dst);
     X86Reg src_reg = get_register_for_int(src);
@@ -638,6 +684,14 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         // Standard C library functions for memory management
         (*runtime_functions)["malloc"] = reinterpret_cast<void*>(malloc);
         (*runtime_functions)["free"] = reinterpret_cast<void*>(free);
+        (*runtime_functions)["memset"] = reinterpret_cast<void*>(memset);
+        (*runtime_functions)["memcpy"] = reinterpret_cast<void*>(memcpy);
+        
+        // DynamicValue type conversion functions  
+        (*runtime_functions)["__dynamic_value_create_from_bool"] = reinterpret_cast<void*>(__dynamic_value_create_from_bool);
+        (*runtime_functions)["__dynamic_value_get_number"] = reinterpret_cast<void*>(__dynamic_value_get_number);
+        (*runtime_functions)["__dynamic_value_get_number_bits"] = reinterpret_cast<void*>(__dynamic_value_get_number_bits);
+        (*runtime_functions)["__dynamic_value_add_bits"] = reinterpret_cast<void*>(__dynamic_value_add_bits);
     }
     
     auto it = (*runtime_functions).find(function_name);

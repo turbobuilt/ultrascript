@@ -10,7 +10,7 @@
 
 // Runtime function declarations
 extern "C" void __register_function_code_address(const char* function_name, void* address);
-extern "C" void         patch_all_function_addresses(void* exec_mem);
+// patch_all_function_addresses is C++ linkage - declared in function_address_patching.h
 
 
 // External console mutex for thread safety
@@ -103,6 +103,7 @@ void GoTSCompiler::compile(const std::string& source) {
                 // Register class in JIT system
                 // Add properties to JIT class registry
                 for (const auto& field : class_decl->fields) {
+                    (void)field; // Suppress unused variable warning
                     uint8_t type_id = 0; // Default to ANY type
                     uint32_t size = 8;   // Default to 8 bytes (pointer size)
                     
@@ -110,7 +111,7 @@ void GoTSCompiler::compile(const std::string& source) {
                     // TODO: Implement proper type mapping from DataType enum
                     type_id = 4; // OBJECT type
                     size = 8;    // Pointer size
-                    
+                    (void)type_id; (void)size; // Suppress unused variable warnings
                 }
                 
                 // Keep old system for compatibility
@@ -595,7 +596,7 @@ void GoTSCompiler::execute() {
         // Dump first 32 bytes of generated code for debugging
         std::cout << "DEBUG: First 32 bytes of generated code: ";
         uint8_t* code_bytes = static_cast<uint8_t*>(exec_mem);
-        for (int i = 0; i < 32 && i < updated_code.size(); i++) {
+        for (int i = 0; i < 32 && i < static_cast<int>(updated_code.size()); i++) {
             printf("%02x ", code_bytes[i]);
         }
         std::cout << std::endl;
@@ -882,6 +883,7 @@ Module* GoTSCompiler::load_module(const std::string& module_path) {
                 has_named_exports = true;
                 // Add named exports to module
                 for (const auto& spec : export_stmt->specifiers) {
+                    (void)spec; // Suppress unused variable warning
                     // For now, just track that we have named exports
                     // Full implementation would analyze the actual exported values
                 }
@@ -1030,6 +1032,7 @@ Module* GoTSCompiler::handle_circular_import_and_return(const std::string& modul
 }
 
 void GoTSCompiler::handle_circular_import(const std::string& module_path) {
+    (void)module_path; // Suppress unused parameter warning
     // Log the circular import for debugging
     std::string stack_trace = get_import_stack_trace();
     
@@ -1056,6 +1059,7 @@ void GoTSCompiler::execute_module_code(Module& module) {
     
     // Execute the module's AST
     for (const auto& stmt : module.ast) {
+        (void)stmt; // Suppress unused variable warning
         // This would execute the statements in the module
         // For now, just mark as executed
         // In real implementation, would call stmt->generate_code()
@@ -1233,6 +1237,7 @@ void GoTSCompiler::generate_specialized_inherited_methods(const ClassDecl& class
         for (const auto& method_pair : parent_info->methods) {
             const std::string& method_name = method_pair.first;
             const Function& parent_method = method_pair.second;
+            (void)parent_method; // Suppress unused variable warning
             
             // Skip if this class defines its own version of this method
             ClassInfo* this_class_info = get_class(class_decl.name);

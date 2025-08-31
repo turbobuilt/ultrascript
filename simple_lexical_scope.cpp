@@ -146,10 +146,11 @@ std::unique_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
               << " remains registered for direct access (pointer: " << current_scope_node.get() << ")" << std::endl;
 
     // Clean up variable declarations at this depth
-    // IMPORTANT: Don't clean up global scope (depth 1) declarations as they're needed for code generation
-    if (current_depth_ != 1) {
+    // IMPORTANT: Don't clean up ANY declarations during parsing - they're needed for code generation
+    // TODO: Clean up after code generation is complete
+    if (false) { // DISABLED: cleanup_declarations_at_depth causes segfaults during codegen
         cleanup_declarations_at_depth(current_depth_);
-    } else {
+    } else if (current_depth_ == 1) {
         std::cout << "[SimpleLexicalScope] Preserving global scope declarations for code generation" << std::endl;
         // For global scope, keep the shared_ptr in completed_scopes_ to ensure it stays alive
         // The parser won't store the global scope anywhere, so we need to keep it alive ourselves
@@ -205,6 +206,15 @@ void SimpleLexicalScopeAnalyzer::access_variable(const std::string& name) {
         std::cout << "[SimpleLexicalScope] WARNING: Variable '" << name 
                   << "' accessed but not found in declarations" << std::endl;
         return;
+    }
+    
+    // LEXICAL SCOPING VALIDATION: Outer scopes cannot access inner scope variables
+    if (definition_depth > current_depth_) {
+        std::cout << "[LEXICAL_SCOPE_ERROR] Variable '" << name 
+                  << "' defined at depth " << definition_depth 
+                  << " is NOT accessible from outer scope at depth " << current_depth_ << std::endl;
+        std::cout << "[LEXICAL_SCOPE_ERROR] Lexical scoping violation - inner scope variables are not visible to outer scopes!" << std::endl;
+        throw std::runtime_error("Lexical scoping violation: Cannot access variable '" + name + "' defined in inner scope");
     }
     
     std::cout << "[SimpleLexicalScope] Accessing variable '" << name 

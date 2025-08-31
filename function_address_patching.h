@@ -3,13 +3,6 @@
 
 #include <vector>
 #include <cstdint>
-
-// Forward declaration
-struct FunctionDecl;
-
-#pragma once
-#include <vector>
-#include <cstdint>
 #include <cstddef>
 
 // Forward declaration
@@ -41,7 +34,7 @@ namespace X86MovConstants {
 // Patch information for function address resolution
 struct FunctionPatchInfo {
     size_t patch_offset;         // Offset in machine code where patch should be applied
-    FunctionDecl* function_ast;  // AST node pointer containing code_offset field
+    void* function_ast;          // AST node pointer containing code_offset field (FunctionDecl*)
     size_t additional_offset;    // Additional offset within the patch location (default 0)
     size_t instruction_length;   // Length of the instruction (7 for 32-bit MOV, 10 for 64-bit MOV)
 };
@@ -50,17 +43,12 @@ struct FunctionPatchInfo {
 extern std::vector<FunctionPatchInfo> g_function_patches;
 
 // Register a location that needs function address patching
-void register_function_patch(size_t patch_offset, FunctionDecl* function_ast, size_t additional_offset = 0, size_t instruction_length = 10);
+void register_function_patch(size_t patch_offset, void* function_ast, size_t additional_offset = 0, size_t instruction_length = 10);
 
 // Patch all function addresses in executable memory
 void patch_all_function_addresses(void* executable_memory_base);
 
-// Global patch list - populated during code generation
-extern std::vector<FunctionPatchInfo> g_function_patches;
-
-// Functions to manage function address patching
-void register_function_patch(void* patch_location, FunctionDecl* function_ast, size_t offset = 0);
-void patch_all_function_addresses(void* executable_memory_base);
+// Clear all registered patches (for cleanup)
 void clear_function_patches();
 
 #endif // FUNCTION_ADDRESS_PATCHING_H

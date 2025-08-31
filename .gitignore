@@ -2,3 +2,13 @@
 gots
 node_modules/
 libtorch/
+# Binary executables and test outputs
+ultraScript
+test_dyn_val
+test_sizeof
+debug_*
+!debug_*.cpp
+!debug_*.gts
+!debug_*.h
+comprehensive_test
+!comprehensive_test.cpp

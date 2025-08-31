@@ -5,7 +5,7 @@
 // Global patch list
 std::vector<FunctionPatchInfo> g_function_patches;
 
-void register_function_patch(size_t patch_offset, FunctionDecl* function_ast, size_t additional_offset, size_t instruction_length) {
+void register_function_patch(size_t patch_offset, void* function_ast, size_t additional_offset, size_t instruction_length) {
     g_function_patches.emplace_back();
     auto& patch_info = g_function_patches.back();
     
@@ -15,7 +15,7 @@ void register_function_patch(size_t patch_offset, FunctionDecl* function_ast, si
     patch_info.instruction_length = instruction_length;
     
     std::cout << "[PATCH_REGISTER] Registered patch at offset " << patch_offset 
-              << " for function '" << function_ast->name 
+              << " for function '" << ((FunctionDecl*)function_ast)->name 
               << " with additional_offset " << additional_offset 
               << " and instruction_length " << instruction_length << std::endl;
 }
@@ -25,14 +25,14 @@ void patch_all_function_addresses(void* executable_memory_base) {
               << " function addresses in executable memory at " << executable_memory_base << std::endl;
               
     for (const auto& patch_info : g_function_patches) {
-        std::cout << "[PATCH_DEBUG] Processing patch for function '" << patch_info.function_ast->name << "'" << std::endl;
-        std::cout << "[PATCH_DEBUG]   function code_offset: " << patch_info.function_ast->code_offset << std::endl;
+        std::cout << "[PATCH_DEBUG] Processing patch for function '" << ((FunctionDecl*)patch_info.function_ast)->name << "'" << std::endl;
+        std::cout << "[PATCH_DEBUG]   function code_offset: " << ((FunctionDecl*)patch_info.function_ast)->code_offset << std::endl;
         std::cout << "[PATCH_DEBUG]   patch_offset: " << patch_info.patch_offset << std::endl;
         std::cout << "[PATCH_DEBUG]   additional_offset: " << patch_info.additional_offset << std::endl;
         
         // Calculate actual function address: base + function's code offset
         void* actual_function_address = reinterpret_cast<void*>(
-            reinterpret_cast<uintptr_t>(executable_memory_base) + patch_info.function_ast->code_offset
+            reinterpret_cast<uintptr_t>(executable_memory_base) + ((FunctionDecl*)patch_info.function_ast)->code_offset
         );
         
         std::cout << "[PATCH_DEBUG]   calculated function address: " << actual_function_address << std::endl;
@@ -59,7 +59,7 @@ void patch_all_function_addresses(void* executable_memory_base) {
                   << " to patch location " << patch_location 
                   << " (instruction_length=" << patch_info.instruction_length << ")" << std::endl;
         
-        // Determine immediate size based on instruction length and validate
+        // Determine immediate size based on instruction length
         bool is_32bit_immediate = (patch_info.instruction_length == X86MovConstants::MOV_32BIT_IMM_LENGTH);
         bool is_64bit_immediate = (patch_info.instruction_length == X86MovConstants::MOV_64BIT_IMM_LENGTH);
         
@@ -72,56 +72,20 @@ void patch_all_function_addresses(void* executable_memory_base) {
         
         size_t immediate_size = is_32bit_immediate ? X86MovConstants::IMM32_SIZE : X86MovConstants::IMM64_SIZE;
         
-        // Validate patch location bounds
-        uintptr_t patch_addr_bounds = reinterpret_cast<uintptr_t>(patch_location);
-        uintptr_t patch_end = patch_addr_bounds + immediate_size;
-        uintptr_t instruction_start = base_addr + patch_info.patch_offset - patch_info.additional_offset;
-        uintptr_t instruction_end = instruction_start + patch_info.instruction_length;
+        std::cout << "[PATCH_DEBUG] Using " << (is_32bit_immediate ? "32-bit" : "64-bit") 
+                  << " immediate (instruction_length=" << patch_info.instruction_length << ")" << std::endl;
         
-        if (patch_end > instruction_end) {
-            std::cerr << "[PATCH_ERROR] Patch extends beyond instruction boundary! "
-                      << "patch_end=" << std::hex << patch_end 
-                      << " instruction_end=" << instruction_end << std::dec << std::endl;
-            continue;
-        }
-        
-        // Validate instruction format by checking key bytes
-        unsigned char* instruction_bytes = reinterpret_cast<unsigned char*>(instruction_start);
-        if (is_32bit_immediate) {
-            // Expected: REX (0x48/0x49), 0xC7, ModR/M (0xC0-0xCF)
-            if (!(instruction_bytes[0] == X86MovConstants::REX_W || instruction_bytes[0] == X86MovConstants::REX_WB) ||
-                instruction_bytes[1] != X86MovConstants::MOV_RM32_IMM32 ||
-                (instruction_bytes[2] & X86MovConstants::MODRM_REG_MASK) != X86MovConstants::MODRM_REG_DIRECT) {
-                std::cerr << "[PATCH_ERROR] Instruction format validation failed for 32-bit MOV. "
-                          << "Expected REX+C7+ModR/M, got: " << std::hex 
-                          << (int)instruction_bytes[0] << " " 
-                          << (int)instruction_bytes[1] << " " 
-                          << (int)instruction_bytes[2] << std::dec << std::endl;
-                continue;
-            }
-        } else { // 64-bit immediate
-            // Expected: REX (0x48/0x49), Opcode (0xB8-0xBF)
-            if (!(instruction_bytes[0] == X86MovConstants::REX_W || instruction_bytes[0] == X86MovConstants::REX_WB) ||
-                (instruction_bytes[1] & 0xF8) != X86MovConstants::MOV_R64_IMM64_BASE) {
-                std::cerr << "[PATCH_ERROR] Instruction format validation failed for 64-bit MOV. "
-                          << "Expected REX+B8-BF, got: " << std::hex 
-                          << (int)instruction_bytes[0] << " " 
-                          << (int)instruction_bytes[1] << std::dec << std::endl;
-                continue;
-            }
-        }
-        
-        // Additional validation: check that placeholder is present
+        // Check placeholder value for debugging (optional warning)
         if (is_32bit_immediate) {
             uint32_t current_value = *reinterpret_cast<uint32_t*>(patch_location);
             if (current_value != 0x00000000) {
-                std::cerr << "[PATCH_WARNING] Expected zero placeholder, found: " 
+                std::cout << "[PATCH_NOTE] Non-zero placeholder found: " 
                           << std::hex << current_value << std::dec << std::endl;
             }
         } else {
             uint64_t current_value = *reinterpret_cast<uint64_t*>(patch_location);
             if (current_value != 0x0000000000000000ULL) {
-                std::cerr << "[PATCH_WARNING] Expected zero placeholder, found: " 
+                std::cout << "[PATCH_NOTE] Non-zero placeholder found: " 
                           << std::hex << current_value << std::dec << std::endl;
             }
         }
@@ -164,10 +128,10 @@ void patch_all_function_addresses(void* executable_memory_base) {
         }
         std::cout << std::endl;
         
-        std::cout << "[PATCH_SYSTEM] Patched function '" << patch_info.function_ast->name 
+        std::cout << "[PATCH_SYSTEM] Patched function '" << ((FunctionDecl*)patch_info.function_ast)->name 
                   << "' at patch location " << patch_location
                   << " with address " << actual_function_address 
-                  << " (base+" << patch_info.function_ast->code_offset << ")" << std::endl;
+                  << " (base+" << ((FunctionDecl*)patch_info.function_ast)->code_offset << ")" << std::endl;
     }
     
     std::cout << "[PATCH_SYSTEM] All function addresses patched successfully!" << std::endl;

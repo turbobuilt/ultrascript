@@ -1252,7 +1252,7 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
             // NEW: Track parameter in lexical scope
             std::string type_str = "param";
             if (lexical_scope_analyzer_) {
-                lexical_scope_analyzer_->declare_variable(param_name, type_str);
+                lexical_scope_analyzer_->declare_variable(param_name, type_str, param.type);
             }
             
             func_decl->parameters.push_back(param);
