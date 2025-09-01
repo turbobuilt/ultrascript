@@ -77,8 +77,10 @@ void GoTSCompiler::compile(const std::string& source) {
         
         std::cout << "AST nodes: " << ast.size() << std::endl;
         
-        // Initialize scope context for new AST code generation system
-        initialize_scope_context(parser.get_lexical_scope_analyzer());
+        // CREATE NEW SCOPE-AWARE CODE GENERATOR
+        auto scope_analyzer = parser.get_lexical_scope_analyzer();
+        codegen = create_scope_aware_codegen(scope_analyzer);
+        std::cout << "[NEW_SYSTEM] Created ScopeAwareCodeGen with static analysis" << std::endl;
         
         codegen->clear();
         
@@ -242,6 +244,11 @@ void GoTSCompiler::compile(const std::string& source) {
         // Set stack size for main function
         codegen->set_function_stack_size(estimated_stack_size);
         
+        // CRITICAL: Reset stack frame before main function to prevent function compilation pollution
+        if (auto x86_gen = dynamic_cast<X86CodeGenV2*>(codegen.get())) {
+            x86_gen->reset_stack_frame_for_new_function();
+        }
+        
         codegen->emit_prologue();
         
         // NEW SIMPLE LEXICAL SCOPE SYSTEM: Main function scope tracking handled during parsing
@@ -261,6 +268,10 @@ void GoTSCompiler::compile(const std::string& source) {
             std::cout << "[MAIN_SCOPE_DEBUG] Set global scope (depth 1) as current scope for main function" << std::endl;
             std::cout << "[MAIN_SCOPE_DEBUG] Global scope address: " << (void*)global_scope << std::endl;
             std::cout << "[MAIN_SCOPE_DEBUG] Global scope has " << global_scope->variable_offsets.size() << " packed variables" << std::endl;
+            
+            // CRITICAL: Actually allocate memory for global scope and set up r15
+            std::cout << "[MAIN_SCOPE_DEBUG] Allocating memory for global scope and setting up r15" << std::endl;
+            emit_scope_enter(*codegen, global_scope);
         } else {
             std::cerr << "[ERROR] No global scope found for main function code generation" << std::endl;
         }
@@ -284,6 +295,13 @@ void GoTSCompiler::compile(const std::string& source) {
         
         // Mark epilogue location  
         codegen->emit_label("__main_epilogue");
+        
+        // CRITICAL: Exit the global scope to restore stack balance
+        // TEMPORARILY DISABLED: This was causing segfaults by freeing memory before epilogue
+        // if (global_scope) {
+        //     std::cout << "[MAIN_SCOPE_DEBUG] Exiting global scope before epilogue to restore stack" << std::endl;
+        //     emit_scope_exit(*codegen, global_scope);
+        // }
         
         // CRITICAL: Add automatic reference count cleanup for local variables before epilogue
         // TEMPORARILY DISABLED: Let functions handle their own cleanup

@@ -1,5 +1,6 @@
 #include "x86_instruction_builder.h"
 #include <algorithm>
+#include <iostream>
 
 
 
@@ -176,19 +177,27 @@ void X86PatternBuilder::emit_function_prologue(size_t local_stack_size, const st
 }
 
 void X86PatternBuilder::emit_function_epilogue(size_t local_stack_size, const std::vector<X86Reg>& saved_regs) {
+    std::cout << "[PATTERN_EPILOGUE_DEBUG] emit_function_epilogue called with stack_size=" << local_stack_size << ", saved_regs=" << saved_regs.size() << std::endl;
+    
     // Deallocate local stack space
     if (local_stack_size > 0) {
         size_t aligned_size = (local_stack_size + 15) & ~15;
+        std::cout << "[PATTERN_EPILOGUE_DEBUG] Deallocating " << aligned_size << " bytes of stack space" << std::endl;
         builder.add(X86Reg::RSP, ImmediateOperand(static_cast<int64_t>(aligned_size)));
     }
     
     // Restore callee-saved registers (in reverse order)
+    std::cout << "[PATTERN_EPILOGUE_DEBUG] Restoring " << saved_regs.size() << " saved registers" << std::endl;
     for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+        std::cout << "[PATTERN_EPILOGUE_DEBUG] Popping register " << static_cast<int>(*it) << std::endl;
         builder.pop(*it);
     }
     
+    std::cout << "[PATTERN_EPILOGUE_DEBUG] Popping RBP" << std::endl;
     builder.pop(X86Reg::RBP);
+    std::cout << "[PATTERN_EPILOGUE_DEBUG] Emitting RET instruction" << std::endl;
     builder.ret();
+    std::cout << "[PATTERN_EPILOGUE_DEBUG] emit_function_epilogue completed" << std::endl;
 }
 
 // =============================================================================

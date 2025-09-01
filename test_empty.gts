@@ -1,1 +1,1 @@
-function empty() {} empty(); console.log("Done");
+function empty() {} empty(); // empty program

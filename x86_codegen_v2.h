@@ -149,6 +149,18 @@ public:
     void emit_atomic_load(int ptr_reg, int result_reg, int memory_order) override;
     void emit_memory_fence(int fence_type) override;
     
+    // NEW METHODS FOR FUNCTION CALLING OVERHAUL
+    void emit_push_reg_offset_reg(int base_reg, int offset_reg); // push [base + offset]
+    void emit_call_reg_offset(int reg, int64_t offset);          // call [reg + offset]
+    void emit_cmp_reg_imm(int reg, int64_t value);               // cmp reg, imm
+    void emit_imul_reg_reg(int dst, int src);                    // imul dst, src
+    void emit_jmp_to_offset(size_t target_offset);               // jmp to absolute offset
+    size_t reserve_jump_location();                              // Reserve space for conditional jump
+    void patch_jump_to_current_location(size_t jump_location);   // Patch reserved jump
+    void emit_syscall();                                         // syscall instruction
+    void emit_push_reg(int reg);                                 // push reg  
+    void emit_pop_reg(int reg);                                  // pop reg
+    
     // High-performance reference counting operations
     void emit_ref_count_increment(int object_reg) override;
     void emit_ref_count_decrement(int object_reg, int result_reg) override;
@@ -214,6 +226,9 @@ public:
     // Stack management for function frames (required by base interface)
     void set_function_stack_size(int64_t size) override { stack_frame.local_stack_size = size; }
     int64_t get_function_stack_size() const override { return stack_frame.local_stack_size; }
+    
+    // Stack frame isolation for multiple function compilation
+    void reset_stack_frame_for_new_function();
     
     // Runtime function call resolution (required by base interface)
     void resolve_runtime_function_calls() override;

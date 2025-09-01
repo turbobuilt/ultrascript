@@ -124,7 +124,8 @@ void X86InstructionBuilder::emit_immediate(const ImmediateOperand& imm) {
 // =============================================================================
 
 void X86InstructionBuilder::mov(X86Reg dst, X86Reg src, OpSize size) {
-    emit_rex_if_needed(dst, src, size);
+    // For MOV r/m, r: src is reg field (R bit), dst is r/m field (B bit)
+    emit_rex_if_needed(src, dst, size);  // Corrected: src first for R bit, dst second for B bit
     
     if (size == OpSize::BYTE) {
         code_buffer.push_back(0x88);  // MOV r/m8, r8

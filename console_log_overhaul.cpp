@@ -263,8 +263,16 @@ extern "C" void __console_log_space_separator() {
 }
 
 extern "C" void __console_log_final_newline() {
-    std::lock_guard<std::mutex> lock(console_mutex);
-    std::cout << std::endl;
+    // TEMPORARILY SIMPLIFIED: Disable to test for console output corruption issues
+    // std::lock_guard<std::mutex> lock(console_mutex);
+    // try {
+    //     std::cout << std::endl;
+    //     std::cout.flush();
+    // } catch (...) {
+    //     // Ignore any console output errors to prevent crashes
+    // }
+    printf("\n");
+    fflush(stdout);
 }
 
 extern "C" void __console_log_dynamic_value(void* dynamic_value_ptr) {

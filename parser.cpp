@@ -2458,6 +2458,9 @@ std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
         
         // NEW: Resolve all unresolved references now that parsing is complete
         lexical_scope_analyzer_->resolve_all_unresolved_references();
+        
+        // PHASE 1: Compute function static analysis for pure machine code generation
+        lexical_scope_analyzer_->compute_all_function_static_analysis();
     }
     
     return statements;

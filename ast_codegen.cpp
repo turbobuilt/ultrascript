@@ -8,6 +8,7 @@
 #include "runtime_object.h"
 #include "compilation_context.h"
 #include "function_compilation_manager.h"
+#include "scope_aware_codegen.h"
 #include "console_log_overhaul.h"
 #include "class_runtime_interface.h"
 #include "dynamic_properties.h"
@@ -362,6 +363,39 @@ void save_parent_scope_registers(X86CodeGenV2* x86_gen) {
     std::cout << "[SCOPE_CODEGEN] Saved r12, r13, r14 to stack at rsp+16, rsp+8, rsp+0" << std::endl;
 }
 
+// SMART Save parent scope registers - only saves registers that the function actually needs
+void save_parent_scope_registers_smart(X86CodeGenV2* x86_gen, LexicalScopeNode* scope_node) {
+    // Determine how many parent scopes this function needs
+    size_t num_parent_scopes = scope_node->self_dependencies.size();
+    if (num_parent_scopes == 0) {
+        std::cout << "[SCOPE_CODEGEN] SMART: Function accesses no parent scopes, skipping register save" << std::endl;
+        return;
+    }
+    
+    // Only allocate stack space for the registers we actually need
+    size_t registers_to_save = std::min(num_parent_scopes, size_t(3));
+    size_t stack_space_needed = registers_to_save * 8;
+    
+    std::cout << "[SCOPE_CODEGEN] SMART: Function needs " << num_parent_scopes 
+              << " parent scopes, saving " << registers_to_save << " registers" << std::endl;
+    
+    x86_gen->emit_sub_reg_imm(4, stack_space_needed); // sub rsp, stack_space_needed
+    
+    // Save only the registers we need
+    if (registers_to_save >= 1) {
+        x86_gen->emit_mov_mem_rsp_reg(stack_space_needed - 8, 12); // mov [rsp + offset], r12
+        std::cout << "[SCOPE_CODEGEN] SMART: Saved r12 to stack" << std::endl;
+    }
+    if (registers_to_save >= 2) {
+        x86_gen->emit_mov_mem_rsp_reg(stack_space_needed - 16, 13); // mov [rsp + offset], r13
+        std::cout << "[SCOPE_CODEGEN] SMART: Saved r13 to stack" << std::endl;
+    }
+    if (registers_to_save >= 3) {
+        x86_gen->emit_mov_mem_rsp_reg(stack_space_needed - 24, 14); // mov [rsp + offset], r14
+        std::cout << "[SCOPE_CODEGEN] SMART: Saved r14 to stack" << std::endl;
+    }
+}
+
 // Restore parent scope registers from stack after exiting child scope
 void restore_parent_scope_registers(X86CodeGenV2* x86_gen) {
     std::cout << "[SCOPE_CODEGEN] Restoring parent scope registers from stack" << std::endl;
@@ -375,6 +409,40 @@ void restore_parent_scope_registers(X86CodeGenV2* x86_gen) {
     x86_gen->emit_add_reg_imm(4, SCOPE_SAVE_AREA_SIZE); // add rsp, 24
     
     std::cout << "[SCOPE_CODEGEN] Restored r12, r13, r14 from stack and deallocated save area" << std::endl;
+}
+
+// SMART Restore parent scope registers - only restores registers that were saved
+void restore_parent_scope_registers_smart(X86CodeGenV2* x86_gen, LexicalScopeNode* scope_node) {
+    // Determine how many parent scopes this function needed
+    size_t num_parent_scopes = scope_node->self_dependencies.size();
+    if (num_parent_scopes == 0) {
+        std::cout << "[SCOPE_CODEGEN] SMART: Function accessed no parent scopes, skipping register restore" << std::endl;
+        return;
+    }
+    
+    size_t registers_to_restore = std::min(num_parent_scopes, size_t(3));
+    size_t stack_space_used = registers_to_restore * 8;
+    
+    std::cout << "[SCOPE_CODEGEN] SMART: Restoring " << registers_to_restore << " registers" << std::endl;
+    
+    // Restore only the registers we saved
+    if (registers_to_restore >= 1) {
+        x86_gen->emit_mov_reg_mem_rsp(12, stack_space_used - 8); // mov r12, [rsp + offset]
+        std::cout << "[SCOPE_CODEGEN] SMART: Restored r12 from stack" << std::endl;
+    }
+    if (registers_to_restore >= 2) {
+        x86_gen->emit_mov_reg_mem_rsp(13, stack_space_used - 16); // mov r13, [rsp + offset]
+        std::cout << "[SCOPE_CODEGEN] SMART: Restored r13 from stack" << std::endl;
+    }
+    if (registers_to_restore >= 3) {
+        x86_gen->emit_mov_reg_mem_rsp(14, stack_space_used - 24); // mov r14, [rsp + offset]
+        std::cout << "[SCOPE_CODEGEN] SMART: Restored r14 from stack" << std::endl;
+    }
+    
+    // Deallocate the stack space we used
+    x86_gen->emit_add_reg_imm(4, stack_space_used); // add rsp, stack_space_used
+    
+    std::cout << "[SCOPE_CODEGEN] SMART: Deallocated " << stack_space_used << " bytes of stack space" << std::endl;
 }
 
 // Set up parent scope registers based on priority for current scope
@@ -427,6 +495,24 @@ void setup_parent_scope_registers(X86CodeGenV2* x86_gen, LexicalScopeNode* scope
               << g_scope_context.scope_state.stack_stored_scopes.size() << " on stack" << std::endl;
 }
 
+// Initialize a function variable during scope hoisting
+// This creates the function instance with proper closure capture while parent scopes are active
+void initialize_hoisted_function_variable(X86CodeGenV2* gen, FunctionDecl* func_decl, 
+                                         LexicalScopeNode* scope_node, size_t func_var_offset) {
+    std::cout << "[NEW_SYSTEM] Using new function instance creation for '" << func_decl->name << "'" << std::endl;
+    
+    // Cast to the new ScopeAwareCodeGen system
+    auto scope_gen = dynamic_cast<ScopeAwareCodeGen*>(gen);
+    if (!scope_gen) {
+        throw std::runtime_error("New function system requires ScopeAwareCodeGen");
+    }
+    
+    // Use the new direct function instance creation method
+    scope_gen->emit_function_instance_creation(func_decl, func_var_offset);
+    
+    std::cout << "[NEW_SYSTEM] Function instance created using new system" << std::endl;
+}
+
 // Generate code to enter a lexical scope
 void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node) {
     std::cout << "[SCOPE_CODEGEN] Entering lexical scope at depth " << scope_node->scope_depth << std::endl;
@@ -450,35 +536,46 @@ void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node) {
         throw std::runtime_error("Scope management requires X86CodeGenV2");
     }
     
-    // STEP 1: Save current parent scope registers to stack (if not at root level)
-    if (g_scope_context.current_scope != nullptr) {
-        save_parent_scope_registers(x86_gen);
+    // STEP 1: Save current parent scope registers to stack (only if we have a real parent)
+    LexicalScopeNode* parent_scope = get_parent_scope(scope_node);
+    if (parent_scope != nullptr) {
+        save_parent_scope_registers_smart(x86_gen, scope_node);
     }
     
-    // STEP 2: Allocate heap memory for this scope's variables (FUNCTION.md: all scopes on heap)
+    // STEP 2: Allocate heap memory for this scope's variables (OPTIMIZED - MINIMIZE RUNTIME CALLS)
     size_t scope_size = scope_node->total_scope_frame_size;
     if (scope_size > 0) {
-        std::cout << "[SCOPE_CODEGEN] Allocating " << scope_size << " bytes on heap for scope variables" << std::endl;
+        std::cout << "[SCOPE_CODEGEN_OPT] Allocating " << scope_size << " bytes with optimized allocation" << std::endl;
         
-        // Allocate heap memory for scope
+        // Use malloc for now, but minimize calls by combining allocation and initialization
         x86_gen->emit_mov_reg_imm(7, scope_size); // RDI = size
         x86_gen->emit_call("malloc"); // Returns allocated memory in RAX
         x86_gen->emit_mov_reg_reg(15, 0); // R15 = allocated scope memory
         
-        // Zero-initialize the scope memory
-        x86_gen->emit_mov_reg_reg(7, 15); // RDI = scope memory (R15)
-        x86_gen->emit_mov_reg_imm(6, 0);  // RSI = 0 (fill value)
-        x86_gen->emit_mov_reg_imm(2, scope_size); // RDX = size
-        x86_gen->emit_call("memset"); // Zero-fill the memory
+        // Optimize zero-initialization based on scope size
+        if (scope_size <= 32) {
+            // Small scopes: direct zero writes (faster than memset call)
+            std::cout << "[SCOPE_CODEGEN_OPT] Zero-initializing " << scope_size << " bytes with direct writes" << std::endl;
+            for (size_t i = 0; i < scope_size; i += 8) {
+                x86_gen->emit_mov_reg_imm(0, 0); // RAX = 0
+                x86_gen->emit_mov_reg_offset_reg(15, i, 0); // [R15 + i] = 0
+            }
+        } else {
+            // Large scopes: use memset (still faster than multiple small writes)
+            x86_gen->emit_mov_reg_reg(7, 15); // RDI = scope memory (R15)
+            x86_gen->emit_mov_reg_imm(6, 0);  // RSI = 0 (fill value)
+            x86_gen->emit_mov_reg_imm(2, scope_size); // RDX = size
+            x86_gen->emit_call("memset"); // Zero-fill the memory
+        }
         
-        std::cout << "[SCOPE_CODEGEN] Allocated and initialized " << scope_size 
+        std::cout << "[SCOPE_CODEGEN_OPT] Allocated and initialized " << scope_size 
                   << " bytes, r15 = scope address" << std::endl;
     } else {
         // Even empty scopes get a minimal allocation for consistency
         x86_gen->emit_mov_reg_imm(7, 8); // RDI = 8 bytes minimum
         x86_gen->emit_call("malloc");
         x86_gen->emit_mov_reg_reg(15, 0); // R15 = allocated scope memory
-        std::cout << "[SCOPE_CODEGEN] Allocated minimal 8 bytes for empty scope" << std::endl;
+        std::cout << "[SCOPE_CODEGEN_OPT] Allocated minimal 8 bytes for empty scope" << std::endl;
     }
     
     // STEP 3: Register this scope address in the global registry
@@ -492,7 +589,37 @@ void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node) {
     // STEP 4: Set up new parent scope registers for this scope's needs (using frequency rankings)
     setup_parent_scope_registers(x86_gen, scope_node);
     
-    // STEP 5: Update current context
+    // STEP 5: FUNCTION HOISTING - Initialize all function variables immediately
+    // This implements JavaScript function hoisting: function declarations are available
+    // throughout their entire scope from the beginning, not just after declaration
+    const auto& function_decls = scope_node->get_declared_functions();
+    if (!function_decls.empty()) {
+        std::cout << "[SCOPE_CODEGEN] HOISTING: Initializing " << function_decls.size() 
+                  << " function variables for hoisting" << std::endl;
+        
+        for (FunctionDecl* func_decl : function_decls) {
+            std::cout << "[SCOPE_CODEGEN] HOISTING: Initializing function variable '" 
+                      << func_decl->name << "'" << std::endl;
+            
+            // Find the variable offset for this function
+            auto offset_it = scope_node->variable_offsets.find(func_decl->name);
+            if (offset_it != scope_node->variable_offsets.end()) {
+                size_t func_var_offset = offset_it->second;
+                
+                // Initialize the function variable with proper closure capture
+                // This creates the function instance while all parent scopes are still active
+                initialize_hoisted_function_variable(x86_gen, func_decl, scope_node, func_var_offset);
+                
+                std::cout << "[SCOPE_CODEGEN] HOISTING: Successfully initialized function variable '" 
+                          << func_decl->name << "' at offset " << func_var_offset << std::endl;
+            } else {
+                std::cout << "[SCOPE_CODEGEN] HOISTING: WARNING - Function '" << func_decl->name 
+                          << "' not found in variable offsets" << std::endl;
+            }
+        }
+    }
+
+    // STEP 6: Update current context
     set_current_scope(scope_node);
     
     std::cout << "[SCOPE_CODEGEN] Successfully entered scope depth " << scope_node->scope_depth 
@@ -526,7 +653,7 @@ void emit_scope_exit(CodeGenerator& gen, LexicalScopeNode* scope_node) {
     LexicalScopeNode* parent_scope = get_parent_scope(scope_node);
     if (parent_scope) {
         // Restore parent scope registers from stack
-        restore_parent_scope_registers(x86_gen);
+        restore_parent_scope_registers_smart(x86_gen, scope_node);
         
         // Update current context to parent
         set_current_scope(parent_scope);
@@ -2540,218 +2667,38 @@ void PostfixDecrement::generate_code(CodeGenerator& gen) {
 }
 
 void FunctionDecl::generate_code(CodeGenerator& gen) {
-    std::cout << "[NEW_CODEGEN] FunctionDecl::generate_code - function: " << name << std::endl;
+    std::cout << "[NEW_SYSTEM] Generating function '" << name << "' with new system" << std::endl;
     
-    // Register this FunctionDecl in global lookup for patching system
-    global_function_decl_lookup[name] = this;
-    std::cout << "[FUNCTION_PATCH] Registered FunctionDecl '" << name << "' in global lookup" << std::endl;
+    // Cast to scope-aware codegen
+    auto scope_gen = dynamic_cast<ScopeAwareCodeGen*>(&gen);
+    if (!scope_gen) {
+        throw std::runtime_error("New function system requires ScopeAwareCodeGen");
+    }
     
-    // Set the current function in scope context for parameter access
-    FunctionDecl* previous_function = g_scope_context.current_function_decl;
-    g_scope_context.current_function_decl = this;
-    
-    // Store the current code offset in the AST node for address patching
+    // Store the current code offset for address patching
     code_offset = gen.get_current_offset();
-    std::cout << "[FUNCTION_PATCH] Function '" << name << "' generated at offset " << code_offset << std::endl;
-    
-    // Reset scope context for new function
-    g_scope_context.reset_for_function();
+    std::cout << "[NEW_SYSTEM] Function '" << name << "' at offset " << code_offset << std::endl;
     
     // Emit function label
     gen.emit_label(name);
     
-    // Store the function address on the AST node for patching
-    // The address is the executable base + current offset
-    // The function address will be computed at runtime as executable_memory_base + code_offset
-    std::cout << "[FUNCTION_ADDRESS] Function '" << name << "' will be at offset " << code_offset << std::endl;
+    // Generate optimized prologue using static analysis
+    scope_gen->emit_function_prologue(this);
     
-    // Calculate estimated stack size (parameters + locals + temporaries)
-    int64_t estimated_stack_size = (parameters.size() * 8) + (body.size() * 16) + 128;
-    // Ensure minimum stack size and 16-byte alignment
-    if (estimated_stack_size < 128) estimated_stack_size = 128;
-    if (estimated_stack_size % 16 != 0) {
-        estimated_stack_size += 16 - (estimated_stack_size % 16);
-    }
-    
-    // Set stack size for this function (if X86CodeGenV2 supports it)
-    if (auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen)) {
-        // TODO: Add set_function_stack_size method to X86CodeGenV2 if needed
-        std::cout << "[NEW_CODEGEN] FunctionDecl: estimated stack size = " << estimated_stack_size << std::endl;
-    }
-    
-    // Emit function prologue  
-    gen.emit_prologue();
-    
-    // CRITICAL: Save caller's R15 (scope pointer) before setting up our own scope
-    auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
-    if (x86_gen) {
-        x86_gen->emit_scope_register_save(15); // Save caller's R15 to stack
-        std::cout << "[FUNCTION_CODEGEN] Saved caller's R15 to stack" << std::endl;
-    }
-    
-    // FUNCTION.md: Set up lexical scope registers from function instance (if this is a closure)
-    // When called as a function instance, RDI contains pointer to the function instance
-    if (lexical_scope && !lexical_scope->priority_sorted_parent_scopes.empty()) {
-        std::cout << "[FUNCTION_CODEGEN] Setting up lexical scope registers from function instance" << std::endl;
-        
-        auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
-        if (!x86_gen) {
-            throw std::runtime_error("Function instance setup requires X86CodeGenV2");
-        }
-        
-        // Save RDI (function instance pointer) to a safe location
-        x86_gen->emit_mov_reg_reg(10, 7); // R10 = function instance pointer (from RDI)
-        
-        // Load captured scope addresses into R12, R13, R14 based on priority
-        size_t scope_offset = 16; // Start after header (size + function_code_addr)
-        
-        for (size_t i = 0; i < lexical_scope->priority_sorted_parent_scopes.size() && i < 3; i++) {
-            int target_register = 12 + i; // R12, R13, R14
-            
-            // Load scope address from function instance
-            x86_gen->emit_mov_reg_reg_offset(target_register, 10, scope_offset); // R12/13/14 = [R10 + offset]
-            
-            // Register this scope address in the global registry for consistency
-            x86_gen->emit_mov_reg_imm(7, lexical_scope->priority_sorted_parent_scopes[i]); // RDI = scope depth
-            x86_gen->emit_mov_reg_reg(6, target_register); // RSI = scope address
-            x86_gen->emit_call("__register_scope_address_for_depth");
-            
-            scope_offset += 8;
-            
-            std::cout << "[FUNCTION_CODEGEN] Loaded scope depth " 
-                      << lexical_scope->priority_sorted_parent_scopes[i] 
-                      << " into R" << target_register << " from function instance" << std::endl;
-        }
-        
-        // Update global scope context to reflect loaded registers
-        for (size_t i = 0; i < lexical_scope->priority_sorted_parent_scopes.size() && i < 3; i++) {
-            int parent_depth = lexical_scope->priority_sorted_parent_scopes[i];
-            int target_register = 12 + i;
-            g_scope_context.scope_state.scope_depth_to_register[parent_depth] = target_register;
-        }
-        
-        std::cout << "[FUNCTION_CODEGEN] Scope register setup complete from function instance" << std::endl;
-    }
-    
-    // If this function has an associated scope from scope analysis, enter it
+    // Set the lexical scope context for this function
     if (lexical_scope) {
-        std::cout << "[NEW_CODEGEN] FunctionDecl: entering function scope" << std::endl;
-        emit_scope_enter(gen, lexical_scope.get());
+        scope_gen->set_current_scope(lexical_scope.get());
     }
     
-    // Copy parameters from registers to their scope object locations
-    // The scope has been allocated and R15 points to it
-    for (size_t i = 0; i < parameters.size() && i < 6; i++) {
-        const auto& param = parameters[i];
-        // Find the parameter's offset in the scope object
-        if (lexical_scope && lexical_scope->variable_offsets.find(param.name) != lexical_scope->variable_offsets.end()) {
-            size_t param_offset = lexical_scope->variable_offsets.at(param.name);
-            // Check if parameter is ANY (DynamicValue)
-            bool is_any_type = (param.type == DataType::ANY);
-            // Copy from register to scope object at [R15 + offset]
-            if (is_any_type) {
-                // For ANY type parameters, we need to copy the DynamicValue contents (JavaScript value semantics)
-                // rather than just copying the pointer. This creates a new DynamicValue in the function's scope.
-                
-                // Cast to X86CodeGenV2 for x86-specific operations
-                X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
-                if (!x86_gen) {
-                    std::cout << "[PARAMETER_COPY] ERROR: Could not cast to X86CodeGenV2" << std::endl;
-                    continue;
-                }
-                
-                // Get the source register for this parameter
-                int src_reg;
-                switch (i) {
-                    case 0: src_reg = 7; break;  // RDI
-                    case 1: src_reg = 6; break;  // RSI  
-                    case 2: src_reg = 2; break;  // RDX
-                    case 3: src_reg = 1; break;  // RCX
-                    case 4: src_reg = 8; break;  // R8
-                    case 5: src_reg = 9; break;  // R9
-                    default: src_reg = 7; break;
-                }
-                
-                // TEMPORARY FIX: Just store the DynamicValue pointer directly without copying
-                // This tests if the issue is in the memcpy operation or elsewhere
-                // TODO: Implement proper JavaScript value semantics with DynamicValue copying
-                
-                // Simply store the DynamicValue pointer in the scope
-                switch (i) {
-                    case 0: gen.emit_mov_reg_offset_reg(15, param_offset, 7); break;  // [R15 + offset] = RDI
-                    case 1: gen.emit_mov_reg_offset_reg(15, param_offset, 6); break;  // [R15 + offset] = RSI
-                    case 2: gen.emit_mov_reg_offset_reg(15, param_offset, 2); break;  // [R15 + offset] = RDX
-                    case 3: gen.emit_mov_reg_offset_reg(15, param_offset, 1); break;  // [R15 + offset] = RCX
-                    case 4: gen.emit_mov_reg_offset_reg(15, param_offset, 8); break;  // [R15 + offset] = R8
-                    case 5: gen.emit_mov_reg_offset_reg(15, param_offset, 9); break;  // [R15 + offset] = R9
-                }
-                
-                std::cout << "[PARAMETER_COPY] TEMPORARY: Stored DynamicValue pointer directly for ANY parameter '" << param.name 
-                          << "' at scope offset " << param_offset << std::endl;
-                
-                std::cout << "[PARAMETER_COPY] Created new DynamicValue copy for ANY parameter '" << param.name 
-                          << "' at scope offset " << param_offset << std::endl;
-            } else {
-                // Copy value (primitive)
-                switch (i) {
-                    case 0: gen.emit_mov_reg_offset_reg(15, param_offset, 7); break;  // [R15 + offset] = RDI
-                    case 1: gen.emit_mov_reg_offset_reg(15, param_offset, 6); break;  // [R15 + offset] = RSI
-                    case 2: gen.emit_mov_reg_offset_reg(15, param_offset, 2); break;  // [R15 + offset] = RDX
-                    case 3: gen.emit_mov_reg_offset_reg(15, param_offset, 1); break;  // [R15 + offset] = RCX
-                    case 4: gen.emit_mov_reg_offset_reg(15, param_offset, 8); break;  // [R15 + offset] = R8
-                    case 5: gen.emit_mov_reg_offset_reg(15, param_offset, 9); break;  // [R15 + offset] = R9
-                }
-                std::cout << "[PARAMETER_COPY] Copied primitive parameter '" << param.name 
-                          << "' to scope offset " << param_offset << std::endl;
-            }
-        } else {
-            std::cout << "[PARAMETER_COPY] WARNING: Parameter '" << param.name 
-                      << "' not found in scope offsets!" << std::endl;
-        }
-    }
-    
-    // Handle stack parameters (beyond first 6)
-    for (size_t i = 6; i < parameters.size(); i++) {
-        const auto& param = parameters[i];
-        // Stack parameters are at positive offsets from RBP
-        int stack_offset = (int)(i - 6 + 2) * 8;  // +16 for return addr and old RBP, then +8 for each param
-        std::cout << "[NEW_CODEGEN] FunctionDecl: stack parameter '" << param.name 
-                  << "' at offset " << stack_offset << std::endl;
-    }
-    
-    // Generate function body
-    bool has_explicit_return = false;
-    for (const auto& stmt : body) {
+    // Generate body code
+    for (auto& stmt : body) {
         stmt->generate_code(gen);
-        
-        // Check if this statement is a return statement
-        if (dynamic_cast<const ReturnStatement*>(stmt.get())) {
-            has_explicit_return = true;
-        }
     }
     
-    // If no explicit return, add implicit return 0
-    if (!has_explicit_return) {
-        gen.emit_mov_reg_imm(0, 0);  // mov rax, 0 (default return value)
-        gen.emit_function_return();
-    }
+    // Generate optimized epilogue
+    scope_gen->emit_function_epilogue(this);
     
-    // Exit function scope if we entered one
-    if (lexical_scope) {
-        std::cout << "[NEW_CODEGEN] FunctionDecl: exiting function scope" << std::endl;
-        emit_scope_exit(gen, lexical_scope.get());
-    }
-    
-    // Function instance initialization is deferred to variable access
-    // The function variable will be initialized when first accessed via Identifier::generate_code
-    std::cout << "[NEW_CODEGEN] FunctionDecl: function code generated, variable initialization deferred to first access" << std::endl;
-
-    // Register function code address in the runtime function registry - done after code generation
-    // The function address will be registered by the compiler using the resolved label addresses
-    std::cout << "[NEW_CODEGEN] FunctionDecl: function code generated, address registration deferred to post-compilation" << std::endl;
-    
-    // Restore previous function context
-    g_scope_context.current_function_decl = previous_function;
+    std::cout << "[NEW_SYSTEM] Function '" << name << "' generation complete" << std::endl;
 }
 
 void IfStatement::generate_code(CodeGenerator& gen) {

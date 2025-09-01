@@ -33,6 +33,7 @@ extern "C" {
     void* __get_current_code_address();
     void __register_function_instance_for_patching(void* instance_ptr, const char* function_name, size_t code_addr_offset);
     void __patch_all_function_instances(void* executable_memory_base);
+    void initialize_function_variable(void* variable_memory, void* function_code_addr, size_t scope_count, void** captured_scopes, size_t max_function_instance_size);
 }
 
 // Forward declarations for goroutine V2 functions
@@ -235,16 +236,21 @@ void X86CodeGenV2::emit_prologue() {
 }
 
 void X86CodeGenV2::emit_epilogue() {
+    std::cout << "[FUNCTION_EPILOGUE_DEBUG] emit_epilogue called, frame_established=" << stack_frame.frame_established << std::endl;
     if (!stack_frame.frame_established) {
+        std::cout << "[FUNCTION_EPILOGUE_DEBUG] No frame established, returning early" << std::endl;
         return;  // No frame to tear down
     }
     
+    std::cout << "[FUNCTION_EPILOGUE_DEBUG] Calling pattern_builder->emit_function_epilogue" << std::endl;
     pattern_builder->emit_function_epilogue(
         stack_frame.local_stack_size, 
         stack_frame.saved_registers
     );
+    std::cout << "[FUNCTION_EPILOGUE_DEBUG] pattern_builder->emit_function_epilogue completed" << std::endl;
     
     stack_frame.frame_established = false;
+    std::cout << "[FUNCTION_EPILOGUE_DEBUG] emit_epilogue completed" << std::endl;
 }
 
 void X86CodeGenV2::emit_mov_reg_imm(int reg, int64_t value) {
@@ -680,6 +686,7 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         (*runtime_functions)["__get_current_code_address"] = reinterpret_cast<void*>(__get_current_code_address);
         (*runtime_functions)["__register_function_instance_for_patching"] = reinterpret_cast<void*>(__register_function_instance_for_patching);
         (*runtime_functions)["__patch_all_function_instances"] = reinterpret_cast<void*>(__patch_all_function_instances);
+        (*runtime_functions)["initialize_function_variable"] = reinterpret_cast<void*>(initialize_function_variable);
         
         // Standard C library functions for memory management
         (*runtime_functions)["malloc"] = reinterpret_cast<void*>(malloc);
@@ -723,7 +730,9 @@ void X86CodeGenV2::emit_ret() {
 }
 
 void X86CodeGenV2::emit_function_return() {
+    std::cout << "[FUNCTION_EPILOGUE_DEBUG] emit_function_return called" << std::endl;
     emit_epilogue();  // The epilogue already includes ret instruction
+    std::cout << "[FUNCTION_EPILOGUE_DEBUG] emit_function_return completed" << std::endl;
 }
 
 void X86CodeGenV2::emit_jump(const std::string& label) {
@@ -1330,6 +1339,15 @@ void X86CodeGenV2::emit_scope_register_restore(int reg_id) {
     std::cout << "[DEBUG] X86CodeGenV2: Restored scope register " << reg_id << " from stack" << std::endl;
 }
 
+void X86CodeGenV2::reset_stack_frame_for_new_function() {
+    // Clear saved registers from previous function compilation to prevent corruption
+    stack_frame.saved_registers.clear();
+    stack_frame.frame_established = false;
+    stack_frame.current_offset = 0;
+    // Keep local_stack_size as it may be set intentionally
+    std::cout << "[STACK_FRAME_RESET] Reset stack frame for new function compilation" << std::endl;
+}
+
 void X86CodeGenV2::emit_scope_pointer_load(int reg_id, int scope_level) {
     // Load scope pointer for a specific scope level into the designated register
     // This would typically load from parent function's stack frame or heap
@@ -1422,6 +1440,92 @@ void X86CodeGenV2::patch_all_function_instances(void* executable_memory_base) {
     // Clear the patch list since all instances are now patched
     function_instances_to_patch.clear();
     std::cout << "[FUNCTION_PATCH] All function instances patched successfully!" << std::endl;
+}
+
+// NEW METHODS FOR FUNCTION CALLING OVERHAUL
+
+void X86CodeGenV2::emit_push_reg_offset_reg(int base_reg, int offset_reg) {
+    // push qword ptr [base_reg + offset_reg]
+    // For now, implement with simple inline assembly
+    // TODO: Use instruction builder when methods are available
+    
+    // Simplified: push qword ptr [rax + rdx] as example
+    // This is a complex encoding, for now emit placeholder
+    code_buffer.push_back(0x50 + base_reg); // Placeholder - push base_reg for now
+}
+
+void X86CodeGenV2::emit_call_reg_offset(int reg, int64_t offset) {
+    // call qword ptr [reg + offset]
+    // This is indirect call through memory
+    // For now, simplified encoding
+    code_buffer.push_back(0xFF); // Call opcode prefix
+    code_buffer.push_back(0x90 + reg); // Simplified - will need proper encoding
+}
+
+void X86CodeGenV2::emit_cmp_reg_imm(int reg, int64_t value) {
+    // cmp reg, imm32
+    if (value >= -2147483648 && value <= 2147483647) {
+        // 32-bit immediate
+        code_buffer.push_back(0x81); // cmp opcode
+        code_buffer.push_back(0xF8 + reg); // reg encoding
+        // Add 32-bit immediate
+        code_buffer.push_back(value & 0xFF);
+        code_buffer.push_back((value >> 8) & 0xFF);
+        code_buffer.push_back((value >> 16) & 0xFF);
+        code_buffer.push_back((value >> 24) & 0xFF);
+    }
+}
+
+void X86CodeGenV2::emit_imul_reg_reg(int dst, int src) {
+    // imul dst, src
+    code_buffer.push_back(0x0F); // Two-byte opcode prefix
+    code_buffer.push_back(0xAF); // imul opcode
+    code_buffer.push_back(0xC0 + (dst * 8) + src); // ModR/M byte
+}
+
+void X86CodeGenV2::emit_jmp_to_offset(size_t target_offset) {
+    // jmp target_offset
+    int32_t relative_offset = static_cast<int32_t>(target_offset - (code_buffer.size() + 5));
+    code_buffer.push_back(0xE9); // jmp rel32
+    code_buffer.push_back(relative_offset & 0xFF);
+    code_buffer.push_back((relative_offset >> 8) & 0xFF);
+    code_buffer.push_back((relative_offset >> 16) & 0xFF);
+    code_buffer.push_back((relative_offset >> 24) & 0xFF);
+}
+
+size_t X86CodeGenV2::reserve_jump_location() {
+    // Reserve 6 bytes for conditional jump (2-byte opcode + 4-byte offset)
+    size_t location = code_buffer.size();
+    // js (jump if sign) placeholder - will be patched
+    code_buffer.push_back(0x0F);
+    code_buffer.push_back(0x88);
+    code_buffer.push_back(0x00);
+    code_buffer.push_back(0x00);
+    code_buffer.push_back(0x00);
+    code_buffer.push_back(0x00);
+    return location;
+}
+
+void X86CodeGenV2::patch_jump_to_current_location(size_t jump_location) {
+    // Patch the conditional jump to point to current location
+    int32_t relative_offset = static_cast<int32_t>(code_buffer.size() - (jump_location + 6));
+    *reinterpret_cast<int32_t*>(&code_buffer[jump_location + 2]) = relative_offset;
+}
+
+void X86CodeGenV2::emit_syscall() {
+    // syscall instruction: 0x0F 0x05
+    code_buffer.push_back(0x0F);
+    code_buffer.push_back(0x05);
+}
+
+void X86CodeGenV2::emit_push_reg(int reg) {
+    // push reg64 encoding: 0x50 + reg
+    code_buffer.push_back(0x50 + reg);
+}
+
+void X86CodeGenV2::emit_pop_reg(int reg) {
+    // pop reg64 encoding: 0x58 + reg  
+    code_buffer.push_back(0x58 + reg);
 }
 
 

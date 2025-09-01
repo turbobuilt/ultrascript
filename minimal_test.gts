@@ -1,3 +1,7 @@
-// Minimal test - just string and number
-var message = "Hello!";
-var number = 42;
+var x = 42;
+
+function test() {
+    // Empty function - no console.log
+}
+
+test();

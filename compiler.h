@@ -785,6 +785,19 @@ struct PostfixDecrement : ExpressionNode {
     void generate_code(CodeGenerator& gen) override;
 };
 
+// Function static analysis data for pure machine code generation
+struct FunctionStaticAnalysis {
+    std::vector<int> needed_parent_scopes;              // From priority_sorted_parent_scopes  
+    std::vector<int> parent_location_indexes;           // child_index → parent_index mapping
+    int num_registers_needed = 0;                       // 0-3 (r12/r13/r14)
+    bool needs_r12 = false, needs_r13 = false, needs_r14 = false;  // Register usage flags
+    size_t function_instance_size = 0;                  // Computed from captured scopes
+    size_t local_scope_size = 0;                        // From total_scope_frame_size
+    
+    // Example: parent_location_indexes[0] = 2 means child's scope[0] comes from parent's index 2
+    //          parent_location_indexes[1] = -1 means child's scope[1] comes from parent's local scope (r15)
+};
+
 struct FunctionDecl : ASTNode {
     std::string name;
     std::vector<Variable> parameters;
@@ -799,6 +812,9 @@ struct FunctionDecl : ASTNode {
     
     // Generated function offset from executable memory base (set during code generation for patching)
     size_t code_offset = 0;
+    
+    // NEW: Static analysis data for pure machine code generation
+    FunctionStaticAnalysis static_analysis;
     
     FunctionDecl(const std::string& n) : name(n) {}
     void generate_code(CodeGenerator& gen) override;
@@ -1345,6 +1361,12 @@ GoTSCompiler* get_current_compiler();
 void initialize_scope_context(SimpleLexicalScopeAnalyzer* analyzer);
 void set_current_scope(LexicalScopeNode* scope);
 LexicalScopeNode* get_current_scope();
+void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node);
+void emit_scope_exit(CodeGenerator& gen, LexicalScopeNode* scope_node);
+
+// Function hoisting support
+void initialize_hoisted_function_variable(X86CodeGenV2* gen, FunctionDecl* func_decl, 
+                                         LexicalScopeNode* scope_node, size_t func_var_offset);
 
 // Function to compile all deferred function expressions
 void compile_deferred_function_expressions(CodeGenerator& gen, TypeInference& types);

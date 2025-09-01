@@ -1157,3 +1157,160 @@ DataType SimpleLexicalScopeAnalyzer::get_function_variable_storage_type(const st
             return DataType::DYNAMIC_VALUE;
     }
 }
+
+//=============================================================================
+// PHASE 1: FUNCTION STATIC ANALYSIS FOR PURE MACHINE CODE GENERATION
+//=============================================================================
+
+void SimpleLexicalScopeAnalyzer::compute_function_static_analysis(FunctionDecl* function) {
+    if (!function) {
+        std::cout << "[StaticAnalysis] WARNING: Cannot compute static analysis for null function" << std::endl;
+        return;
+    }
+    
+    if (!function->lexical_scope) {
+        std::cout << "[StaticAnalysis] WARNING: Function '" << function->name << "' has no lexical scope" << std::endl;
+        return;
+    }
+    
+    LexicalScopeNode* func_scope = function->lexical_scope.get();
+    
+    // Safe string logging to avoid corruption issues
+    std::string func_name = (function->name.empty()) ? "(empty)" : function->name;
+    std::cout << "[StaticAnalysis] Computing static analysis for function '" << func_name 
+              << "' at depth " << func_scope->scope_depth << std::endl;
+    
+    // Step 1: Extract needed parent scopes from priority_sorted_parent_scopes
+    function->static_analysis.needed_parent_scopes = func_scope->priority_sorted_parent_scopes;
+    
+    // Step 2: Determine register requirements
+    size_t num_parent_scopes = function->static_analysis.needed_parent_scopes.size();
+    function->static_analysis.num_registers_needed = std::min(static_cast<size_t>(3), num_parent_scopes);
+    function->static_analysis.needs_r12 = (num_parent_scopes >= 1);
+    function->static_analysis.needs_r13 = (num_parent_scopes >= 2);
+    function->static_analysis.needs_r14 = (num_parent_scopes >= 3);
+    
+    // Step 3: Compute function instance size
+    function->static_analysis.function_instance_size = compute_function_instance_size(func_scope);
+    function->function_instance_size = function->static_analysis.function_instance_size; // Keep legacy field in sync
+    
+    // Step 4: Store local scope size
+    function->static_analysis.local_scope_size = func_scope->total_scope_frame_size;
+    
+    std::cout << "[StaticAnalysis] Function '" << function->name << "' analysis complete:" << std::endl;
+    std::cout << "  - Needs " << num_parent_scopes << " parent scopes" << std::endl;
+    std::cout << "  - Registers: r12=" << (function->static_analysis.needs_r12 ? "YES" : "NO")
+              << ", r13=" << (function->static_analysis.needs_r13 ? "YES" : "NO") 
+              << ", r14=" << (function->static_analysis.needs_r14 ? "YES" : "NO") << std::endl;
+    std::cout << "  - Function instance size: " << function->static_analysis.function_instance_size << " bytes" << std::endl;
+    std::cout << "  - Local scope size: " << function->static_analysis.local_scope_size << " bytes" << std::endl;
+    
+    // NOTE: parent_location_indexes will be computed later during parent-child relationship analysis
+    // This requires knowledge of how parent functions arrange their scopes in registers/stack
+}
+
+void SimpleLexicalScopeAnalyzer::compute_all_function_static_analysis() {
+    std::cout << "[StaticAnalysis] Computing static analysis for all functions..." << std::endl;
+    
+    // TEMPORARY: Skip static analysis to debug compilation pipeline
+    std::cout << "[StaticAnalysis] WARNING: Static analysis temporarily disabled for debugging" << std::endl;
+    
+    // Safety check
+    if (depth_to_scope_node_.empty()) {
+        std::cout << "[StaticAnalysis] WARNING: No scope nodes found for analysis" << std::endl;
+        return;
+    }
+    
+    std::cout << "[StaticAnalysis] Found " << depth_to_scope_node_.size() << " scope nodes" << std::endl;
+    
+    std::cout << "[StaticAnalysis] All function static analysis complete (skipped)" << std::endl;
+}
+
+// Private helper method to compute parent-child scope mappings
+void SimpleLexicalScopeAnalyzer::compute_parent_child_scope_mappings() {
+    std::cout << "[StaticAnalysis] Computing parent-child scope mappings..." << std::endl;
+    
+    // Safety check
+    if (depth_to_scope_node_.empty()) {
+        std::cout << "[StaticAnalysis] WARNING: No scope nodes found for mapping" << std::endl;
+        return;
+    }
+    
+    // For each function, we need to compute how its needed scopes map to parent function locations
+    for (auto& scope_pair : depth_to_scope_node_) {
+        int depth = scope_pair.first;
+        LexicalScopeNode* scope_node = scope_pair.second;
+        
+        if (!scope_node || !scope_node->is_function_scope) {
+            continue;
+        }
+        
+        std::cout << "[StaticAnalysis] Processing mapping for scope at depth " << depth << std::endl;
+        
+        // Process all function declarations in this scope
+        for (size_t i = 0; i < scope_node->declared_functions.size(); i++) {
+            FunctionDecl* func_decl = scope_node->declared_functions[i];
+            if (!func_decl) {
+                std::cout << "[StaticAnalysis] WARNING: Null function declaration at mapping index " << i << std::endl;
+                continue;
+            }
+            
+            std::cout << "[StaticAnalysis] Computing mapping for function '" << func_decl->name << "'" << std::endl;
+            compute_scope_mapping_for_function(func_decl, scope_node);
+        }
+    }
+    
+    std::cout << "[StaticAnalysis] Parent-child scope mappings complete" << std::endl;
+}
+
+// Helper to compute scope mapping for a specific function
+void SimpleLexicalScopeAnalyzer::compute_scope_mapping_for_function(FunctionDecl* child_func, LexicalScopeNode* parent_scope) {
+    if (!child_func || !child_func->lexical_scope) {
+        return;
+    }
+    
+    std::cout << "[StaticAnalysis] Computing scope mapping for function '" << child_func->name << "'" << std::endl;
+    
+    FunctionStaticAnalysis& child_analysis = child_func->static_analysis;
+    child_analysis.parent_location_indexes.clear();
+    child_analysis.parent_location_indexes.resize(child_analysis.needed_parent_scopes.size());
+    
+    // For each scope the child function needs (by child's index)
+    for (size_t child_idx = 0; child_idx < child_analysis.needed_parent_scopes.size(); child_idx++) {
+        int needed_scope_depth = child_analysis.needed_parent_scopes[child_idx];
+        
+        std::cout << "[StaticAnalysis]   Child index " << child_idx << " needs scope depth " << needed_scope_depth << std::endl;
+        
+        // Find where this scope exists in the parent function's layout
+        if (needed_scope_depth == parent_scope->scope_depth) {
+            // It's the parent's local scope (always at r15, use index -1)
+            child_analysis.parent_location_indexes[child_idx] = -1;
+            std::cout << "[StaticAnalysis]     -> Parent's local scope (r15, index -1)" << std::endl;
+        } else {
+            // Find this scope in parent's priority_sorted_parent_scopes
+            auto& parent_scopes = parent_scope->priority_sorted_parent_scopes;
+            auto it = std::find(parent_scopes.begin(), parent_scopes.end(), needed_scope_depth);
+            
+            if (it != parent_scopes.end()) {
+                // Store the INDEX in parent's priority list  
+                int parent_index = it - parent_scopes.begin();
+                child_analysis.parent_location_indexes[child_idx] = parent_index;
+                std::cout << "[StaticAnalysis]     -> Parent's index " << parent_index 
+                          << " (register r" << (12 + parent_index) << ")" << std::endl;
+            } else {
+                // This shouldn't happen if the lexical analysis is correct
+                std::cout << "[StaticAnalysis] ERROR: Child function needs scope depth " << needed_scope_depth
+                          << " but parent doesn't have it!" << std::endl;
+                child_analysis.parent_location_indexes[child_idx] = -1; // Fallback to parent local scope
+            }
+        }
+    }
+    
+    std::cout << "[StaticAnalysis] Function '" << child_func->name << "' scope mapping:" << std::endl;
+    for (size_t i = 0; i < child_analysis.parent_location_indexes.size(); i++) {
+        int parent_idx = child_analysis.parent_location_indexes[i];
+        int scope_depth = child_analysis.needed_parent_scopes[i];
+        std::cout << "[StaticAnalysis]   scopes[" << i << "] = parent_index[" << parent_idx 
+                  << "] (depth " << scope_depth << ")" << std::endl;
+    }
+}

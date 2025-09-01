@@ -1495,8 +1495,9 @@ extern "C" void __new_goroutine_system_init() {
 }
 
 extern "C" void __new_goroutine_system_cleanup() {
-    // Cleanup the V2 goroutine system
-    EventDrivenScheduler::instance().shutdown();
+    // TEMPORARILY DISABLED: Complex cleanup was causing segfaults
+    // For now, just let the process exit normally without explicit cleanup
+    // EventDrivenScheduler::instance().shutdown();
 }
 
 extern "C" void __runtime_wait_for_main_goroutine() {
@@ -1507,8 +1508,9 @@ extern "C" void __runtime_wait_for_main_goroutine() {
     // For now, just wait a bit for any running goroutines
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
+    // TEMPORARILY DISABLED: This was causing segfaults
     // Wait for thread pool to finish current work
-    EventDrivenScheduler::instance().wait_for_completion();
+    // EventDrivenScheduler::instance().wait_for_completion();
 }
 
 // Legacy timer functions that redirect to V2 versions

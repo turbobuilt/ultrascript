@@ -8,6 +8,7 @@
 
 
 // Forward declarations to break circular dependencies
+class X86CodeGenV2;
 class CodeGenerator {
 public:
     virtual ~CodeGenerator() = default;
@@ -104,4 +105,8 @@ public:
 
 // Factory function for creating X86 code generator
 std::unique_ptr<CodeGenerator> create_x86_codegen();
+
+// New scope-aware code generator factory
+class SimpleLexicalScopeAnalyzer;
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen(SimpleLexicalScopeAnalyzer* analyzer);
 

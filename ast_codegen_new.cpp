@@ -56,6 +56,196 @@ private:
 public:
     ScopeAwareCodeGen(SimpleLexicalScopeAnalyzer* analyzer) : scope_analyzer(analyzer) {}
     
+    // --- NEW FUNCTION INSTANCE CREATION ---
+    // Emits code to create a function instance struct in memory
+    void emit_function_instance_creation(FunctionDecl* child_func, size_t func_offset) {
+        const FunctionStaticAnalysis& analysis = child_func->static_analysis;
+        
+        std::cout << "[NEW_CODEGEN] Creating function instance for '" << child_func->name 
+                  << "' at offset " << func_offset << std::endl;
+        std::cout << "[NEW_CODEGEN] Instance size: " << analysis.function_instance_size 
+                  << ", captured scopes: " << analysis.parent_location_indexes.size() << std::endl;
+        
+        // Emit instance header: size field
+        emit_mov_reg_imm(0, analysis.function_instance_size);
+        emit_mov_reg_offset_reg(15, func_offset, 0); // [r15 + func_offset] = size
+
+        // Emit function code address (will be patched by linker)
+        emit_mov_reg_imm(0, 0x1234567890ABCDEF); // Placeholder for code address
+        emit_mov_reg_offset_reg(15, func_offset + 8, 0); // [r15 + func_offset + 8] = code_addr
+
+        // Emit number of captured scopes
+        emit_mov_reg_imm(0, analysis.parent_location_indexes.size());
+        emit_mov_reg_offset_reg(15, func_offset + 16, 0); // [r15 + func_offset + 16] = num_scopes
+
+        // Copy captured scope addresses using parent_location_indexes mapping
+        for (size_t child_idx = 0; child_idx < analysis.parent_location_indexes.size(); ++child_idx) {
+            int parent_idx = analysis.parent_location_indexes[child_idx];
+            size_t dest_offset = func_offset + 24 + (child_idx * 8);
+            
+            std::cout << "[NEW_CODEGEN] Mapping child_idx " << child_idx << " -> parent_idx " << parent_idx << std::endl;
+            
+            if (parent_idx == -1) {
+                // Copy from parent's local scope (r15)
+                emit_mov_reg_offset_reg(15, dest_offset, 15); // [r15 + dest_offset] = r15
+                std::cout << "[NEW_CODEGEN] Copied parent local scope (r15) to child scopes[" << child_idx << "]" << std::endl;
+            } else {
+                // Copy from parent's register (r12 + parent_idx)
+                int source_reg = 12 + parent_idx;
+                emit_mov_reg_offset_reg(15, dest_offset, source_reg); // [r15 + dest_offset] = r12/r13/r14
+                std::cout << "[NEW_CODEGEN] Copied parent r" << source_reg << " to child scopes[" << child_idx << "]" << std::endl;
+            }
+        }
+    }
+
+    // --- NEW FUNCTION CALL EMISSION ---
+    // Emits code to call a function instance using the new stack-based calling convention
+    void emit_function_instance_call(size_t func_offset, const std::vector<std::unique_ptr<ASTNode>>& arguments) {
+        std::cout << "[NEW_CODEGEN] Emitting function instance call at offset " << func_offset << std::endl;
+        
+        // Load function instance address into rax
+        emit_mov_reg_reg_offset(0, 15, func_offset); // rax = [r15 + func_offset] (instance pointer)
+        
+        // Get number of captured scopes
+        emit_mov_reg_reg_offset(1, 0, 16); // rcx = [rax + 16] (num_captured_scopes)
+        
+        // Push captured scopes in reverse order (LIFO stack)
+        // We need to push from (N-1) down to 0 so they're popped in order 0 to (N-1)
+        
+        // Generate loop to push scopes in reverse order
+        // for (int i = num_scopes - 1; i >= 0; i--) push [rax + 24 + i*8]
+        
+        emit_mov_reg_reg(2, 1); // rdx = num_scopes
+        emit_sub_reg_imm(2, 1);  // rdx = num_scopes - 1
+        
+        // Loop label (we'll implement with jumps)
+        size_t loop_start = get_current_offset();
+        
+        // Check if rdx < 0 (signed comparison)
+        emit_cmp_reg_imm(2, 0);
+        size_t jump_end = reserve_jump_location(); // We'll patch this later
+        
+        // Calculate offset: 24 + rdx * 8
+        emit_mov_reg_imm(3, 24); // r8 = 24
+        emit_mov_reg_imm(4, 8);  // r9 = 8  
+        emit_imul_reg_reg(4, 2); // r9 = rdx * 8
+        emit_add_reg_reg(3, 4);  // r8 = 24 + (rdx * 8)
+        
+        // Push scope: push qword ptr [rax + r8]
+        emit_push_reg_offset_reg(0, 3); // push [rax + r8]
+        
+        // Decrement counter and loop
+        emit_sub_reg_imm(2, 1); // rdx--
+        emit_jmp_to_offset(loop_start);
+        
+        // Patch the conditional jump to here
+        patch_jump_to_current_location(jump_end);
+        
+        // Push parameters in reverse order
+        for (int i = arguments.size() - 1; i >= 0; i--) {
+            // Generate code for argument and push result
+            arguments[i]->generate_code(*this);
+            emit_push_reg(0); // push rax (result)
+        }
+        
+        // Call the function: call [rax + 8] (function_code_addr)
+        emit_call_reg_offset(0, 8);
+        
+        // Clean up stack: add rsp, (num_scopes + num_args) * 8
+        size_t total_pushed = 8; // We'll calculate this properly
+        // For now, assume we know the count and clean up
+        // TODO: Compute exact cleanup size
+        emit_add_reg_imm(4, total_pushed);
+    }
+
+    // --- NEW FUNCTION PROLOGUE GENERATION ---
+    // Generates optimized function prologue using static analysis
+    void emit_function_prologue(FunctionDecl* function) {
+        const FunctionStaticAnalysis& analysis = function->static_analysis;
+        
+        std::cout << "[NEW_CODEGEN] Generating prologue for function '" << function->name << "'" << std::endl;
+        std::cout << "[NEW_CODEGEN] Needs " << analysis.parent_location_indexes.size() << " parent scopes" << std::endl;
+        
+        // Standard prologue
+        emit_push_reg(5); // push rbp
+        emit_mov_reg_reg(5, 4); // mov rbp, rsp
+        
+        // Save only the registers we need (based on static analysis)
+        if (analysis.needs_r12) {
+            emit_push_reg(12); // push r12
+            std::cout << "[NEW_CODEGEN] Saving r12 for parent scope access" << std::endl;
+        }
+        if (analysis.needs_r13) {
+            emit_push_reg(13); // push r13
+            std::cout << "[NEW_CODEGEN] Saving r13 for parent scope access" << std::endl;
+        }
+        if (analysis.needs_r14) {
+            emit_push_reg(14); // push r14
+            std::cout << "[NEW_CODEGEN] Saving r14 for parent scope access" << std::endl;
+        }
+        
+        // Load parent scopes from stack parameters into registers
+        size_t stack_offset = 16; // Skip return address (8) + rbp (8)
+        
+        for (size_t i = 0; i < analysis.parent_location_indexes.size() && i < 3; ++i) {
+            int target_reg = 12 + i; // r12, r13, r14
+            emit_mov_reg_reg_offset(target_reg, 5, stack_offset); // r12/13/14 = [rbp + offset]
+            std::cout << "[NEW_CODEGEN] Loaded parent scope " << i << " into r" << target_reg 
+                      << " from [rbp+" << stack_offset << "]" << std::endl;
+            stack_offset += 8;
+        }
+        
+        // Allocate local scope using direct syscall (mmap)
+        if (analysis.local_scope_size > 0) {
+            std::cout << "[NEW_CODEGEN] Allocating " << analysis.local_scope_size << " bytes for local scope" << std::endl;
+            
+            // Use mmap syscall for scope allocation
+            emit_mov_reg_imm(0, 9);     // sys_mmap
+            emit_mov_reg_imm(7, 0);     // addr = NULL  
+            emit_mov_reg_imm(6, analysis.local_scope_size); // length
+            emit_mov_reg_imm(2, 3);     // prot = PROT_READ | PROT_WRITE
+            emit_mov_reg_imm(10, 34);   // flags = MAP_PRIVATE | MAP_ANONYMOUS
+            emit_mov_reg_imm(8, -1);    // fd = -1
+            emit_mov_reg_imm(9, 0);     // offset = 0
+            emit_syscall();
+            
+            emit_mov_reg_reg(15, 0);    // r15 = mmap result (local scope address)
+            std::cout << "[NEW_CODEGEN] Local scope allocated at address in r15" << std::endl;
+        }
+    }
+
+    // --- NEW FUNCTION EPILOGUE GENERATION ---
+    void emit_function_epilogue(FunctionDecl* function) {
+        const FunctionStaticAnalysis& analysis = function->static_analysis;
+        
+        std::cout << "[NEW_CODEGEN] Generating epilogue for function '" << function->name << "'" << std::endl;
+        
+        // Free local scope using munmap syscall
+        if (analysis.local_scope_size > 0) {
+            emit_mov_reg_imm(0, 11);    // sys_munmap
+            emit_mov_reg_reg(7, 15);    // addr = r15 (local scope)
+            emit_mov_reg_imm(6, analysis.local_scope_size); // length
+            emit_syscall();
+            std::cout << "[NEW_CODEGEN] Freed local scope" << std::endl;
+        }
+        
+        // Restore saved registers in reverse order
+        if (analysis.needs_r14) {
+            emit_pop_reg(14); // pop r14
+        }
+        if (analysis.needs_r13) {
+            emit_pop_reg(13); // pop r13
+        }
+        if (analysis.needs_r12) {
+            emit_pop_reg(12); // pop r12
+        }
+        
+        // Standard epilogue
+        emit_mov_reg_reg(4, 5); // mov rsp, rbp
+        emit_pop_reg(5);        // pop rbp
+        emit_ret();             // ret
+    }
+    
     // Set the current scope context
     void set_current_scope(LexicalScopeNode* scope) {
         current_scope = scope;
@@ -311,6 +501,11 @@ ScopeAwareCodeGen* get_current_scope_codegen() {
 // Helper function to set current scope-aware codegen
 void set_current_scope_codegen(ScopeAwareCodeGen* codegen) {
     g_scope_codegen = codegen;
+}
+
+// Factory function to create new scope-aware code generator
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen(SimpleLexicalScopeAnalyzer* analyzer) {
+    return std::make_unique<ScopeAwareCodeGen>(analyzer);
 }
 
 //=============================================================================

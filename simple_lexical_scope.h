@@ -219,6 +219,10 @@ public:
     // NEW: Deferred variable packing (called during AST generation)
     void perform_deferred_packing_for_scope(LexicalScopeNode* scope_node);
     
+    // NEW: Function static analysis for pure machine code generation (Phase 1)
+    void compute_function_static_analysis(class FunctionDecl* function);
+    void compute_all_function_static_analysis();
+    
     // Debug: Print current state
     void print_debug_info() const;
     
@@ -234,4 +238,8 @@ private:
                              std::vector<std::string>& packed_order,
                              size_t& total_size,
                              const LexicalScopeNode* scope_node) const;
+    
+    // Phase 1: Function static analysis helpers
+    void compute_parent_child_scope_mappings();
+    void compute_scope_mapping_for_function(class FunctionDecl* child_func, LexicalScopeNode* parent_scope);
 };
