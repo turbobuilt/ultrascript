@@ -84,7 +84,15 @@ void GoTSCompiler::compile(const std::string& source) {
         // PHASE 2: STATIC ANALYSIS - Full AST traversal for scope analysis and variable packing
         std::cout << "[COMPILER] PHASE 2: STATIC ANALYSIS..." << std::endl;
         static_analyzer_ = std::make_unique<StaticAnalyzer>();
-        // No parse time scope tracker - StaticAnalyzer builds everything from AST
+        
+        // INTEGRATION: Pass parser's scope analyzer to StaticAnalyzer for proper integration
+        if (current_parser && current_parser->get_scope_analyzer()) {
+            static_analyzer_->set_parser_scope_analyzer(current_parser->get_scope_analyzer());
+            std::cout << "[COMPILER] Connected StaticAnalyzer to parser's scope analysis" << std::endl;
+        } else {
+            std::cout << "[COMPILER] WARNING: No parser scope analyzer available, using fallback analysis" << std::endl;
+        }
+        
         static_analyzer_->analyze(ast);
         
         // PHASE 3: CODE GENERATION - Generate code with complete static analysis

@@ -36,9 +36,15 @@ public:
     
     /**
      * Main entry point: perform complete static analysis on the pure AST
-     * Builds all scope information from scratch since no scope tracking was done during parsing
+     * Uses existing SimpleLexicalScopeAnalyzer from parsing phase instead of duplicating scope analysis
      */
     void analyze(std::vector<std::unique_ptr<ASTNode>>& ast);
+    
+    /**
+     * NEW: Set the SimpleLexicalScopeAnalyzer from parser for integration
+     * This allows us to use the existing scope analysis instead of recreating it
+     */
+    void set_parser_scope_analyzer(SimpleLexicalScopeAnalyzer* scope_analyzer);
     
 private:
     // Analysis state
@@ -46,7 +52,10 @@ private:
     LexicalScopeNode* current_scope_;
     int current_depth_;
     
-    // Scope nodes built from AST analysis
+    // Integration with parser's SimpleLexicalScopeAnalyzer
+    SimpleLexicalScopeAnalyzer* parser_scope_analyzer_;
+    
+    // Scope nodes built from AST analysis (fallback if parser integration fails)
     std::unordered_map<int, std::unique_ptr<LexicalScopeNode>> depth_to_scope_node_;
     
     // Variable resolution tracking
@@ -68,6 +77,12 @@ private:
     // AST traversal helpers
     void traverse_ast_node_for_scopes(ASTNode* node);
     void traverse_ast_node_for_variables(ASTNode* node);
+    
+    // NEW: AST traversal with parser integration
+    void traverse_ast_node_for_variables_with_parser(ASTNode* node);
+    
+    // NEW: Build scope map from parser's existing scope analyzer  
+    void build_scope_map_from_parser_analyzer();
     
     // Variable packing and function analysis helpers
     void perform_optimal_packing_for_scope(LexicalScopeNode* scope);

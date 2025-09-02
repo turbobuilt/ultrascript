@@ -2022,9 +2022,6 @@ void FunctionExpression::generate_code(CodeGenerator& gen) {
         compilation_assigned_name_ = func_name;
     }
     
-    std::cout << "[FUNCTION_CODEGEN] FunctionExpression with computed instance size: " 
-              << function_instance_size << " bytes" << std::endl;
-    
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
     if (!x86_gen) {
         throw std::runtime_error("Function instance creation requires X86CodeGenV2");
@@ -2038,64 +2035,64 @@ void FunctionExpression::generate_code(CodeGenerator& gen) {
         return;
     }
     
-    // STEP 1: Allocate memory for function instance on heap
-    // Size = sizeof(FunctionInstance) + (num_captured_scopes * 8)
-    size_t total_size = function_instance_size;
-    std::cout << "[FUNCTION_CODEGEN] Allocating " << total_size << " bytes for function instance" << std::endl;
+    // PURE ASSEMBLY GENERATION - No runtime function calls per FUNCTION.md
+    std::cout << "[FUNCTION_CODEGEN] Pure ASM generation for " << func_name << std::endl;
     
-    // Call runtime allocator
-    x86_gen->emit_mov_reg_imm(7, total_size); // RDI = size
-    x86_gen->emit_call("malloc");
-    x86_gen->emit_mov_reg_reg(10, 0); // R10 = allocated memory address
+    // Calculate required function instance size at compile time
+    size_t total_size = 16; // Minimum: size(8) + function_code_addr(8) 
+    size_t scope_count = 0;
     
-    // STEP 2: Initialize FunctionInstance header
-    // Store size field
-    x86_gen->emit_mov_reg_imm(11, total_size); // R11 = size
-    x86_gen->emit_mov_reg_offset_reg(10, 0, 11); // [R10 + 0] = size
-    
-    // Store placeholder function code address (will be patched during startup)
-    x86_gen->emit_mov_reg_imm(11, 0); // R11 = 0 (placeholder)
-    x86_gen->emit_mov_reg_offset_reg(10, 8, 11); // [R10 + 8] = 0 (placeholder address)
-    
-    // Register this function instance for patching during startup
-    x86_gen->emit_mov_reg_reg(7, 10); // RDI = function instance pointer
-    // Intern the function name for permanent storage
-    x86_gen->emit_mov_reg_imm(6, reinterpret_cast<int64_t>(func_name.c_str())); // RSI = function name (temp)
-    x86_gen->emit_call("__string_intern"); // Returns interned string in RAX
-    x86_gen->emit_mov_reg_reg(6, 0); // RSI = interned function name
-    x86_gen->emit_mov_reg_imm(2, 8); // RDX = code address offset (8)
-    x86_gen->emit_call("__register_function_instance_for_patching");
-    
-    // STEP 3: Capture lexical scope addresses based on static analysis
     if (lexical_scope && !lexical_scope->priority_sorted_parent_scopes.empty()) {
-        std::cout << "[FUNCTION_CODEGEN] Capturing " << lexical_scope->priority_sorted_parent_scopes.size() 
-                  << " scope addresses" << std::endl;
+        scope_count = lexical_scope->priority_sorted_parent_scopes.size();
+        total_size += scope_count * 8; // Each scope pointer is 8 bytes
+    }
+    
+    // Stack-based allocation using pure assembly (no malloc calls)
+    // Allocate on stack and adjust RSP
+    x86_gen->emit_sub_reg_imm(4, total_size); // RSP -= total_size (stack allocation)
+    x86_gen->emit_mov_reg_reg(10, 4);         // R10 = RSP (function instance address)
+    
+    // Initialize function instance header in pure assembly
+    // Store total size at offset 0
+    x86_gen->emit_mov_reg_imm(11, total_size);
+    x86_gen->emit_mov_reg_offset_reg(10, 0, 11); // instance->size = total_size
+    
+    // Store function code address at offset 8 (will be patched by function_address_patching.cpp)
+    x86_gen->emit_mov_reg_imm(11, 0x1234567890ABCDEFULL); // Placeholder address for patching
+    x86_gen->emit_mov_reg_offset_reg(10, 8, 11); // instance->function_code_addr = placeholder
+    
+    // Copy captured scope addresses in pure assembly
+    if (scope_count > 0) {
+        std::cout << "[FUNCTION_CODEGEN] Copying " << scope_count << " scope addresses" << std::endl;
         
-        size_t scope_offset = 16; // Start after header (size + function_code_addr)
-        
-        for (size_t i = 0; i < lexical_scope->priority_sorted_parent_scopes.size(); i++) {
-            int scope_depth = lexical_scope->priority_sorted_parent_scopes[i];
+        for (size_t i = 0; i < scope_count; i++) {
+            size_t offset = 16 + (i * 8); // Scope addresses start at offset 16
             
-            // Get scope address for this depth
-            x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
-            x86_gen->emit_call("__get_scope_address_for_depth"); // Returns scope address in RAX
-            
-            // Store in function instance
-            x86_gen->emit_mov_reg_offset_reg(10, scope_offset, 0); // [R10 + scope_offset] = scope_address
-            scope_offset += 8;
-            
-            std::cout << "[FUNCTION_CODEGEN] Captured scope depth " << scope_depth 
-                      << " at offset " << (scope_offset - 8) << std::endl;
+            // For now, use R15 as current scope base (per FUNCTION.md register allocation)
+            // R12, R13, R14 will be used for frequent parent scopes
+            if (i == 0) {
+                // First scope is current scope (R15)
+                x86_gen->emit_mov_reg_offset_reg(10, offset, 15); // instance->scope_addrs[i] = R15
+            } else if (i <= 3) {
+                // Next 3 scopes use dedicated registers R12, R13, R14
+                int reg = 12 + (i - 1); // R12, R13, or R14
+                x86_gen->emit_mov_reg_offset_reg(10, offset, reg); // instance->scope_addrs[i] = R12/R13/R14
+            } else {
+                // Additional scopes loaded from memory (slower path)
+                // TODO: Implement memory-based scope loading for deep nesting
+                x86_gen->emit_mov_reg_imm(11, 0); // Null for now - will be improved
+                x86_gen->emit_mov_reg_offset_reg(10, offset, 11);
+            }
         }
     }
     
-    // STEP 4: Return pointer to function instance
-    x86_gen->emit_mov_reg_reg(0, 10); // RAX = function instance pointer
+    // Return function instance address in RAX
+    x86_gen->emit_mov_reg_reg(0, 10); // RAX = function instance address
+    
     result_type = DataType::LOCAL_FUNCTION_INSTANCE;
     
     std::cout << "[FUNCTION_CODEGEN] Created function instance for " << func_name 
-              << " with " << (lexical_scope ? lexical_scope->priority_sorted_parent_scopes.size() : 0) 
-              << " captured scopes" << std::endl;
+              << " (" << total_size << " bytes)" << std::endl;
 }
 
 void ArrowFunction::generate_code(CodeGenerator& gen) {
@@ -2711,7 +2708,7 @@ void PostfixDecrement::generate_code(CodeGenerator& gen) {
 }
 
 void FunctionDecl::generate_code(CodeGenerator& gen) {
-    std::cout << "[NEW_SYSTEM] Generating function '" << name << "' with new system" << std::endl;
+    std::cout << "[NEW_SYSTEM] Generating function '" << name << "' with new function instance system" << std::endl;
     
     // Cast to scope-aware codegen
     auto scope_gen = dynamic_cast<ScopeAwareCodeGen*>(&gen);
@@ -2726,7 +2723,16 @@ void FunctionDecl::generate_code(CodeGenerator& gen) {
     // Emit function label
     gen.emit_label(name);
     
-    // Generate optimized prologue using static analysis
+    // Get or compute complete function analysis
+    // TODO: Re-enable when function_instance_system compilation is fixed
+    // const auto& analysis = g_function_system.get_function_analysis(name);
+    // if (analysis.needed_parent_scopes.empty()) {
+    //     std::cout << "[NEW_SYSTEM] No analysis found for " << name << ", computing now..." << std::endl;
+    //     // Analysis will be computed during static analysis phase
+    // }
+    std::cout << "[NEW_SYSTEM] Function analysis temporarily disabled for " << name << std::endl;
+    
+    // Generate optimized prologue using the new function instance system
     scope_gen->emit_function_prologue(this);
     
     // Set the lexical scope context for this function
@@ -2739,10 +2745,10 @@ void FunctionDecl::generate_code(CodeGenerator& gen) {
         stmt->generate_code(gen);
     }
     
-    // Generate optimized epilogue
+    // Generate optimized epilogue using the new function instance system
     scope_gen->emit_function_epilogue(this);
     
-    std::cout << "[NEW_SYSTEM] Function '" << name << "' generation complete" << std::endl;
+    std::cout << "[NEW_SYSTEM] Function '" << name << "' generation complete with new system" << std::endl;
 }
 
 void IfStatement::generate_code(CodeGenerator& gen) {

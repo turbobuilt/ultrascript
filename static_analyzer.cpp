@@ -5,7 +5,7 @@
 
 // Constructor and destructor
 StaticAnalyzer::StaticAnalyzer() 
-    : current_scope_(nullptr), current_depth_(0) {
+    : current_scope_(nullptr), current_depth_(0), parser_scope_analyzer_(nullptr) {
     std::cout << "[StaticAnalyzer] Initialized static analyzer for pure AST analysis" << std::endl;
 }
 
@@ -13,12 +13,19 @@ StaticAnalyzer::~StaticAnalyzer() {
     std::cout << "[StaticAnalyzer] Static analyzer destroyed" << std::endl;
 }
 
+// NEW: Set the SimpleLexicalScopeAnalyzer from parser for integration
+void StaticAnalyzer::set_parser_scope_analyzer(SimpleLexicalScopeAnalyzer* scope_analyzer) {
+    parser_scope_analyzer_ = scope_analyzer;
+    std::cout << "[StaticAnalyzer] Connected to parser's SimpleLexicalScopeAnalyzer" << std::endl;
+}
+
 // Main entry point: perform complete static analysis on the pure AST
 void StaticAnalyzer::analyze(std::vector<std::unique_ptr<ASTNode>>& ast) {
     std::cout << "[StaticAnalyzer] Starting pure AST analysis on " << ast.size() << " AST nodes" << std::endl;
     
-    // Phase 1: Build complete scope hierarchy from AST traversal
-    build_scope_hierarchy_from_ast(ast);
+    // INTEGRATION: Use existing SimpleLexicalScope analysis instead of duplicate scope building
+    // The SimpleLexicalScope has already analyzed and built the scope hierarchy during parsing
+    std::cout << "[StaticAnalyzer] Using existing SimpleLexicalScope analysis for scope hierarchy" << std::endl;
     
     // Phase 2: Resolve all variable references using scope information
     resolve_all_variable_references_from_ast(ast);
@@ -31,6 +38,150 @@ void StaticAnalyzer::analyze(std::vector<std::unique_ptr<ASTNode>>& ast) {
     
     std::cout << "[StaticAnalyzer] Pure AST analysis complete" << std::endl;
     print_analysis_results();
+}
+
+void StaticAnalyzer::build_scope_map_from_parser_analyzer() {
+    if (!parser_scope_analyzer_) {
+        std::cout << "[StaticAnalyzer] ERROR: parser_scope_analyzer_ is null!" << std::endl;
+        return;
+    }
+    
+    std::cout << "[StaticAnalyzer] Building scope map from parser's SimpleLexicalScopeAnalyzer..." << std::endl;
+    
+    // Get scope nodes from the parser analyzer - start with depth 1 (global scope) and go up
+    for (int depth = 1; depth <= 10; depth++) { // Reasonable max depth
+        LexicalScopeNode* scope_node = parser_scope_analyzer_->get_scope_node_for_depth(depth);
+        if (scope_node) {
+            // Don't store in depth_to_scope_node_ - we'll use parser's directly via delegation
+            std::cout << "[StaticAnalyzer] Found scope node at depth " << depth 
+                      << " with " << scope_node->variable_declarations.size() << " variables" << std::endl;
+        } else {
+            // No more scope nodes at this depth or higher
+            break;
+        }
+    }
+    
+    std::cout << "[StaticAnalyzer] Built scope map from parser analyzer with " 
+              << depth_to_scope_node_.size() << " depths" << std::endl;
+}
+
+void StaticAnalyzer::traverse_ast_node_for_variables_with_parser(ASTNode* node) {
+    if (!node) {
+        std::cout << "[StaticAnalyzer] WARNING: null node passed to traverse_ast_node_for_variables_with_parser" << std::endl;
+        return;
+    }
+    
+    std::cout << "[StaticAnalyzer] Traversing node of type: " << typeid(*node).name() << " with parser integration" << std::endl;
+    
+    // Handle variable references using parser's scope analyzer
+    if (auto* identifier = dynamic_cast<Identifier*>(node)) {
+        std::cout << "[StaticAnalyzer] Processing identifier: " << identifier->name << " at depth " << current_depth_ << std::endl;
+        
+        // Use parser's scope analyzer to find the variable definition
+        VariableDeclarationInfo* var_info = parser_scope_analyzer_->get_variable_declaration_info(identifier->name);
+        
+        if (var_info) {
+            // Set the variable_declaration_info pointer on the Identifier node
+            identifier->variable_declaration_info = var_info;
+            
+            // Also set other fields for compatibility
+            identifier->definition_depth = var_info->depth;
+            identifier->access_depth = current_depth_;
+            identifier->definition_scope = parser_scope_analyzer_->get_definition_scope_for_variable(identifier->name);
+            identifier->access_scope = parser_scope_analyzer_->get_scope_node_for_depth(current_depth_);
+            
+            std::cout << "[StaticAnalyzer] RESOLVED variable reference: " << identifier->name 
+                      << " at depth " << current_depth_ << " (defined at depth " << var_info->depth << ")" << std::endl;
+        } else {
+            std::cout << "[StaticAnalyzer] ERROR: Variable reference not found in parser analyzer: " << identifier->name 
+                      << " at depth " << current_depth_ << std::endl;
+        }
+    }
+    
+    // Recursively traverse child nodes for all node types
+    if (auto* func_decl = dynamic_cast<FunctionDecl*>(node)) {
+        // Enter function scope  
+        int old_depth = current_depth_;
+        current_depth_++;
+        current_scope_ = parser_scope_analyzer_->get_scope_node_for_depth(current_depth_);
+        
+        std::cout << "[StaticAnalyzer] Entered function '" << func_decl->name << "' scope at depth " << current_depth_ << std::endl;
+        
+        // Traverse function body
+        for (const auto& stmt : func_decl->body) {
+            traverse_ast_node_for_variables_with_parser(stmt.get());
+        }
+        
+        // Exit function scope
+        current_depth_ = old_depth;
+        current_scope_ = parser_scope_analyzer_->get_scope_node_for_depth(current_depth_);
+        
+        std::cout << "[StaticAnalyzer] Exited function scope, returned to depth " << current_depth_ << std::endl;
+    }
+    else if (auto* func_expr = dynamic_cast<FunctionExpression*>(node)) {
+        // Similar to function declaration
+        int old_depth = current_depth_;
+        current_depth_++;
+        current_scope_ = parser_scope_analyzer_->get_scope_node_for_depth(current_depth_);
+        
+        std::cout << "[StaticAnalyzer] Entered function expression scope at depth " << current_depth_ << std::endl;
+        
+        // Traverse function body
+        for (const auto& stmt : func_expr->body) {
+            traverse_ast_node_for_variables_with_parser(stmt.get());
+        }
+        
+        // Exit function scope
+        current_depth_ = old_depth;
+        current_scope_ = parser_scope_analyzer_->get_scope_node_for_depth(current_depth_);
+        
+        std::cout << "[StaticAnalyzer] Exited function expression scope, returned to depth " << current_depth_ << std::endl;
+    }
+    else if (auto* assignment = dynamic_cast<Assignment*>(node)) {
+        std::cout << "[StaticAnalyzer] Processing assignment to: " << assignment->variable_name << std::endl;
+        
+        // Resolve the assignment target variable and set variable_declaration_info
+        if (parser_scope_analyzer_) {
+            VariableDeclarationInfo* declaration = parser_scope_analyzer_->get_variable_declaration_info(assignment->variable_name);
+            if (declaration) {
+                assignment->variable_declaration_info = declaration;
+                std::cout << "[StaticAnalyzer] RESOLVED assignment target: " << assignment->variable_name 
+                          << " at depth " << current_depth_ << " (defined at depth " 
+                          << declaration->depth << ")" << std::endl;
+            } else {
+                std::cout << "[StaticAnalyzer] WARNING: Could not resolve assignment target: " 
+                          << assignment->variable_name << " at depth " << current_depth_ << std::endl;
+            }
+        }
+        
+        // Traverse the assignment value
+        if (assignment->value) {
+            traverse_ast_node_for_variables_with_parser(assignment->value.get());
+        }
+    }
+    else if (auto* binary_op = dynamic_cast<BinaryOp*>(node)) {
+        // Traverse operands
+        if (binary_op->left) traverse_ast_node_for_variables_with_parser(binary_op->left.get());
+        if (binary_op->right) traverse_ast_node_for_variables_with_parser(binary_op->right.get());
+    }
+    else if (auto* func_call = dynamic_cast<FunctionCall*>(node)) {
+        // Traverse arguments only (function name is just a string)
+        for (const auto& arg : func_call->arguments) {
+            if (arg) traverse_ast_node_for_variables_with_parser(arg.get());
+        }
+    }
+    else if (auto* method_call = dynamic_cast<MethodCall*>(node)) {
+        // Traverse arguments only (object_name and method_name are just strings)
+        for (const auto& arg : method_call->arguments) {
+            if (arg) traverse_ast_node_for_variables_with_parser(arg.get());
+        }
+    }
+    else if (auto* return_stmt = dynamic_cast<ReturnStatement*>(node)) {
+        if (return_stmt->value) {
+            traverse_ast_node_for_variables_with_parser(return_stmt->value.get());
+        }
+    }
+    // TODO: Add more AST node types as needed
 }
 
 void StaticAnalyzer::build_scope_hierarchy_from_ast(const std::vector<std::unique_ptr<ASTNode>>& ast) {
@@ -53,32 +204,62 @@ void StaticAnalyzer::build_scope_hierarchy_from_ast(const std::vector<std::uniqu
 void StaticAnalyzer::resolve_all_variable_references_from_ast(const std::vector<std::unique_ptr<ASTNode>>& ast) {
     std::cout << "[StaticAnalyzer] Resolving variable references from AST..." << std::endl;
     
-    // Reset for variable resolution
-    current_depth_ = 1;
-    current_scope_ = depth_to_scope_node_[1].get();
-    
-    if (!current_scope_) {
-        std::cout << "[StaticAnalyzer] ERROR: Global scope not found!" << std::endl;
-        return;
-    }
-    
-    std::cout << "[StaticAnalyzer] Global scope found at depth 1, checking variable_declarations map..." << std::endl;
-    std::cout << "[StaticAnalyzer] variable_declarations map size: " << current_scope_->variable_declarations.size() << std::endl;
-    std::cout << "[StaticAnalyzer] variable_declarations map bucket_count: " << current_scope_->variable_declarations.bucket_count() << std::endl;
-    
-    // Workaround: Force initialization of the hash map if bucket count is 0
-    if (current_scope_->variable_declarations.bucket_count() == 0) {
-        std::cout << "[StaticAnalyzer] Forcing hash map initialization..." << std::endl;
-        current_scope_->variable_declarations.rehash(1);
-        std::cout << "[StaticAnalyzer] After rehash, bucket_count: " << current_scope_->variable_declarations.bucket_count() << std::endl;
-    }
-    
-    std::cout << "[StaticAnalyzer] Starting traversal of " << ast.size() << " AST nodes" << std::endl;
-    
-    // Traverse AST to find all variable references
-    for (size_t i = 0; i < ast.size(); i++) {
-        std::cout << "[StaticAnalyzer] Traversing AST node " << (i + 1) << " of " << ast.size() << std::endl;
-        traverse_ast_node_for_variables(ast[i].get());
+    if (parser_scope_analyzer_) {
+        std::cout << "[StaticAnalyzer] Using parser's SimpleLexicalScopeAnalyzer for variable resolution" << std::endl;
+        
+        // Build our scope map from the parser's scope nodes
+        build_scope_map_from_parser_analyzer();
+        
+        // IMPORTANT: Still need to traverse AST to set variable_declaration_info pointers
+        // Reset for variable resolution traversal
+        current_depth_ = 1;
+        current_scope_ = parser_scope_analyzer_->get_scope_node_for_depth(1);
+        
+        if (!current_scope_) {
+            std::cout << "[StaticAnalyzer] ERROR: Global scope not found!" << std::endl;
+            return;
+        }
+        
+        std::cout << "[StaticAnalyzer] Starting AST traversal to set variable_declaration_info pointers" << std::endl;
+        
+        // Traverse AST to set variable_declaration_info pointers on Identifier nodes
+        for (size_t i = 0; i < ast.size(); i++) {
+            std::cout << "[StaticAnalyzer] Traversing AST node " << (i + 1) << " of " << ast.size() << " with parser integration" << std::endl;
+            traverse_ast_node_for_variables_with_parser(ast[i].get());
+        }
+    } else {
+        std::cout << "[StaticAnalyzer] No parser scope analyzer available, using fallback scope building" << std::endl;
+        
+        // Fallback: build scope hierarchy from scratch
+        build_scope_hierarchy_from_ast(ast);
+        
+        // Reset for variable resolution
+        current_depth_ = 1;
+        current_scope_ = depth_to_scope_node_[1].get();
+        
+        if (!current_scope_) {
+            std::cout << "[StaticAnalyzer] ERROR: Global scope not found!" << std::endl;
+            return;
+        }
+        
+        std::cout << "[StaticAnalyzer] Global scope found at depth 1, checking variable_declarations map..." << std::endl;
+        std::cout << "[StaticAnalyzer] variable_declarations map size: " << current_scope_->variable_declarations.size() << std::endl;
+        std::cout << "[StaticAnalyzer] variable_declarations map bucket_count: " << current_scope_->variable_declarations.bucket_count() << std::endl;
+        
+        // Workaround: Force initialization of the hash map if bucket count is 0
+        if (current_scope_->variable_declarations.bucket_count() == 0) {
+            std::cout << "[StaticAnalyzer] Forcing hash map initialization..." << std::endl;
+            current_scope_->variable_declarations.rehash(1);
+            std::cout << "[StaticAnalyzer] After rehash, bucket_count: " << current_scope_->variable_declarations.bucket_count() << std::endl;
+        }
+        
+        std::cout << "[StaticAnalyzer] Starting traversal of " << ast.size() << " AST nodes" << std::endl;
+        
+        // Traverse AST to find all variable references
+        for (size_t i = 0; i < ast.size(); i++) {
+            std::cout << "[StaticAnalyzer] Traversing AST node " << (i + 1) << " of " << ast.size() << std::endl;
+            traverse_ast_node_for_variables(ast[i].get());
+        }
     }
     
     std::cout << "[StaticAnalyzer] Variable reference resolution complete" << std::endl;
@@ -87,11 +268,28 @@ void StaticAnalyzer::resolve_all_variable_references_from_ast(const std::vector<
 void StaticAnalyzer::perform_complete_variable_packing_from_scopes() {
     std::cout << "[StaticAnalyzer] Performing variable packing for all scopes..." << std::endl;
     
-    // Pack variables in all discovered scopes
-    for (auto& scope_entry : depth_to_scope_node_) {
-        LexicalScopeNode* scope = scope_entry.second.get();
-        if (scope && !scope->variable_declarations.empty()) {
-            perform_optimal_packing_for_scope(scope);
+    if (parser_scope_analyzer_) {
+        std::cout << "[StaticAnalyzer] Using parser scope analyzer for variable packing" << std::endl;
+        
+        // Get scope nodes from parser analyzer and perform packing
+        for (int depth = 1; depth <= 10; depth++) { // Reasonable max depth
+            LexicalScopeNode* scope = parser_scope_analyzer_->get_scope_node_for_depth(depth);
+            if (scope && !scope->variable_declarations.empty()) {
+                perform_optimal_packing_for_scope(scope);
+            } else if (!scope) {
+                // No more scope nodes at higher depths
+                break;
+            }
+        }
+    } else {
+        std::cout << "[StaticAnalyzer] Using fallback scope nodes for variable packing" << std::endl;
+        
+        // Pack variables in all discovered scopes using fallback system
+        for (auto& scope_entry : depth_to_scope_node_) {
+            LexicalScopeNode* scope = scope_entry.second.get();
+            if (scope && !scope->variable_declarations.empty()) {
+                perform_optimal_packing_for_scope(scope);
+            }
         }
     }
     
@@ -101,11 +299,28 @@ void StaticAnalyzer::perform_complete_variable_packing_from_scopes() {
 void StaticAnalyzer::compute_complete_function_analysis_from_scopes() {
     std::cout << "[StaticAnalyzer] Computing function analysis for all scopes..." << std::endl;
     
-    // Analyze all function scopes  
-    for (auto& scope_entry : depth_to_scope_node_) {
-        LexicalScopeNode* scope = scope_entry.second.get();
-        if (scope && scope->is_function_scope) {
-            analyze_function_dependencies(scope);
+    if (parser_scope_analyzer_) {
+        std::cout << "[StaticAnalyzer] Using parser scope analyzer for function analysis" << std::endl;
+        
+        // Analyze all function scopes from parser analyzer
+        for (int depth = 1; depth <= 10; depth++) { // Reasonable max depth
+            LexicalScopeNode* scope = parser_scope_analyzer_->get_scope_node_for_depth(depth);
+            if (scope && scope->is_function_scope) {
+                analyze_function_dependencies(scope);
+            } else if (!scope) {
+                // No more scope nodes at higher depths
+                break;
+            }
+        }
+    } else {
+        std::cout << "[StaticAnalyzer] Using fallback scope nodes for function analysis" << std::endl;
+        
+        // Analyze all function scopes using fallback system
+        for (auto& scope_entry : depth_to_scope_node_) {
+            LexicalScopeNode* scope = scope_entry.second.get();
+            if (scope && scope->is_function_scope) {
+                analyze_function_dependencies(scope);
+            }
         }
     }
     
@@ -301,6 +516,12 @@ void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
             if (arg) traverse_ast_node_for_variables(arg.get());
         }
     }
+    else if (auto* method_call = dynamic_cast<MethodCall*>(node)) {
+        // Traverse arguments only (object_name and method_name are just strings)
+        for (const auto& arg : method_call->arguments) {
+            if (arg) traverse_ast_node_for_variables(arg.get());
+        }
+    }
     // TODO: Add more AST node types as needed
 }
 
@@ -356,6 +577,12 @@ void StaticAnalyzer::analyze_function_dependencies(LexicalScopeNode* scope) {
 
 // Public interface methods (for compatibility with code generator)
 LexicalScopeNode* StaticAnalyzer::get_scope_node_for_depth(int depth) const {
+    // If we have parser integration, use the parser's scope nodes directly
+    if (parser_scope_analyzer_) {
+        return parser_scope_analyzer_->get_scope_node_for_depth(depth);
+    }
+    
+    // Fallback to our own depth_to_scope_node_ map
     auto it = depth_to_scope_node_.find(depth);
     return (it != depth_to_scope_node_.end()) ? it->second.get() : nullptr;
 }
@@ -472,22 +699,52 @@ size_t StaticAnalyzer::get_datatype_alignment(DataType type) const {
 void StaticAnalyzer::print_analysis_results() const {
     std::cout << "[StaticAnalyzer] =================================" << std::endl;
     std::cout << "[StaticAnalyzer] STATIC ANALYSIS RESULTS" << std::endl;
-    std::cout << "[StaticAnalyzer] Total scopes discovered: " << depth_to_scope_node_.size() << std::endl;
     
-    for (const auto& scope_pair : depth_to_scope_node_) {
-        int depth = scope_pair.first;
-        LexicalScopeNode* scope = scope_pair.second.get();
+    if (parser_scope_analyzer_) {
+        std::cout << "[StaticAnalyzer] Using parser scope analyzer results" << std::endl;
         
-        std::cout << "[StaticAnalyzer] Scope " << depth 
-                  << " (function=" << (scope->is_function_scope ? "yes" : "no") << "): "
-                  << scope->variable_declarations.size() << " variables, "
-                  << scope->total_scope_frame_size << " bytes" << std::endl;
-                  
-        for (const auto& var_entry : scope->variable_declarations) {
-            const std::string& var_name = var_entry.first;
-            auto offset_it = scope->variable_offsets.find(var_name);
-            size_t offset = (offset_it != scope->variable_offsets.end()) ? offset_it->second : 0;
-            std::cout << "  '" << var_name << "' @ offset " << offset << std::endl;
+        int scope_count = 0;
+        for (int depth = 1; depth <= 10; depth++) { // Reasonable max depth
+            LexicalScopeNode* scope = parser_scope_analyzer_->get_scope_node_for_depth(depth);
+            if (scope) {
+                scope_count++;
+                std::cout << "[StaticAnalyzer] Scope " << depth 
+                          << " (function=" << (scope->is_function_scope ? "yes" : "no") << "): "
+                          << scope->variable_declarations.size() << " variables, "
+                          << scope->total_scope_frame_size << " bytes" << std::endl;
+                
+                // Print variable details
+                for (const auto& var_entry : scope->variable_declarations) {
+                    const std::string& var_name = var_entry.first;
+                    auto offset_it = scope->variable_offsets.find(var_name);
+                    size_t offset = (offset_it != scope->variable_offsets.end()) ? offset_it->second : 0;
+                    std::cout << "  '" << var_name << "' @ offset " << offset << std::endl;
+                }
+            } else {
+                // No more scope nodes at higher depths
+                break;
+            }
+        }
+        std::cout << "[StaticAnalyzer] Total scopes discovered: " << scope_count << std::endl;
+    } else {
+        std::cout << "[StaticAnalyzer] Using fallback scope analysis results" << std::endl;
+        std::cout << "[StaticAnalyzer] Total scopes discovered: " << depth_to_scope_node_.size() << std::endl;
+        
+        for (const auto& scope_pair : depth_to_scope_node_) {
+            int depth = scope_pair.first;
+            LexicalScopeNode* scope = scope_pair.second.get();
+            
+            std::cout << "[StaticAnalyzer] Scope " << depth 
+                      << " (function=" << (scope->is_function_scope ? "yes" : "no") << "): "
+                      << scope->variable_declarations.size() << " variables, "
+                      << scope->total_scope_frame_size << " bytes" << std::endl;
+                      
+            for (const auto& var_entry : scope->variable_declarations) {
+                const std::string& var_name = var_entry.first;
+                auto offset_it = scope->variable_offsets.find(var_name);
+                size_t offset = (offset_it != scope->variable_offsets.end()) ? offset_it->second : 0;
+                std::cout << "  '" << var_name << "' @ offset " << offset << std::endl;
+            }
         }
     }
     

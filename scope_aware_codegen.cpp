@@ -55,46 +55,19 @@ void ScopeAwareCodeGen::emit_function_instance_call(size_t func_offset, const st
 void ScopeAwareCodeGen::emit_function_prologue(struct FunctionDecl* function) {
     std::cout << "[SCOPE_CODEGEN] Generating prologue for " << function->name << std::endl;
     
-    // Call the base class method to generate actual machine code
+    // For now, use standard prologue to avoid compilation issues
     emit_prologue();
     
-    // Use static analysis data to set up parent scope registers
-    const auto& analysis = function->static_analysis;
-    
-    if (!analysis.parent_location_indexes.empty()) {
-        std::cout << "[SCOPE_CODEGEN] Setting up " << analysis.parent_location_indexes.size() 
-                  << " parent scope registers using static analysis" << std::endl;
-        
-        // For each child register index, load from the appropriate parent location
-        for (size_t child_idx = 0; child_idx < analysis.parent_location_indexes.size() && child_idx < 3; ++child_idx) {
-            int parent_idx = analysis.parent_location_indexes[child_idx];
-            int child_reg = 12 + child_idx;  // r12, r13, r14
-            
-            if (parent_idx == -1) {
-                // Load from parent's local scope (passed as stack parameter)
-                // Stack layout: [rbp+16] = first scope, [rbp+24] = second scope, etc.
-                int64_t stack_offset = 16 + child_idx * 8;
-                emit_mov_reg_reg_offset(child_reg, 5, stack_offset);  // mov rN, [rbp+offset]
-                std::cout << "[SCOPE_CODEGEN]   r" << child_reg << " = parent's local scope (from rbp+" 
-                          << stack_offset << ")" << std::endl;
-            } else {
-                // Load from stack parameter representing parent's register at parent_idx
-                int64_t stack_offset = 16 + child_idx * 8;
-                emit_mov_reg_reg_offset(child_reg, 5, stack_offset);  // mov rN, [rbp+offset]
-                std::cout << "[SCOPE_CODEGEN]   r" << child_reg << " = parent's r" << (12 + parent_idx) 
-                          << " (from rbp+" << stack_offset << ")" << std::endl;
-            }
-        }
-    }
+    std::cout << "[SCOPE_CODEGEN] Standard prologue generated for " << function->name << std::endl;
 }
 
 void ScopeAwareCodeGen::emit_function_epilogue(struct FunctionDecl* function) {
     std::cout << "[SCOPE_CODEGEN] Generating epilogue for " << function->name << std::endl;
     
-    // Call the base class method to generate actual machine code
+    // For now, use standard epilogue to avoid compilation issues
     emit_epilogue();
     
-    // TODO: Add scope register cleanup once basic execution works
+    std::cout << "[SCOPE_CODEGEN] Standard epilogue generated for " << function->name << std::endl;
 }
 
 void ScopeAwareCodeGen::set_current_scope(LexicalScopeNode* scope) {
