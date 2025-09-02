@@ -108,5 +108,7 @@ std::unique_ptr<CodeGenerator> create_x86_codegen();
 
 // New scope-aware code generator factory
 class SimpleLexicalScopeAnalyzer;
+class StaticAnalyzer;
 std::unique_ptr<CodeGenerator> create_scope_aware_codegen(SimpleLexicalScopeAnalyzer* analyzer);
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen_with_static_analyzer(StaticAnalyzer* analyzer);
 

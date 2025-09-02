@@ -1,5 +1,6 @@
 #include "scope_aware_codegen.h"
 #include "simple_lexical_scope.h"
+#include "static_analyzer.h"
 #include "compiler.h"
 #include <cstring>
 #include <sys/mman.h>
@@ -16,11 +17,21 @@ void set_current_scope_codegen(ScopeAwareCodeGen* codegen) {
 }
 
 ScopeAwareCodeGen::ScopeAwareCodeGen(SimpleLexicalScopeAnalyzer* analyzer) 
-    : X86CodeGenV2(), scope_analyzer(analyzer) {
+    : X86CodeGenV2(), scope_analyzer(analyzer), static_analyzer_(nullptr) {
     set_current_scope_codegen(this);
 }
 
+ScopeAwareCodeGen::ScopeAwareCodeGen(StaticAnalyzer* analyzer) 
+    : X86CodeGenV2(), scope_analyzer(nullptr), static_analyzer_(analyzer) {
+    set_current_scope_codegen(this);
+    std::cout << "[NEW_SYSTEM] ScopeAwareCodeGen created with StaticAnalyzer" << std::endl;
+}
+
 std::unique_ptr<CodeGenerator> create_scope_aware_codegen(SimpleLexicalScopeAnalyzer* analyzer) {
+    return std::make_unique<ScopeAwareCodeGen>(analyzer);
+}
+
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen_with_static_analyzer(StaticAnalyzer* analyzer) {
     return std::make_unique<ScopeAwareCodeGen>(analyzer);
 }
 
@@ -47,7 +58,34 @@ void ScopeAwareCodeGen::emit_function_prologue(struct FunctionDecl* function) {
     // Call the base class method to generate actual machine code
     emit_prologue();
     
-    // TODO: Add scope register setup and parameter handling once basic execution works
+    // Use static analysis data to set up parent scope registers
+    const auto& analysis = function->static_analysis;
+    
+    if (!analysis.parent_location_indexes.empty()) {
+        std::cout << "[SCOPE_CODEGEN] Setting up " << analysis.parent_location_indexes.size() 
+                  << " parent scope registers using static analysis" << std::endl;
+        
+        // For each child register index, load from the appropriate parent location
+        for (size_t child_idx = 0; child_idx < analysis.parent_location_indexes.size() && child_idx < 3; ++child_idx) {
+            int parent_idx = analysis.parent_location_indexes[child_idx];
+            int child_reg = 12 + child_idx;  // r12, r13, r14
+            
+            if (parent_idx == -1) {
+                // Load from parent's local scope (passed as stack parameter)
+                // Stack layout: [rbp+16] = first scope, [rbp+24] = second scope, etc.
+                int64_t stack_offset = 16 + child_idx * 8;
+                emit_mov_reg_reg_offset(child_reg, 5, stack_offset);  // mov rN, [rbp+offset]
+                std::cout << "[SCOPE_CODEGEN]   r" << child_reg << " = parent's local scope (from rbp+" 
+                          << stack_offset << ")" << std::endl;
+            } else {
+                // Load from stack parameter representing parent's register at parent_idx
+                int64_t stack_offset = 16 + child_idx * 8;
+                emit_mov_reg_reg_offset(child_reg, 5, stack_offset);  // mov rN, [rbp+offset]
+                std::cout << "[SCOPE_CODEGEN]   r" << child_reg << " = parent's r" << (12 + parent_idx) 
+                          << " (from rbp+" << stack_offset << ")" << std::endl;
+            }
+        }
+    }
 }
 
 void ScopeAwareCodeGen::emit_function_epilogue(struct FunctionDecl* function) {
@@ -61,6 +99,46 @@ void ScopeAwareCodeGen::emit_function_epilogue(struct FunctionDecl* function) {
 
 void ScopeAwareCodeGen::set_current_scope(LexicalScopeNode* scope) {
     current_scope = scope;
+    
+    // Also update the global scope context that variable access code uses
+    ::set_current_scope(scope);  // Call the global function
+}
+
+LexicalScopeNode* ScopeAwareCodeGen::get_scope_node_for_depth(int depth) {
+    if (static_analyzer_) {
+        return static_analyzer_->get_scope_node_for_depth(depth);
+    } else if (scope_analyzer) {
+        return scope_analyzer->get_scope_node_for_depth(depth);
+    }
+    return nullptr;
+}
+
+LexicalScopeNode* ScopeAwareCodeGen::get_definition_scope_for_variable(const std::string& name) {
+    if (static_analyzer_) {
+        return static_analyzer_->get_definition_scope_for_variable(name);
+    } else if (scope_analyzer) {
+        return scope_analyzer->get_definition_scope_for_variable(name);
+    }
+    return nullptr;
+}
+
+void ScopeAwareCodeGen::perform_deferred_packing_for_scope(LexicalScopeNode* scope_node) {
+    if (static_analyzer_) {
+        static_analyzer_->perform_deferred_packing_for_scope(scope_node);
+    } else if (scope_analyzer) {
+        scope_analyzer->perform_deferred_packing_for_scope(scope_node);
+    }
+}
+
+VariableDeclarationInfo* ScopeAwareCodeGen::get_variable_declaration_info(const std::string& name) {
+    if (static_analyzer_) {
+        // For static analyzer, we need to get the current scope depth for lookup
+        int current_depth = current_scope ? current_scope->scope_depth : 1;
+        return static_analyzer_->get_variable_declaration_info(name, current_depth);
+    } else if (scope_analyzer) {
+        return scope_analyzer->get_variable_declaration_info(name);
+    }
+    return nullptr;
 }
 
 void ScopeAwareCodeGen::enter_lexical_scope(LexicalScopeNode* scope_node) {

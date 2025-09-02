@@ -17,23 +17,18 @@ void Parser::finalize_gc_analysis() {
     }
 }
 
-void Parser::initialize_simple_lexical_scope_system() {
-    lexical_scope_analyzer_ = std::make_unique<SimpleLexicalScopeAnalyzer>();
-    std::cout << "[Parser] Initialized simple lexical scope system" << std::endl;
+void Parser::initialize_scope_analysis() {
+    scope_analyzer_ = std::make_unique<SimpleLexicalScopeAnalyzer>();
+    std::cout << "[Parser] Initialized lexical scope analyzer for parse-time variable registration" << std::endl;
 }
 
-void Parser::finalize_simple_lexical_scope_analysis() {
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->print_debug_info();
-    }
-    std::cout << "[Parser] Finalized simple lexical scope analysis" << std::endl;
-}
+
 
 void Parser::add_variable_to_current_scope(const std::string& name, const std::string& type) {
     current_scope_variables_[name] = type;
     std::cout << "[Parser] Added variable to current scope: " << name << " : " << type << std::endl;
     
-    // Note: lexical_scope_analyzer_->declare_variable is called directly in parse_variable_declaration
+    // Variable declaration tracking moved to static analysis phase
     // with proper DataType information, so we don't call it here to avoid overwriting with DataType::ANY
 }
 
@@ -133,22 +128,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
             std::string var_name = identifier->name;
             auto value = parse_assignment_expression();
             
-            // NEW: Conservative Maximum Size - Track function assignments
-            if (lexical_scope_analyzer_) {
-                // Check if we're assigning a function expression to a variable
-                if (auto func_expr = dynamic_cast<FunctionExpression*>(value.get())) {
-                    if (func_expr->function_instance_size > 0) {
-                        lexical_scope_analyzer_->track_function_assignment(var_name, func_expr->function_instance_size);
-                    }
-                } else if (auto arrow_func = dynamic_cast<ArrowFunction*>(value.get())) {
-                    if (arrow_func->function_instance_size > 0) {
-                        lexical_scope_analyzer_->track_function_assignment(var_name, arrow_func->function_instance_size);
-                    }
-                }
-                
-                // NEW: Track variable modification for assignment counting
-                lexical_scope_analyzer_->modify_variable(var_name);
-            }
+            // Function assignment tracking now handled in static analysis phase
             
             // GC Integration: Track assignment for escape analysis
             if (gc_integration_) {
@@ -158,19 +138,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_assignment_expression() {
             expr.release();
             auto assignment = std::make_unique<Assignment>(var_name, std::move(value));
             
-            // Set lexical scope depth information and weak scope pointers
-            if (lexical_scope_analyzer_) {
-                assignment->definition_depth = lexical_scope_analyzer_->get_variable_definition_depth(var_name);
-                assignment->assignment_depth = lexical_scope_analyzer_->get_current_depth();
-                
-                // NEW: Set raw pointer scope pointers for safe access
-                assignment->definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
-                assignment->assignment_scope = lexical_scope_analyzer_->get_current_scope_node();
-                
-                std::cout << "[Parser] Assignment '" << var_name 
-                          << "' def_scope=" << assignment->definition_scope
-                          << ", assign_scope=" << assignment->assignment_scope << std::endl;
-            }
+            // Lexical scope depth information now set in static analysis phase
             
             return assignment;
         } else if (property_access) {
@@ -710,41 +678,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (match(TokenType::IDENTIFIER)) {
         std::string var_name = tokens[pos - 1].value;
         
-        // NEW: Track variable access in lexical scope and get depth information
-        int definition_depth = -1;
-        int access_depth = -1;
-        LexicalScopeNode* definition_scope = nullptr;
-        LexicalScopeNode* access_scope = nullptr;
-        
-        if (lexical_scope_analyzer_) {
-            lexical_scope_analyzer_->access_variable(var_name);
-            definition_depth = lexical_scope_analyzer_->get_variable_definition_depth(var_name);
-            access_depth = lexical_scope_analyzer_->get_current_depth();
-            
-            // NEW: Get raw pointers to the actual scope nodes
-            definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
-            access_scope = lexical_scope_analyzer_->get_current_scope_node();
-            
-            std::cout << "[Parser] Creating Identifier '" << var_name 
-                      << "' with def_scope=" << definition_scope
-                      << ", access_scope=" << access_scope << std::endl;
-        }
-        
-        // Get direct pointer to variable declaration info for ultra-fast access
-        VariableDeclarationInfo* var_info = nullptr;
-        if (lexical_scope_analyzer_) {
-            var_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
-            // If variable is not yet declared, add to unresolved references
-            if (!var_info) {
-                // Create identifier first, then add to unresolved list
-                auto identifier = std::make_unique<Identifier>(var_name, nullptr, definition_scope, access_scope);
-                lexical_scope_analyzer_->add_unresolved_reference(var_name, identifier.get());
-                return identifier;
-            }
-        }
-        
-        // Use ultra-fast constructor with direct variable declaration pointer
-        return std::make_unique<Identifier>(var_name, var_info, definition_scope, access_scope);
+        // Lexical scope analysis moved to static analysis phase
+        // Create simple identifier with basic information - scope analysis happens later
+        return std::make_unique<Identifier>(var_name, nullptr, nullptr, nullptr);
     }
     
     if (match(TokenType::LBRACKET)) {
@@ -984,15 +920,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             gc_integration_->enter_scope("function_expr", true);
         }
         
-        // NEW: Enter lexical scope for function expression with function scope flag
-        if (lexical_scope_analyzer_) {
-            lexical_scope_analyzer_->enter_scope(true);  // Function scope
-            
-            // Declare parameters in the new scope
-            for (const auto& param : func_expr->parameters) {
-                lexical_scope_analyzer_->declare_variable(param.name, "let", param.type);
-            }
-        }
+        // Lexical scope analysis moved to static analysis phase
         
         // LEXICAL SCOPE MANAGEMENT: Save parent scope before entering function
         std::unordered_map<std::string, std::string> parent_scope = current_scope_variables_;
@@ -1009,17 +937,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             throw std::runtime_error("Expected '}' to end function body");
         }
         
-        // NEW: Exit lexical scope for function expression and capture scope info
-        if (lexical_scope_analyzer_) {
-            func_expr->lexical_scope = lexical_scope_analyzer_->exit_scope();
-            
-            // Compute and store function instance size
-            if (func_expr->lexical_scope) {
-                func_expr->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(func_expr->lexical_scope.get());
-                std::cout << "[DEBUG] Function expression '" << (func_expr->name.empty() ? "<anonymous>" : func_expr->name) 
-                         << "' instance size: " << func_expr->function_instance_size << " bytes" << std::endl;
-            }
-        }
+        // Lexical scope analysis moved to static analysis phase
+        // Function instance sizes will be computed during static analysis
         
         // GC INTEGRATION: Exit function scope
         if (gc_integration_) {
@@ -1208,11 +1127,9 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
     std::string func_name = tokens[pos - 1].value;
     auto func_decl = std::make_unique<FunctionDecl>(func_name);
     
-    // PHASE 1: Register function in current scope BEFORE parsing body (hoisting)
-    if (lexical_scope_analyzer_) {
-        // Functions are hoisted to the nearest function scope
-        lexical_scope_analyzer_->register_function_in_current_scope(func_decl.get());
-        // NOTE: Don't declare variable here - let variable declarations handle conflicts
+    // NEW: Register function with scope analyzer for hoisting
+    if (scope_analyzer_) {
+        scope_analyzer_->register_function_in_current_scope(func_decl.get());
     }
     
     // GC Integration: Enter function scope
@@ -1220,9 +1137,9 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
         gc_integration_->enter_scope(func_name, true);
     }
     
-    // NEW: Enter lexical scope for function with function scope flag
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(true);  // Function scope
+    // NEW: Enter function scope for lexical analysis
+    if (scope_analyzer_) {
+        scope_analyzer_->enter_scope(true); // Function scope supports hoisting
     }
     
     if (!match(TokenType::LPAREN)) {
@@ -1249,10 +1166,9 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
                 gc_integration_->declare_variable(param_name, param.type);
             }
             
-            // NEW: Track parameter in lexical scope
-            std::string type_str = "param";
-            if (lexical_scope_analyzer_) {
-                lexical_scope_analyzer_->declare_variable(param_name, type_str, param.type);
+            // NEW: Register parameter with scope analyzer
+            if (scope_analyzer_) {
+                scope_analyzer_->declare_variable(param_name, "parameter", param.type);
             }
             
             func_decl->parameters.push_back(param);
@@ -1279,23 +1195,13 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
         throw std::runtime_error("Expected '}' to end function body");
     }
     
-    // NEW: Exit lexical scope for function and capture scope info
-    if (lexical_scope_analyzer_) {
-        func_decl->lexical_scope = lexical_scope_analyzer_->exit_scope();
-        
-        // Compute and store function instance size
-        if (func_decl->lexical_scope) {
-            func_decl->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(func_decl->lexical_scope.get());
-            std::cout << "[DEBUG] Function declaration '" << func_decl->name 
-                     << "' instance size: " << func_decl->function_instance_size << " bytes" << std::endl;
-                     
-            // NEW: Track function size for hoisting conflict variables
-            if (lexical_scope_analyzer_->is_hoisting_conflict_variable(func_decl->name) && func_decl->function_instance_size > 0) {
-                lexical_scope_analyzer_->track_function_assignment(func_decl->name, func_decl->function_instance_size);
-                std::cout << "[HoistingConflict] Tracked function size " << func_decl->function_instance_size 
-                          << " bytes for hoisting conflict variable '" << func_decl->name << "'" << std::endl;
-            }
-        }
+    // NEW: Exit function scope and get the LexicalScopeNode
+    if (scope_analyzer_) {
+        auto function_scope_node = scope_analyzer_->exit_scope();
+        // Attach the scope node to the function declaration
+        func_decl->lexical_scope = function_scope_node;
+        std::cout << "[Parser] Completed function '" << func_name << "' scope analysis with " 
+                  << func_decl->lexical_scope->declared_variables.size() << " variables" << std::endl;
     }
     
     // GC Integration: Exit function scope
@@ -1326,18 +1232,15 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
         gc_integration_->declare_variable(var_name, type);
     }
     
-    // NEW: Get declaration type string for lexical scope system
+    // Variable declaration tracking moved to static analysis phase
+    
+    // Get declaration type string for escape analysis
     std::string decl_type_str = "var";
     switch (decl_type) {
         case TokenType::LET: decl_type_str = "let"; break;
         case TokenType::CONST: decl_type_str = "const"; break;
         case TokenType::VAR: 
         default: decl_type_str = "var"; break;
-    }
-    
-    // NEW: Declare variable in lexical scope analyzer
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->declare_variable(var_name, decl_type_str, type);
     }
     
     // Lexical Scope System: Add variable to current scope for escape analysis
@@ -1347,6 +1250,18 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
     else if (type == DataType::STRING) type_str = "string";
     else if (type == DataType::BOOLEAN) type_str = "bool";
     add_variable_to_current_scope(var_name, decl_type_str); // Use declaration type instead of data type
+    
+    // NEW: Register variable with scope analyzer during parsing
+    if (scope_analyzer_) {
+        if (decl_type == TokenType::VAR) {
+            // VAR variables are hoisted to function scope - let the analyzer handle this
+            // The SimpleLexicalScopeAnalyzer will register it in the nearest function scope
+            scope_analyzer_->declare_variable(var_name, decl_type_str, type);
+        } else {
+            // LET/CONST variables are block-scoped - register in current scope
+            scope_analyzer_->declare_variable(var_name, decl_type_str, type);
+        }
+    }
     
     std::unique_ptr<ExpressionNode> value = nullptr;
     if (match(TokenType::ASSIGN)) {
@@ -1362,27 +1277,7 @@ std::unique_ptr<ASTNode> Parser::parse_variable_declaration() {
     assignment->declared_type = type;
     assignment->declared_element_type = last_parsed_array_element_type;
     
-    // Set lexical scope depth information and weak scope pointers
-    if (lexical_scope_analyzer_) {
-        assignment->definition_depth = lexical_scope_analyzer_->get_variable_definition_depth(var_name);
-        assignment->assignment_depth = lexical_scope_analyzer_->get_current_depth();
-        
-        // NEW: Set raw pointer scope pointers for safe access
-        assignment->definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
-        assignment->assignment_scope = lexical_scope_analyzer_->get_current_scope_node();
-        
-        // NEW: Set direct pointer to variable declaration info for ultra-fast access
-        assignment->variable_declaration_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
-        
-        // NEW: Copy definition depth to avoid use-after-free issues
-        if (assignment->variable_declaration_info) {
-            assignment->definition_depth = assignment->variable_declaration_info->depth;
-        }
-        
-        std::cout << "[Parser] Variable declaration '" << var_name 
-                  << "' def_scope=" << assignment->definition_scope
-                  << ", assign_scope=" << assignment->assignment_scope << std::endl;
-    }
+    // Lexical scope depth information will be set during static analysis phase
     
     // Set the declaration kind based on the parsed token type
     switch (decl_type) {
@@ -1429,10 +1324,7 @@ std::unique_ptr<ASTNode> Parser::parse_if_statement() {
         throw std::runtime_error("Expected ')' after if condition");
     }
     
-    // Enter lexical scope for then branch (block scope)
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
-    }
+    // Lexical scope analysis for control flow moved to static analysis phase
     
     if (match(TokenType::LBRACE)) {
         while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
@@ -1446,19 +1338,13 @@ std::unique_ptr<ASTNode> Parser::parse_if_statement() {
         if_stmt->then_body.push_back(parse_statement());
     }
     
-    // Exit lexical scope for then branch and capture scope info
-    if (lexical_scope_analyzer_) {
-        if_stmt->then_lexical_scope = lexical_scope_analyzer_->exit_scope();
-    }
+    // Scope analysis moved to static analysis phase
     
     // Handle else clause
     if (current_token().type == TokenType::IDENTIFIER && current_token().value == "else") {
         advance(); // consume "else"
         
-        // Enter lexical scope for else branch (block scope)
-        if (lexical_scope_analyzer_) {
-            lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
-        }
+        // Lexical scope analysis moved to static analysis phase
         
         if (match(TokenType::LBRACE)) {
             while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
@@ -1472,10 +1358,7 @@ std::unique_ptr<ASTNode> Parser::parse_if_statement() {
             if_stmt->else_body.push_back(parse_statement());
         }
         
-        // Exit lexical scope for else branch and capture scope info
-        if (lexical_scope_analyzer_) {
-            if_stmt->else_lexical_scope = lexical_scope_analyzer_->exit_scope();
-        }
+        // Scope analysis moved to static analysis phase
     }
     
     return std::move(if_stmt);
@@ -1488,10 +1371,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
     
     auto for_loop = std::make_unique<ForLoop>();
     
-    // Enter lexical scope for for loop (ES6 for loops create block scope for let/const)
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
-    }
+    // Lexical scope analysis moved to static analysis phase
     
     bool has_parens = false;
     if (check(TokenType::LPAREN)) {
@@ -1532,37 +1412,12 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
                 default: assignment_kind = Assignment::VAR; break;
             }
             
-            // Declare variable in lexical scope analyzer
-            if (lexical_scope_analyzer_) {
-                std::string decl_type_str = (assignment_kind == Assignment::LET) ? "let" : 
-                                           (assignment_kind == Assignment::CONST) ? "const" : "var";
-                lexical_scope_analyzer_->declare_variable(var_name, decl_type_str);
-            }
+            // Variable declaration in for loop moved to static analysis phase
             
             auto assignment = std::make_unique<Assignment>(var_name, std::move(value), assignment_kind);
             assignment->declared_type = type;
             
-            // Set lexical scope depth information and weak scope pointers
-            if (lexical_scope_analyzer_) {
-                assignment->definition_depth = lexical_scope_analyzer_->get_variable_definition_depth(var_name);
-                assignment->assignment_depth = lexical_scope_analyzer_->get_current_depth();
-                
-                // NEW: Set weak_ptr scope pointers for safe access
-                assignment->definition_scope = lexical_scope_analyzer_->get_definition_scope_for_variable(var_name);
-                assignment->assignment_scope = lexical_scope_analyzer_->get_current_scope_node();
-                
-                // NEW: Set direct pointer to variable declaration info for ultra-fast access
-                assignment->variable_declaration_info = lexical_scope_analyzer_->get_variable_declaration_info(var_name);
-                
-                // NEW: Copy definition depth to avoid use-after-free issues
-                if (assignment->variable_declaration_info) {
-                    assignment->definition_depth = assignment->variable_declaration_info->depth;
-                }
-                
-                std::cout << "[Parser] For-loop declaration '" << var_name 
-                          << "' def_scope=" << assignment->definition_scope
-                          << ", assign_scope=" << assignment->assignment_scope << std::endl;
-            }
+            // Lexical scope depth information will be set during static analysis phase
             
             // Set the declaration kind on the ForLoop for scope analysis
             for_loop->init_declaration_kind = assignment_kind;
@@ -1609,10 +1464,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_statement() {
         for_loop->body.push_back(parse_statement());
     }
     
-    // Exit lexical scope for for loop and capture scope info
-    if (lexical_scope_analyzer_) {
-        for_loop->lexical_scope = lexical_scope_analyzer_->exit_scope();
-    }
+    // Lexical scope analysis moved to static analysis phase
     
     return std::move(for_loop);
 }
@@ -1637,10 +1489,7 @@ std::unique_ptr<ASTNode> Parser::parse_while_statement() {
     
     auto while_loop = std::make_unique<WhileLoop>(std::move(condition));
     
-    // Enter lexical scope for while loop body (block scope)
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
-    }
+    // Lexical scope analysis moved to static analysis phase
     
     // Parse body - support both braced and single statement
     if (match(TokenType::LBRACE)) {
@@ -1655,10 +1504,7 @@ std::unique_ptr<ASTNode> Parser::parse_while_statement() {
         while_loop->body.push_back(parse_statement());
     }
     
-    // Exit lexical scope for while loop and capture scope info
-    if (lexical_scope_analyzer_) {
-        while_loop->lexical_scope = lexical_scope_analyzer_->exit_scope();
-    }
+    // Scope analysis moved to static analysis phase
     
     return std::move(while_loop);
 }
@@ -1672,10 +1518,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
         throw std::runtime_error("Expected 'each' after 'for'");
     }
     
-    // Enter lexical scope for for-each loop (block scope)
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
-    }
+    // Lexical scope analysis moved to static analysis phase
     
     // Parse: index, value (where index represents index for arrays or key for objects)
     if (!match(TokenType::IDENTIFIER)) {
@@ -1683,10 +1526,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
     }
     std::string index_var = tokens[pos - 1].value;
     
-    // Declare index variable in lexical scope
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->declare_variable(index_var, "let");
-    }
+    // Variable declaration moved to static analysis phase
     
     if (!match(TokenType::COMMA)) {
         throw std::runtime_error("Expected ',' after index/key variable");
@@ -1697,10 +1537,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
     }
     std::string value_var = tokens[pos - 1].value;
     
-    // Declare value variable in lexical scope
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->declare_variable(value_var, "let");
-    }
+    // Variable declaration moved to static analysis phase
     
     if (!match(TokenType::IN)) {
         throw std::runtime_error("Expected 'in' after variable declarations");
@@ -1726,9 +1563,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_each_statement() {
     }
     
     // Exit lexical scope for for-each loop and capture scope info
-    if (lexical_scope_analyzer_) {
-        for_each->lexical_scope = lexical_scope_analyzer_->exit_scope();
-    }
+    // Scope analysis moved to static analysis phase
     
     return std::move(for_each);
 }
@@ -1738,10 +1573,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
         throw std::runtime_error("Expected 'for'");
     }
     
-    // Enter lexical scope for for-in loop (block scope)
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
-    }
+    // Lexical scope analysis moved to static analysis phase
     
     // Check if parentheses are used
     bool has_parentheses = check(TokenType::LPAREN);
@@ -1766,10 +1598,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
     }
     std::string key_var = tokens[pos - 1].value;
     
-    // Declare key variable in lexical scope
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->declare_variable(key_var, decl_type);
-    }
+    // Variable declaration moved to static analysis phase
     
     if (!match(TokenType::IN)) {
         throw std::runtime_error("Expected 'in' after variable name in for-in loop");
@@ -1800,10 +1629,7 @@ std::unique_ptr<ASTNode> Parser::parse_for_in_statement() {
         for_in->body.push_back(parse_statement());
     }
     
-    // Exit lexical scope for for-in loop and capture scope info
-    if (lexical_scope_analyzer_) {
-        for_in->lexical_scope = lexical_scope_analyzer_->exit_scope();
-    }
+    // Scope analysis moved to static analysis phase
     
     return std::move(for_in);
 }
@@ -2437,13 +2263,21 @@ std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
         gc_integration_->enter_scope("global", false);
     }
     
-    // Lexical Scope System: Initialize global scope as function scope (top-level function)
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(true);  // Global scope is a function scope for hoisting
+    // NEW: Initialize scope analysis during parsing for hoisting and variable registration
+    if (scope_analyzer_) {
+        scope_analyzer_->enter_scope(true); // Global scope is a function scope (supports hoisting)
     }
     
     while (!check(TokenType::EOF_TOKEN)) {
         statements.push_back(parse_statement());
+    }
+    
+    // NEW: Exit global scope and get the LexicalScopeNode
+    if (scope_analyzer_) {
+        auto global_scope_node = scope_analyzer_->exit_scope();
+        // TODO: Store or attach the global scope node to the AST
+        std::cout << "[Parser] Completed global scope analysis with " 
+                  << global_scope_node->declared_variables.size() << " variables" << std::endl;
     }
     
     // GC Integration: Finalize escape analysis
@@ -2452,16 +2286,7 @@ std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
         gc_integration_->finalize_analysis();
     }
     
-    // Lexical Scope System: Close global scope and perform variable packing
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->exit_scope();
-        
-        // NEW: Resolve all unresolved references now that parsing is complete
-        lexical_scope_analyzer_->resolve_all_unresolved_references();
-        
-        // PHASE 1: Compute function static analysis for pure machine code generation
-        lexical_scope_analyzer_->compute_all_function_static_analysis();
-    }
+    // Lexical scope analysis and static analysis moved to separate phase
     
     return statements;
 }
@@ -2628,13 +2453,7 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_identifier(cons
     param.type = DataType::ANY;  // Infer later
     arrow_func->parameters.push_back(param);
     
-    // Enter lexical scope for arrow function with function scope flag
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(true);  // Function scope
-        
-        // Declare parameter in the new scope
-        lexical_scope_analyzer_->declare_variable(param_name, "let");
-    }
+    // Lexical scope analysis moved to static analysis phase
     
     // Parse the arrow function body
     if (check(TokenType::LBRACE)) {
@@ -2656,16 +2475,7 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_identifier(cons
         arrow_func->expression = parse_assignment_expression();
     }
     
-    // Exit lexical scope for arrow function and capture scope info
-    if (lexical_scope_analyzer_) {
-        arrow_func->lexical_scope = lexical_scope_analyzer_->exit_scope();
-        
-        // Compute and store function instance size
-        if (arrow_func->lexical_scope) {
-            arrow_func->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(arrow_func->lexical_scope.get());
-            std::cout << "[DEBUG] Arrow function (expression body) instance size: " << arrow_func->function_instance_size << " bytes" << std::endl;
-        }
-    }
+    // Scope analysis moved to static analysis phase
     
     return arrow_func;
 }
@@ -2679,15 +2489,7 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_params(const st
     auto arrow_func = std::make_unique<ArrowFunction>();
     arrow_func->parameters = params;
     
-    // Enter lexical scope for arrow function with function scope flag  
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(true);  // Function scope
-        
-        // Declare all parameters in the new scope
-        for (const auto& param : params) {
-            lexical_scope_analyzer_->declare_variable(param.name, "let");
-        }
-    }
+    // Lexical scope analysis moved to static analysis phase
     
     // Parse the arrow function body (same logic as single parameter version)
     if (check(TokenType::LBRACE)) {
@@ -2708,16 +2510,7 @@ std::unique_ptr<ArrowFunction> Parser::parse_arrow_function_from_params(const st
         arrow_func->expression = parse_assignment_expression();
     }
     
-    // Exit lexical scope for arrow function and capture scope info
-    if (lexical_scope_analyzer_) {
-        arrow_func->lexical_scope = lexical_scope_analyzer_->exit_scope();
-        
-        // Compute and store function instance size
-        if (arrow_func->lexical_scope) {
-            arrow_func->function_instance_size = lexical_scope_analyzer_->compute_function_instance_size(arrow_func->lexical_scope.get());
-            std::cout << "[DEBUG] Arrow function (from params) instance size: " << arrow_func->function_instance_size << " bytes" << std::endl;
-        }
-    }
+    // Scope analysis moved to static analysis phase
     
     return arrow_func;
 }
@@ -2841,9 +2634,9 @@ std::unique_ptr<ASTNode> Parser::parse_block_statement() {
         gc_integration_->enter_scope("block", false);
     }
     
-    // NEW: Enter lexical scope for block (block scope)
-    if (lexical_scope_analyzer_) {
-        lexical_scope_analyzer_->enter_scope(false);  // Block scope, not function scope
+    // NEW: Enter block scope for lexical analysis (block scope, not function scope)
+    if (scope_analyzer_) {
+        scope_analyzer_->enter_scope(false); // Block scope does not support hoisting
     }
     
     while (!check(TokenType::RBRACE) && !check(TokenType::EOF_TOKEN)) {
@@ -2854,9 +2647,13 @@ std::unique_ptr<ASTNode> Parser::parse_block_statement() {
         throw std::runtime_error("Expected '}' after block body");
     }
     
-    // NEW: Exit lexical scope for block and capture scope info
-    if (lexical_scope_analyzer_) {
-        block->lexical_scope = lexical_scope_analyzer_->exit_scope();
+    // NEW: Exit block scope and get the LexicalScopeNode
+    if (scope_analyzer_) {
+        auto block_scope_node = scope_analyzer_->exit_scope();
+        // Attach the scope node to the block statement
+        block->lexical_scope = block_scope_node;
+        std::cout << "[Parser] Completed block scope analysis with " 
+                  << block->lexical_scope->declared_variables.size() << " variables" << std::endl;
     }
     
     // GC Integration: Exit block scope

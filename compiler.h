@@ -3,6 +3,7 @@
 #include "minimal_parser_gc.h"
 #include "codegen_forward.h"
 #include "simple_lexical_scope.h"  // NEW SIMPLE LEXICAL SCOPE SYSTEM
+#include "static_analyzer.h"       // For StaticAnalyzer member
 #include <variant>
 #include <memory>
 #include <vector>
@@ -449,6 +450,7 @@ struct LexicalScopeNode : ASTNode {
     
     // Variable packing and memory layout (NEW)
     std::unordered_map<std::string, size_t> variable_offsets; // identifier -> byte offset in scope frame
+    std::unordered_map<std::string, std::unique_ptr<VariableDeclarationInfo>> variable_declarations; // identifier -> declaration info
     size_t total_scope_frame_size = 0;                        // Total size of all variables in this scope
     std::vector<std::string> packed_variable_order;           // Variables in memory layout order
     
@@ -805,7 +807,7 @@ struct FunctionDecl : ASTNode {
     std::vector<std::unique_ptr<ASTNode>> body;
     
     // Lexical scope information for this function
-    std::unique_ptr<LexicalScopeNode> lexical_scope;
+    std::shared_ptr<LexicalScopeNode> lexical_scope;
     
     // Function instance size (computed when scope closes)
     size_t function_instance_size = 0;
@@ -940,7 +942,7 @@ struct BlockStatement : ASTNode {
     bool creates_scope = true;  // Block statements always create new scope
     
     // Lexical scope information for this block
-    std::unique_ptr<LexicalScopeNode> lexical_scope;
+    std::shared_ptr<LexicalScopeNode> lexical_scope;
     
     BlockStatement() {}
     void generate_code(CodeGenerator& gen) override;
@@ -1130,8 +1132,8 @@ private:
     // GC Integration - track variable lifetimes and escapes during parsing
     std::unique_ptr<MinimalParserGCIntegration> gc_integration_;
     
-    // NEW Simple Lexical Scope System - parse-time analysis
-    std::unique_ptr<class SimpleLexicalScopeAnalyzer> lexical_scope_analyzer_;
+    // NEW: Lexical scope analysis during parsing - hoisting and variable registration
+    std::unique_ptr<SimpleLexicalScopeAnalyzer> scope_analyzer_;
     
     // Track current scope variables during parsing for escape analysis (legacy, will be removed)
     std::unordered_map<std::string, std::string> current_scope_variables_;
@@ -1196,11 +1198,11 @@ private:
 public:
     Parser(std::vector<Token> toks) : tokens(std::move(toks)) {
         initialize_gc_integration();
-        initialize_simple_lexical_scope_system();
+        initialize_scope_analysis();
     }
     Parser(std::vector<Token> toks, ErrorReporter* reporter) : tokens(std::move(toks)), error_reporter(reporter) {
         initialize_gc_integration();
-        initialize_simple_lexical_scope_system();
+        initialize_scope_analysis();
     }
     ~Parser(); // Destructor declaration to handle unique_ptr with incomplete type
     std::vector<std::unique_ptr<ASTNode>> parse();
@@ -1210,10 +1212,9 @@ public:
     void finalize_gc_analysis();
     MinimalParserGCIntegration* get_gc_integration() { return gc_integration_.get(); }
     
-    // NEW Simple Lexical Scope System methods
-    void initialize_simple_lexical_scope_system();
-    void finalize_simple_lexical_scope_analysis();
-    class SimpleLexicalScopeAnalyzer* get_lexical_scope_analyzer() { return lexical_scope_analyzer_.get(); }
+    // NEW: Scope analysis methods
+    void initialize_scope_analysis();
+    SimpleLexicalScopeAnalyzer* get_scope_analyzer() { return scope_analyzer_.get(); }
     
     // Current scope variable tracking for escape analysis
     void add_variable_to_current_scope(const std::string& name, const std::string& type);
@@ -1285,6 +1286,9 @@ private:
     
     // NEW: Hold active scope references during code generation to keep them alive
     std::vector<std::shared_ptr<LexicalScopeNode>> active_scopes_;
+    
+    // Static analyzer for scope analysis and variable management
+    std::unique_ptr<StaticAnalyzer> static_analyzer_;
     
 public:
     GoTSCompiler(Backend backend = Backend::X86_64);

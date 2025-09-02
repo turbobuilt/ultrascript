@@ -7,6 +7,7 @@
 #include "function_compilation_manager.h"
 #include "function_address_patching.h"
 #include "ffi_syscalls.h"  // FFI integration
+#include "static_analyzer.h"  // NEW static analysis pass
 
 // Runtime function declarations
 extern "C" void __register_function_code_address(const char* function_name, void* address);
@@ -73,14 +74,25 @@ void GoTSCompiler::compile(const std::string& source) {
         
         Parser parser(std::move(tokens), &error_reporter);
         current_parser = &parser;  // Set reference for lexical scope access
+        
+        // PHASE 1: PARSING - Build AST with minimal scope tracking
+        std::cout << "[COMPILER] PHASE 1: PARSING..." << std::endl;
         auto ast = parser.parse();
         
         std::cout << "AST nodes: " << ast.size() << std::endl;
         
-        // CREATE NEW SCOPE-AWARE CODE GENERATOR
-        auto scope_analyzer = parser.get_lexical_scope_analyzer();
-        codegen = create_scope_aware_codegen(scope_analyzer);
-        std::cout << "[NEW_SYSTEM] Created ScopeAwareCodeGen with static analysis" << std::endl;
+        // PHASE 2: STATIC ANALYSIS - Full AST traversal for scope analysis and variable packing
+        std::cout << "[COMPILER] PHASE 2: STATIC ANALYSIS..." << std::endl;
+        static_analyzer_ = std::make_unique<StaticAnalyzer>();
+        // No parse time scope tracker - StaticAnalyzer builds everything from AST
+        static_analyzer_->analyze(ast);
+        
+        // PHASE 3: CODE GENERATION - Generate code with complete static analysis
+        std::cout << "[COMPILER] PHASE 3: CODE GENERATION..." << std::endl;
+        
+        // CREATE NEW SCOPE-AWARE CODE GENERATOR using the StaticAnalyzer
+        codegen = create_scope_aware_codegen_with_static_analyzer(static_analyzer_.get());
+        std::cout << "[NEW_SYSTEM] Created ScopeAwareCodeGen with complete static analysis" << std::endl;
         
         codegen->clear();
         
@@ -251,17 +263,17 @@ void GoTSCompiler::compile(const std::string& source) {
         
         codegen->emit_prologue();
         
-        // NEW SIMPLE LEXICAL SCOPE SYSTEM: Main function scope tracking handled during parsing
-        std::cout << "[MAIN_SCOPE_DEBUG] Using SimpleLexicalScopeAnalyzer for main function" << std::endl;
+        // NEW STATIC ANALYZER SYSTEM: Main function scope tracking via StaticAnalyzer
+        std::cout << "[MAIN_SCOPE_DEBUG] Using StaticAnalyzer for main function" << std::endl;
         
         // Set the global scope as current for main function code generation
-        LexicalScopeNode* global_scope = parser.get_lexical_scope_analyzer()->get_scope_node_for_depth(1);
+        LexicalScopeNode* global_scope = static_analyzer_->get_scope_node_for_depth(1);
         if (global_scope) {
             // CRITICAL: Pack global scope variables before main function generation
             if (global_scope->variable_offsets.empty() && !global_scope->declared_variables.empty()) {
                 std::cout << "[MAIN_SCOPE_DEBUG] Triggering deferred packing for global scope with " 
                           << global_scope->declared_variables.size() << " variables" << std::endl;
-                parser.get_lexical_scope_analyzer()->perform_deferred_packing_for_scope(global_scope);
+                static_analyzer_->perform_deferred_packing_for_scope(global_scope);
             }
             
             set_current_scope(global_scope);

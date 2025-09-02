@@ -469,16 +469,28 @@ void setup_parent_scope_registers(X86CodeGenV2* x86_gen, LexicalScopeNode* scope
                 // Most frequent scopes get registers R12, R13, R14
                 int scope_reg = g_scope_context.scope_state.available_scope_registers[i];
                 
-                // Get actual scope address from registry
-                x86_gen->emit_mov_reg_imm(7, parent_depth); // RDI = parent scope depth
-                x86_gen->emit_call("__get_scope_address_for_depth"); // Returns scope address in RAX
-                x86_gen->emit_mov_reg_reg(scope_reg, 0); // Move scope address to assigned register
+                // NEW SYSTEM: Direct register assignment instead of legacy runtime call
+                if (parent_depth == 1) {
+                    // Parent is main scope - use r15 (main scope register)
+                    x86_gen->emit_mov_reg_reg(scope_reg, 15); // Move r15 to assigned register
+                    std::cout << "[SCOPE_CODEGEN] Assigned parent scope depth " << parent_depth 
+                              << " to register r" << scope_reg << " = r15 (main scope)" << std::endl;
+                } else {
+                    // Parent is intermediate scope - find its register
+                    auto parent_reg_it = g_scope_context.scope_state.scope_depth_to_register.find(parent_depth);
+                    if (parent_reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
+                        int parent_reg = parent_reg_it->second;
+                        x86_gen->emit_mov_reg_reg(scope_reg, parent_reg);
+                        std::cout << "[SCOPE_CODEGEN] Assigned parent scope depth " << parent_depth 
+                                  << " to register r" << scope_reg << " = r" << parent_reg << std::endl;
+                    } else {
+                        std::cout << "[SCOPE_CODEGEN] ERROR: Parent scope depth " << parent_depth 
+                                  << " not found in register mapping!" << std::endl;
+                    }
+                }
                 
                 // Track the assignment
                 g_scope_context.scope_state.scope_depth_to_register[parent_depth] = scope_reg;
-                
-                std::cout << "[SCOPE_CODEGEN] Assigned parent scope depth " << parent_depth 
-                          << " to register r" << scope_reg << " (priority " << i << ")" << std::endl;
             } else {
                 // Less frequent scopes go to stack
                 g_scope_context.scope_state.stack_stored_scopes.push_back(parent_depth);
@@ -987,13 +999,22 @@ void Identifier::generate_code(CodeGenerator& gen) {
         return;
     }
 
+    // Cast to ScopeAwareCodeGen to get variable declaration info
+    auto scope_gen = dynamic_cast<ScopeAwareCodeGen*>(&gen);
+    if (!scope_gen) {
+        throw std::runtime_error("Variable access requires ScopeAwareCodeGen");
+    }
+    
+    // Get variable declaration info from the scope system
+    VariableDeclarationInfo* var_info = scope_gen->get_variable_declaration_info(name);
+    
     // SPECIAL HANDLING FOR FUNCTION VARIABLES WHEN ACCESSED AS VALUES
     // Check if this is a function variable that needs initialization
-    if (variable_declaration_info && variable_declaration_info->data_type == DataType::FUNCTION) {
+    if (var_info && var_info->data_type == DataType::FUNCTION) {
         std::cout << "[FUNCTION_VARIABLE] Function variable '" << name << "' accessed as value, creating function instance" << std::endl;
         
         // Get the function declaration for this variable name
-        LexicalScopeNode* func_scope = definition_scope;
+        LexicalScopeNode* func_scope = scope_gen->get_definition_scope_for_variable(name);
         FunctionDecl* func_decl = nullptr;
         if (func_scope) {
             for (auto* decl : func_scope->declared_functions) {
@@ -1079,41 +1100,59 @@ void Identifier::generate_code(CodeGenerator& gen) {
     }
     
     // ULTRA-FAST DIRECT POINTER ACCESS - Zero lookups needed!
-    if (variable_declaration_info) {
+    if (var_info) {
         std::cout << "[DEBUG_CRASH] Have variable_declaration_info, about to get result_type" << std::endl;
         // Get variable type directly from declaration info
-        result_type = variable_declaration_info->data_type;
+        result_type = var_info->data_type;
         std::cout << "[DEBUG_CRASH] Got result_type, about to check if param" << std::endl;
         
         // SPECIAL HANDLING FOR PARAMETERS
-        if (variable_declaration_info->declaration_type == "param") {
+        if (var_info->declaration_type == "param") {
             std::cout << "[PARAMETER_ACCESS] Accessing parameter '" << name << "'" << std::endl;
-            std::cout << "[PARAMETER_ACCESS] declaration_type='" << variable_declaration_info->declaration_type << "'" << std::endl;
+            std::cout << "[PARAMETER_ACCESS] declaration_type='" << var_info->declaration_type << "'" << std::endl;
             
             // Parameters are stored in the scope object at their designated offsets
             // Use the same scope access logic as regular variables
             std::cout << "[PARAMETER_ACCESS] Parameter '" << name 
-                      << "' will be accessed from scope object at offset " << variable_declaration_info->offset << std::endl;
+                      << "' will be accessed from scope object at offset " << var_info->offset << std::endl;
             // Fall through to normal scope access logic below
         } else {
-            std::cout << "[PARAMETER_ACCESS] Not a parameter: declaration_type='" << variable_declaration_info->declaration_type << "'" << std::endl;
+            std::cout << "[PARAMETER_ACCESS] Not a parameter: declaration_type='" << var_info->declaration_type << "'" << std::endl;
         }
         
         // Use the direct offset from variable_declaration_info (FASTEST - no map lookup!)
-        size_t var_offset = variable_declaration_info->offset;
+        size_t var_offset = var_info->offset;
+        
+        LexicalScopeNode* definition_scope = scope_gen->get_definition_scope_for_variable(name);
+        int definition_depth = var_info->depth;
+        
+        std::cout << "[DEBUG_OFFSET] Variable '" << name << "' using offset " << var_offset 
+                  << " from VariableDeclarationInfo (declaration_depth=" << definition_depth << ")" << std::endl;
+
+        // CRITICAL FIX: For parent scope variables, get offset from the actual defining scope
+        // instead of the potentially stale VariableDeclarationInfo
+        int current_scope_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
+        
+        if (definition_depth != current_scope_depth && definition_scope) {
+            auto offset_it = definition_scope->variable_offsets.find(name);
+            if (offset_it != definition_scope->variable_offsets.end()) {
+                var_offset = offset_it->second;
+                std::cout << "[OFFSET_FIX] Corrected offset for '" << name 
+                          << "' from defining scope: " << var_offset << " (was " 
+                          << var_info->offset << ")" << std::endl;
+            }
+        }
         
         // Generate optimal load code based on scope depth comparison
         std::cout << "[DEBUG_SCOPE] definition_scope=" << definition_scope 
                   << ", current_scope=" << g_scope_context.current_scope 
                   << ", definition_depth=" << definition_depth << std::endl;
                   
-        int current_scope_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
-        
         if (definition_depth == current_scope_depth) {
             // Loading from current scope (fastest path)
             gen.emit_mov_reg_reg_offset(0, 15, var_offset); // rax = [r15 + offset]
             std::cout << "[NEW_CODEGEN] Loaded from local variable '" << name << "' at r15+" << var_offset 
-                      << " (type=" << static_cast<int>(variable_declaration_info->data_type) << ")" << std::endl;
+                      << " (type=" << static_cast<int>(var_info->data_type) << ")" << std::endl;
         } else if (definition_depth < current_scope_depth) {
             // Variable is in parent scope (normal case)
             int scope_depth = definition_depth;  // Use copied depth instead of pointer access

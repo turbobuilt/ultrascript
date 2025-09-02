@@ -2,6 +2,7 @@
 
 #include "x86_codegen_v2.h"
 #include "simple_lexical_scope.h"
+#include "static_analyzer.h"
 #include "compiler.h"
 #include <unordered_map>
 #include <unordered_set>
@@ -10,6 +11,7 @@
 
 // Forward declarations
 class SimpleLexicalScopeAnalyzer;
+class StaticAnalyzer;
 class LexicalScopeNode;
 
 // NEW SCOPE-AWARE CODE GENERATOR
@@ -34,6 +36,7 @@ private:
     // Current context
     LexicalScopeNode* current_scope = nullptr;
     SimpleLexicalScopeAnalyzer* scope_analyzer = nullptr;
+    StaticAnalyzer* static_analyzer_ = nullptr;
     
     // Type information from parse phase
     std::unordered_map<std::string, DataType> variable_types;
@@ -41,6 +44,7 @@ private:
 
 public:
     ScopeAwareCodeGen(SimpleLexicalScopeAnalyzer* analyzer);
+    ScopeAwareCodeGen(StaticAnalyzer* analyzer);
     
     // --- NEW FUNCTION INSTANCE CREATION ---
     void emit_function_instance_creation(struct FunctionDecl* child_func, size_t func_offset);
@@ -55,6 +59,11 @@ public:
     // Set the current scope context
     void set_current_scope(LexicalScopeNode* scope);
     
+    // Scope data access (compatible with both old and new systems)
+    LexicalScopeNode* get_scope_node_for_depth(int depth);
+    LexicalScopeNode* get_definition_scope_for_variable(const std::string& name);
+    void perform_deferred_packing_for_scope(LexicalScopeNode* scope_node);
+    
     // Scope management methods
     void enter_lexical_scope(LexicalScopeNode* scope_node);
     void exit_lexical_scope(LexicalScopeNode* scope_node);
@@ -62,6 +71,7 @@ public:
     // Variable access methods
     void emit_variable_load(const std::string& var_name);
     void emit_variable_store(const std::string& var_name);
+    VariableDeclarationInfo* get_variable_declaration_info(const std::string& name);
     
     // Type context methods
     void set_variable_type(const std::string& name, DataType type);
@@ -78,7 +88,9 @@ private:
 };
 
 // Factory function to create new scope-aware code generator
+// Factory functions
 std::unique_ptr<CodeGenerator> create_scope_aware_codegen(SimpleLexicalScopeAnalyzer* analyzer);
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen_with_static_analyzer(StaticAnalyzer* analyzer);
 
 // Global codegen instance helper functions
 ScopeAwareCodeGen* get_current_scope_codegen();

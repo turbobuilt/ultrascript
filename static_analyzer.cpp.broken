@@ -1,0 +1,446 @@
+#include "static_analyzer.h"
+#include "simple_lexical_scope.h"
+#include "compiler.h"
+#include "function_instance.h"
+#include <iostream>
+#include <algorithm>
+#include <set>
+
+StaticAnalyzer::StaticAnalyzer() 
+    : current_scope_(nullptr), current_depth_(0) {
+    std::cout << "[StaticAnalyzer] Initialized static analyzer for pure AST analysis" << std::endl;
+}
+
+StaticAnalyzer::~StaticAnalyzer() {
+    std::cout << "[StaticAnalyzer] Static analyzer destroyed" << std::endl;
+}
+
+// Public interface methods (for compatibility with code generator)
+LexicalScopeNode* StaticAnalyzer::get_scope_node_for_depth(int depth) const {
+    auto it = depth_to_scope_node_.find(depth);
+    return (it != depth_to_scope_node_.end()) ? it->second.get() : nullptr;
+}
+
+LexicalScopeNode* StaticAnalyzer::get_definition_scope_for_variable(const std::string& name) const {
+    // Search through all scopes for the variable definition
+    for (const auto& scope_pair : depth_to_scope_node_) {
+        LexicalScopeNode* scope = scope_pair.second.get();
+        if (scope && scope->declared_variables.find(name) != scope->declared_variables.end()) {
+            return scope;
+        }
+    }
+    return nullptr;
+}
+
+void StaticAnalyzer::analyze(std::vector<std::unique_ptr<ASTNode>>& ast) {
+    std::cout << "[StaticAnalyzer] Starting pure AST analysis on " << ast.size() << " AST nodes" << std::endl;
+    
+    // Phase 1: Build complete scope hierarchy from AST traversal
+    std::cout << "[StaticAnalyzer] Phase 1: Building scope hierarchy from AST..." << std::endl;
+    build_scope_hierarchy_from_ast(ast);
+    
+    // Phase 2: Resolve all variable references using complete scope information
+    std::cout << "[StaticAnalyzer] Phase 2: Resolving all variable references..." << std::endl;
+    resolve_all_variable_references_from_ast(ast);
+    
+    // Phase 3: Perform variable packing for all scopes with optimal alignment
+    std::cout << "[StaticAnalyzer] Phase 3: Performing complete variable packing..." << std::endl;
+    perform_complete_variable_packing_from_scopes();
+    
+    // Phase 4: Compute function static analysis (dependency tracking, etc.)
+    std::cout << "[StaticAnalyzer] Phase 4: Computing complete function static analysis..." << std::endl;
+    compute_complete_function_analysis_from_scopes();
+    
+    std::cout << "[StaticAnalyzer] Pure AST static analysis completed successfully" << std::endl;
+    print_analysis_results();
+}
+
+void StaticAnalyzer::build_scope_hierarchy_from_ast(const std::vector<std::unique_ptr<ASTNode>>& ast) {
+    std::cout << "[StaticAnalyzer] Building scope hierarchy from pure AST analysis..." << std::endl;
+    
+    // Create global scope (depth 1)
+    auto global_scope = std::make_unique<LexicalScopeNode>(1, true);
+    current_depth_ = 1;
+    current_scope_ = global_scope.get();
+    depth_to_scope_node_[1] = std::move(global_scope);
+    
+    // Traverse AST to find all scopes
+    for (const auto& node : ast) {
+        traverse_ast_node_for_scopes(node.get());
+    }
+    
+    std::cout << "[StaticAnalyzer] Built " << depth_to_scope_node_.size() << " scope nodes from AST" << std::endl;
+}
+
+void StaticAnalyzer::resolve_all_variable_references_from_ast(const std::vector<std::unique_ptr<ASTNode>>& ast) {
+    std::cout << "[StaticAnalyzer] Resolving variable references from AST..." << std::endl;
+    
+    // Reset for variable resolution
+    current_depth_ = 1;
+    current_scope_ = depth_to_scope_node_[1].get();
+    
+    // Traverse AST to find all variable references
+    for (const auto& node : ast) {
+        traverse_ast_node_for_variables(node.get());
+    }
+    
+    std::cout << "[StaticAnalyzer] Variable reference resolution complete" << std::endl;
+}
+
+void StaticAnalyzer::perform_complete_variable_packing_from_scopes() {
+    std::cout << "[StaticAnalyzer] Performing variable packing for all scopes..." << std::endl;
+    
+    // Pack variables in all discovered scopes
+    for (auto& scope_entry : depth_to_scope_node_) {
+        LexicalScopeNode* scope = scope_entry.second.get();
+        if (scope && !scope->declared_variables.empty()) {
+            perform_optimal_packing_for_scope(scope);
+        }
+    }
+    
+    std::cout << "[StaticAnalyzer] Variable packing complete" << std::endl;
+}
+
+void StaticAnalyzer::compute_complete_function_analysis_from_scopes() {
+    std::cout << "[StaticAnalyzer] Computing function analysis for all scopes..." << std::endl;
+    
+    // Analyze all function scopes  
+    for (auto& scope_entry : depth_to_scope_node_) {
+        LexicalScopeNode* scope = scope_entry.second.get();
+        if (scope && scope->is_function_scope) {
+            analyze_function_dependencies(scope);
+        }
+    }
+    
+    std::cout << "[StaticAnalyzer] Function analysis complete" << std::endl;
+}
+
+void StaticAnalyzer::traverse_ast_node_for_scopes(ASTNode* node) {
+    if (!node) return;
+    
+    // Handle function declarations and expressions that create scopes
+    if (auto* func_decl = dynamic_cast<FunctionDecl*>(node)) {
+        // Enter function scope
+        current_depth_++;
+        auto function_scope = std::make_unique<LexicalScopeNode>(current_depth_, true);
+        current_scope_ = function_scope.get();
+        depth_to_scope_node_[current_depth_] = std::move(function_scope);
+        
+        // Record function declaration in parent scope
+        if (depth_to_scope_node_[current_depth_ - 1]) {
+            depth_to_scope_node_[current_depth_ - 1]->register_function_declaration(func_decl);
+        }
+        
+        // Traverse function body
+        for (const auto& stmt : func_decl->body) {
+            traverse_ast_node_for_scopes(stmt.get());
+        }
+        
+        // Exit function scope
+        current_depth_--;
+        current_scope_ = depth_to_scope_node_[current_depth_].get();
+    }
+    else if (auto* func_expr = dynamic_cast<FunctionExpression*>(node)) {
+        // Similar to function declaration
+        current_depth_++;
+        auto function_scope = std::make_unique<LexicalScopeNode>(current_depth_, true);
+        current_scope_ = function_scope.get();
+        depth_to_scope_node_[current_depth_] = std::move(function_scope);
+        
+        // Record function expression in parent scope
+        if (depth_to_scope_node_[current_depth_ - 1]) {
+            depth_to_scope_node_[current_depth_ - 1]->register_function_expression(func_expr);
+        }
+        
+        // Traverse function body
+        for (const auto& stmt : func_expr->body) {
+            traverse_ast_node_for_scopes(stmt.get());
+        }
+        
+        // Exit function scope
+        current_depth_--;
+        current_scope_ = depth_to_scope_node_[current_depth_].get();
+    }
+    // TODO: Add more node types that create scopes (if/while blocks, etc.)
+}
+
+void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
+    if (!node) return;
+    
+    // Handle variable declarations and references
+    if (auto* assignment = dynamic_cast<Assignment*>(node)) {
+        // This is a variable declaration/assignment
+        if (current_scope_) {
+            current_scope_->declared_variables.insert(assignment->variable_name);
+            std::cout << "[StaticAnalyzer] Found variable declaration: " << assignment->variable_name 
+                      << " at depth " << current_depth_ << std::endl;
+        }
+    }
+    else if (auto* identifier = dynamic_cast<Identifier*>(node)) {
+        // This is a variable reference - for now just log it
+        std::cout << "[StaticAnalyzer] Found variable reference: " << identifier->name 
+                  << " at depth " << current_depth_ << std::endl;
+    }
+    
+    // TODO: Add more comprehensive AST traversal for all node types
+}
+
+void StaticAnalyzer::perform_optimal_packing_for_scope(LexicalScopeNode* scope_node) {
+    if (!scope_node) return;
+    
+    std::cout << "[StaticAnalyzer] Performing optimal packing for scope at depth " 
+              << scope_node->scope_depth << " with " << scope_node->declared_variables.size() 
+              << " variables" << std::endl;
+    
+    // Clear existing packing
+    scope_node->variable_offsets.clear();
+    scope_node->packed_variable_order.clear();
+    
+    struct VariablePacking {
+        std::string name;
+        size_t size;
+        size_t alignment;
+        DataType data_type;
+        bool is_function;
+    };
+    
+    std::vector<VariablePacking> vars_to_pack;
+    
+    // Collect variables for packing
+    for (const auto& var_entry : scope_node->declared_variables) {
+        const std::string& var_name = var_entry.first;
+        const VariableDeclarationInfo& decl = var_entry.second;
+        
+        VariablePacking pack;
+        pack.name = var_name;
+        pack.data_type = decl.data_type;
+        pack.is_function = (decl.data_type == DataType::LOCAL_FUNCTION_INSTANCE || 
+                           decl.data_type == DataType::EXTERNAL_FUNCTION_REFERENCE ||
+                           decl.data_type == DataType::DYNAMIC_VALUE);
+        
+        if (pack.is_function) {
+            // Handle function packing
+            size_t function_size = 16; // Default function instance size
+            
+            // Check if there's a computed instance size
+            for (const auto* func_decl : scope_node->declared_functions) {
+                if (func_decl && func_decl->name == var_name) {
+                    function_size = func_decl->function_instance_size;
+                    break;
+                }
+            }
+            
+            // Check function expressions too
+            for (const auto* func_expr : scope_node->declared_function_expressions) {
+                if (func_expr && func_expr->name == var_name) {
+                    function_size = func_expr->function_instance_size;
+                    break;
+                }
+            }
+            
+            pack.size = function_size;
+            pack.alignment = 8; // Function instances are always 8-byte aligned
+            
+            std::cout << "[StaticAnalyzer] Function '" << var_name << "' using size: " 
+                      << function_size << " bytes" << std::endl;
+        } else {
+            pack.size = get_datatype_size(decl.data_type);
+            pack.alignment = get_datatype_alignment(decl.data_type);
+        }
+        
+        vars_to_pack.push_back(pack);
+    }
+    
+    // Sort variables by alignment (descending) then size (descending) for optimal packing
+    std::sort(vars_to_pack.begin(), vars_to_pack.end(), 
+        [](const VariablePacking& a, const VariablePacking& b) {
+            if (a.alignment != b.alignment) {
+                return a.alignment > b.alignment; // Higher alignment first
+            }
+            return a.size > b.size; // Larger size first
+        });
+    
+    size_t current_offset = 0;
+    
+    // Pack variables with proper alignment
+    for (const auto& var : vars_to_pack) {
+        // Calculate aligned offset
+        size_t aligned_offset = current_offset;
+        if (var.alignment > 1) {
+            size_t remainder = current_offset % var.alignment;
+            if (remainder != 0) {
+                aligned_offset = current_offset + (var.alignment - remainder);
+            }
+        }
+        
+        // Store the offset
+        scope_node->variable_offsets[var.name] = aligned_offset;
+        scope_node->packed_variable_order.push_back(var.name);
+        
+        // Update declaration info offset
+        auto& decl_info = scope_node->declared_variables[var.name];
+        decl_info.offset = aligned_offset;
+        
+        // Update current offset
+        current_offset = aligned_offset + var.size;
+        
+        std::cout << "[StaticAnalyzer] Packed " << var.name << " (size=" << var.size 
+                  << ", align=" << var.alignment << ", type=" << static_cast<int>(var.data_type) 
+                  << ") at offset " << aligned_offset << std::endl;
+    }
+    
+    // Final alignment to 8-byte boundary
+    if (current_offset % 8 != 0) {
+        current_offset += (8 - (current_offset % 8));
+    }
+    
+    scope_node->total_scope_frame_size = current_offset;
+    
+    std::cout << "[StaticAnalyzer] Optimal packing complete for scope depth " 
+              << scope_node->scope_depth << ": " << current_offset << " bytes total" << std::endl;
+}
+
+void StaticAnalyzer::analyze_function_dependencies(LexicalScopeNode* scope_node) {
+    if (!scope_node) return;
+    
+    std::cout << "[StaticAnalyzer] Analyzing dependencies for scope at depth " 
+              << scope_node->scope_depth << std::endl;
+    
+    // The dependency analysis was already done during parsing
+    // Here we can validate and optimize the dependencies
+    
+    std::cout << "[StaticAnalyzer] Scope has " << scope_node->self_dependencies.size() 
+              << " self dependencies and " << scope_node->descendant_dependencies.size() 
+              << " descendant dependencies" << std::endl;
+}
+// Helper methods for scope management and variable lookup
+
+void StaticAnalyzer::enter_scope(LexicalScopeNode* scope) {
+    scope_stack_.push_back(scope);
+    current_scope_ = scope;
+    current_depth_ = scope->scope_depth;
+}
+
+void StaticAnalyzer::exit_scope() {
+    if (!scope_stack_.empty()) {
+        scope_stack_.pop_back();
+        current_scope_ = scope_stack_.empty() ? nullptr : scope_stack_.back();
+        current_depth_ = current_scope_ ? current_scope_->scope_depth : 0;
+    }
+}
+
+VariableDeclarationInfo* StaticAnalyzer::find_variable_declaration(const std::string& name, int access_depth) {
+    auto it = all_variable_declarations_.find(name);
+    if (it == all_variable_declarations_.end()) {
+        return nullptr;
+    }
+    
+    // Find the most accessible declaration for this depth
+    VariableDeclarationInfo* best_match = nullptr;
+    for (auto* decl : it->second) {
+        // Variable must be declared at same depth or outer scope
+        if (decl->depth <= access_depth) {
+            if (!best_match || decl->depth > best_match->depth) {
+                best_match = decl; // Pick the closest enclosing scope
+            }
+        }
+    }
+    
+    return best_match;
+}
+
+int StaticAnalyzer::compute_access_depth_between_scopes(LexicalScopeNode* definition_scope, LexicalScopeNode* access_scope) {
+    if (!definition_scope || !access_scope) return -1;
+    
+    return access_scope->scope_depth - definition_scope->scope_depth;
+}
+
+// DataType size and alignment utilities (compatible with existing system)
+size_t StaticAnalyzer::get_datatype_size(DataType type) const {
+    switch (type) {
+        case DataType::INT32: return 4;
+        case DataType::INT64: return 8;
+        case DataType::FLOAT32: return 4;
+        case DataType::FLOAT64: return 8;
+        case DataType::BOOLEAN: return 1;
+        case DataType::STRING: return 8; // Pointer to string
+        case DataType::LOCAL_FUNCTION_INSTANCE: return 16; // Default function instance
+        case DataType::DYNAMIC_VALUE: return 16; // DynamicValue struct
+        default: return 8; // Default to pointer size
+    }
+}
+
+size_t StaticAnalyzer::get_datatype_alignment(DataType type) const {
+    switch (type) {
+        case DataType::INT32: return 4;
+        case DataType::FLOAT32: return 4;
+        case DataType::BOOLEAN: return 1;
+        case DataType::INT64: 
+        case DataType::FLOAT64:
+        case DataType::STRING:
+        case DataType::LOCAL_FUNCTION_INSTANCE:
+        case DataType::DYNAMIC_VALUE:
+        default: return 8; // 8-byte alignment for most types
+    }
+}
+
+// Public interface for code generation
+LexicalScopeNode* StaticAnalyzer::get_scope_node_for_depth(int depth) const {
+    if (parse_time_scope_tracker_) {
+        return parse_time_scope_tracker_->get_scope_node_for_depth(depth);
+    }
+    return nullptr;
+}
+
+LexicalScopeNode* StaticAnalyzer::get_definition_scope_for_variable(const std::string& name) const {
+    if (parse_time_scope_tracker_) {
+        return parse_time_scope_tracker_->get_definition_scope_for_variable(name);
+    }
+    return nullptr;
+}
+
+// Support for deferred packing (needed by code generation)
+void StaticAnalyzer::perform_deferred_packing_for_scope(LexicalScopeNode* scope_node) {
+    if (scope_node && scope_node->variable_offsets.empty() && !scope_node->declared_variables.empty()) {
+        std::cout << "[StaticAnalyzer] Performing deferred packing for scope at depth " 
+                  << scope_node->scope_depth << " with " << scope_node->declared_variables.size() 
+                  << " variables" << std::endl;
+        
+        perform_optimal_packing_for_scope(scope_node);
+        
+        std::cout << "[StaticAnalyzer] Deferred packing completed: " << scope_node->total_scope_frame_size << " bytes total" << std::endl;
+        
+        // Debug output
+        for (const auto& var_entry : scope_node->variable_offsets) {
+            std::cout << "[StaticAnalyzer]   " << var_entry.first << " -> offset " << var_entry.second << std::endl;
+        }
+    }
+}
+
+void StaticAnalyzer::print_analysis_results() const {
+    std::cout << "[StaticAnalyzer] === STATIC ANALYSIS RESULTS ===" << std::endl;
+    std::cout << "[StaticAnalyzer] Total variables analyzed: " << all_variable_declarations_.size() << std::endl;
+    std::cout << "[StaticAnalyzer] Unresolved variables: " << unresolved_variables_.size() << std::endl;
+    
+    if (!unresolved_variables_.empty()) {
+        std::cout << "[StaticAnalyzer] Unresolved: ";
+        for (const auto& var : unresolved_variables_) {
+            std::cout << var << " ";
+        }
+        std::cout << std::endl;
+    }
+    
+    std::cout << "[StaticAnalyzer] =================================" << std::endl;
+}
+
+void StaticAnalyzer::analyze_function_dependencies(LexicalScopeNode* scope) {
+    if (!scope || !scope->is_function_scope) return;
+    
+    std::cout << "[StaticAnalyzer] Analyzing function dependencies for scope at depth " << scope->scope_depth << std::endl;
+    
+    // For now, basic analysis - can be expanded
+    // scope->has_closures = (scope->scope_depth > 1); // Functions beyond global can have closures
+    
+    std::cout << "[StaticAnalyzer] Function scope analysis complete - closures: " 
+              << (scope->scope_depth > 1 ? "yes" : "no") << std::endl;
+}
