@@ -1,7 +1,7 @@
 var x = 42;
 
-function test(){
-    console.log(x);
+function test(a){
+    console.log(x,a);
 }
 
-test();
+test(21);

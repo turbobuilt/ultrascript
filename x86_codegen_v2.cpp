@@ -11,6 +11,8 @@ static std::string generate_unique_label(const std::string& base) {
 #include "runtime_syscalls.h"  // For runtime syscalls
 #include "free_runtime.h"  // For free runtime functions
 #include "dynamic_properties.h"  // For dynamic property functions
+#include "simple_lexical_scope.h"  // For scope management
+#include "static_analyzer.h"  // For static analysis
 #include <cassert>
 #include <iostream>
 #include <cstdlib>  // For malloc
@@ -21,9 +23,11 @@ static std::string generate_unique_label(const std::string& base) {
 
 // Forward declarations for function system runtime functions
 extern "C" {
-    void __register_scope_address_for_depth(int depth, void* address);
-    void* __get_scope_address_for_depth(int depth);
-    void __unregister_scope_address_for_depth(int depth);
+    // REMOVED: Runtime scope functions (violate FUNCTION.md compile-time design)
+    // void __register_scope_address_for_depth(int depth, void* address);
+    // void* __get_scope_address_for_depth(int depth);
+    // void __unregister_scope_address_for_depth(int depth);
+    
     void __register_function_code_address(const char* function_name, void* address);
     void* __get_function_code_address(const char* function_name);
     void* __create_function_instance(size_t total_size, void* function_code_addr, void** scope_addresses, size_t num_scopes);
@@ -35,6 +39,9 @@ extern "C" {
     void __patch_all_function_instances(void* executable_memory_base);
     void initialize_function_variable(void* variable_memory, void* function_code_addr, size_t scope_count, void** captured_scopes, size_t max_function_instance_size);
 }
+
+// Forward declarations for scope management
+extern void set_current_scope(LexicalScopeNode* scope);
 
 // Forward declarations for goroutine V2 functions
 extern "C" {
@@ -98,6 +105,11 @@ extern "C" void* __goroutine_spawn_func_ptr_with_scope(void* func_ptr, void* arg
 extern "C" void* __goroutine_spawn_and_wait_direct(void* function_address);
 extern "C" void* __goroutine_spawn_and_wait_fast(void* func_address);
 extern "C" void* __goroutine_spawn_direct(void* function_address);
+
+// Forward declarations for string functions
+extern "C" void* __string_concat(void* str1, void* str2);
+extern "C" void* __string_concat_cstr(void* str_ptr, const char* cstr);
+extern "C" void* __string_concat_cstr_left(const char* cstr, void* str_ptr);
 
 // =============================================================================
 // Utility Functions  
@@ -170,8 +182,43 @@ X86CodeGenV2::X86CodeGenV2() {
     instruction_builder = std::make_unique<X86InstructionBuilder>(code_buffer);
     pattern_builder = std::make_unique<X86PatternBuilder>(*instruction_builder);
     
+    // Initialize scope management members
+    current_scope = nullptr;
+    scope_analyzer = nullptr;
+    static_analyzer_ = nullptr;
+    
     // CRITICAL: Initialize with clean label state to prevent cross-compilation pollution
     instruction_builder->clear_label_state();
+}
+
+X86CodeGenV2::X86CodeGenV2(SimpleLexicalScopeAnalyzer* analyzer) {
+    instruction_builder = std::make_unique<X86InstructionBuilder>(code_buffer);
+    pattern_builder = std::make_unique<X86PatternBuilder>(*instruction_builder);
+    
+    // Initialize scope management members
+    current_scope = nullptr;
+    scope_analyzer = analyzer;
+    static_analyzer_ = nullptr;
+    
+    // CRITICAL: Initialize with clean label state to prevent cross-compilation pollution
+    instruction_builder->clear_label_state();
+    
+    std::cout << "[NEW_SYSTEM] X86CodeGenV2 created with SimpleLexicalScopeAnalyzer" << std::endl;
+}
+
+X86CodeGenV2::X86CodeGenV2(StaticAnalyzer* analyzer) {
+    instruction_builder = std::make_unique<X86InstructionBuilder>(code_buffer);
+    pattern_builder = std::make_unique<X86PatternBuilder>(*instruction_builder);
+    
+    // Initialize scope management members
+    current_scope = nullptr;
+    scope_analyzer = nullptr;
+    static_analyzer_ = analyzer;
+    
+    // CRITICAL: Initialize with clean label state to prevent cross-compilation pollution
+    instruction_builder->clear_label_state();
+    
+    std::cout << "[NEW_SYSTEM] X86CodeGenV2 created with StaticAnalyzer" << std::endl;
 }
 
 X86Reg X86CodeGenV2::allocate_register() {
@@ -534,6 +581,8 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         
         // String functions
         (*runtime_functions)["__string_concat"] = reinterpret_cast<void*>(__string_concat);
+        (*runtime_functions)["__string_concat_cstr"] = reinterpret_cast<void*>(__string_concat_cstr);
+        (*runtime_functions)["__string_concat_cstr_left"] = reinterpret_cast<void*>(__string_concat_cstr_left);
         (*runtime_functions)["__string_match"] = reinterpret_cast<void*>(__string_match);
         (*runtime_functions)["__string_create_with_length"] = reinterpret_cast<void*>(__string_create_with_length);
         (*runtime_functions)["__string_equals"] = reinterpret_cast<void*>(__string_equals);
@@ -674,9 +723,10 @@ void* X86CodeGenV2::get_runtime_function_address(const std::string& function_nam
         (*runtime_functions)["is_goroutine_ffi_bound"] = reinterpret_cast<void*>(is_goroutine_ffi_bound);
         
         // Function system runtime functions - FUNCTION.md implementation
-        (*runtime_functions)["__register_scope_address_for_depth"] = reinterpret_cast<void*>(__register_scope_address_for_depth);
-        (*runtime_functions)["__get_scope_address_for_depth"] = reinterpret_cast<void*>(__get_scope_address_for_depth);
-        (*runtime_functions)["__unregister_scope_address_for_depth"] = reinterpret_cast<void*>(__unregister_scope_address_for_depth);
+        // REMOVED: Runtime scope functions (violate FUNCTION.md compile-time design)
+        // (*runtime_functions)["__register_scope_address_for_depth"] = reinterpret_cast<void*>(__register_scope_address_for_depth);
+        // (*runtime_functions)["__get_scope_address_for_depth"] = reinterpret_cast<void*>(__get_scope_address_for_depth);
+        // (*runtime_functions)["__unregister_scope_address_for_depth"] = reinterpret_cast<void*>(__unregister_scope_address_for_depth);
         (*runtime_functions)["__register_function_code_address"] = reinterpret_cast<void*>(__register_function_code_address);
         (*runtime_functions)["__get_function_code_address"] = reinterpret_cast<void*>(__get_function_code_address);
         (*runtime_functions)["__create_function_instance"] = reinterpret_cast<void*>(__create_function_instance);
@@ -1526,6 +1576,265 @@ void X86CodeGenV2::emit_push_reg(int reg) {
 void X86CodeGenV2::emit_pop_reg(int reg) {
     // pop reg64 encoding: 0x58 + reg  
     code_buffer.push_back(0x58 + reg);
+}
+
+// =============================================================================
+// SCOPE MANAGEMENT METHODS (merged from ScopeAwareCodeGen)
+// =============================================================================
+
+// Minimal stub implementations for removed methods
+void X86CodeGenV2::emit_function_instance_creation(struct FunctionDecl* child_func, size_t func_offset) {
+    // Method removed - this is a stub to prevent compile errors
+    (void)child_func;
+    (void)func_offset;
+    std::cout << "[REMOVED] emit_function_instance_creation called - method removed" << std::endl;
+}
+
+void X86CodeGenV2::emit_function_instance_call(size_t func_offset, const std::vector<std::unique_ptr<ASTNode>>& arguments) {
+    // Method removed - this is a stub to prevent compile errors
+    (void)func_offset;
+    (void)arguments;
+    std::cout << "[REMOVED] emit_function_instance_call called - method removed" << std::endl;
+}
+
+// Legacy method stub
+void X86CodeGenV2::setup_parent_scope_registers(LexicalScopeNode* scope_node) {
+    // DEPRECATED STUB - Parent scopes now accessed via runtime lookup
+    (void)scope_node; // Suppress unused parameter warnings
+}
+
+void X86CodeGenV2::emit_function_prologue(struct FunctionDecl* function) {
+    std::cout << "[NEW_FUNCTION_SYSTEM] Generating prologue for " << function->name 
+              << " using hidden parameter approach" << std::endl;
+    
+    // Standard function prologue
+    emit_push_reg(5);       // push rbp
+    emit_mov_reg_reg(5, 4); // mov rbp, rsp
+    
+    // Allocate local scope on heap for the function's variables
+    if (function->lexical_scope && function->lexical_scope->total_scope_frame_size > 0) {
+        size_t local_scope_size = function->lexical_scope->total_scope_frame_size;
+        std::cout << "[NEW_FUNCTION_SYSTEM] Allocating " << local_scope_size 
+                  << " bytes for function local scope" << std::endl;
+        
+        emit_mov_reg_imm(7, local_scope_size); // RDI = size
+        emit_call("malloc");                   // RAX = allocated memory
+        emit_mov_reg_reg(15, 0);              // R15 = local scope address
+        
+        // Initialize local scope to zeros
+        if (local_scope_size <= 64) {
+            // Small scope: direct zero writes
+            for (size_t i = 0; i < local_scope_size; i += 8) {
+                emit_mov_reg_imm(0, 0);
+                emit_mov_reg_offset_reg(15, i, 0);
+            }
+        } else {
+            // Large scope: use memset
+            emit_mov_reg_reg(7, 15);           // RDI = scope memory
+            emit_mov_reg_imm(6, 0);            // RSI = 0 (fill value)
+            emit_mov_reg_imm(2, local_scope_size); // RDX = size
+            emit_call("memset");
+        }
+    } else {
+        // Even functions without variables get a minimal scope allocation
+        emit_mov_reg_imm(7, 8);             // RDI = 8 bytes minimum
+        emit_call("malloc");
+        emit_mov_reg_reg(15, 0);            // R15 = minimal scope
+        std::cout << "[NEW_FUNCTION_SYSTEM] Allocated minimal scope for " << function->name << std::endl;
+    }
+    
+    // NEW: Receive parent scope addresses as hidden parameters
+    // These are passed after the regular function arguments
+    if (function->lexical_scope && !function->lexical_scope->priority_sorted_parent_scopes.empty()) {
+        const auto& needed_scopes = function->lexical_scope->priority_sorted_parent_scopes;
+        std::cout << "[NEW_FUNCTION_SYSTEM] Loading " << needed_scopes.size() 
+                  << " parent scope addresses from hidden parameters" << std::endl;
+        
+        // Parent scopes are passed as hidden parameters after regular arguments
+        // They appear on the stack above the return address and saved RBP
+        // Stack layout: ... | arg6 | arg7 | ... | scope0 | scope1 | ... | return_addr | saved_rbp <- rbp
+        
+        // Calculate base offset for hidden parameters
+        // Regular function arguments (beyond first 6) start at rbp+16
+        // Hidden scope parameters come after all regular arguments
+        size_t num_regular_args = function->parameters.size();
+        size_t stack_args = (num_regular_args > 6) ? num_regular_args - 6 : 0;
+        int64_t hidden_param_base_offset = 16 + (stack_args * 8);
+        
+        // Store parent scope addresses in a simple array for easy access
+        // For now, we'll use stack-based storage for the mapping
+        for (size_t i = 0; i < needed_scopes.size(); i++) {
+            int scope_depth = needed_scopes[i];
+            int64_t param_offset = hidden_param_base_offset + (i * 8);
+            
+            // Load scope address from stack parameter
+            emit_mov_reg_reg_offset(10 + i, 5, param_offset); // R10+i = [rbp + offset]
+            
+            // REMOVED: Runtime registration violates FUNCTION.md compile-time design
+            // emit_mov_reg_imm(7, scope_depth);     // RDI = scope depth
+            // emit_mov_reg_reg(6, 10 + i);          // RSI = scope address
+            // emit_call("__register_scope_address_for_depth");
+            
+            std::cout << "[NEW_FUNCTION_SYSTEM] Loaded parent scope depth " << scope_depth
+                      << " from stack offset " << param_offset << " into R" << (10 + i) << std::endl;
+        }
+    }
+    
+    // REMOVED: Runtime registration violates FUNCTION.md compile-time design
+    // Register current function scope with the runtime
+    // if (function->lexical_scope) {
+    //     emit_mov_reg_imm(7, function->lexical_scope->scope_depth); // RDI = scope depth
+    //     emit_mov_reg_reg(6, 15);                                   // RSI = local scope address
+    //     emit_call("__register_scope_address_for_depth");
+    //     std::cout << "[NEW_FUNCTION_SYSTEM] Registered function scope depth " 
+    //               << function->lexical_scope->scope_depth << " with runtime" << std::endl;
+    // }
+    
+    std::cout << "[NEW_FUNCTION_SYSTEM] Prologue complete for " << function->name 
+              << " using new hidden parameter system" << std::endl;
+}
+
+void X86CodeGenV2::emit_function_epilogue(struct FunctionDecl* function) {
+    std::cout << "[NEW_FUNCTION_SYSTEM] Generating epilogue for " << function->name 
+              << " using new approach" << std::endl;
+    
+    // DISABLED: Runtime scope unregistration violates FUNCTION.md
+    // Unregister current function scope from the runtime
+    // if (function->lexical_scope) {
+    //     emit_mov_reg_imm(7, function->lexical_scope->scope_depth); // RDI = scope depth
+    //     emit_call("__unregister_scope_address_for_depth");
+    //     std::cout << "[NEW_FUNCTION_SYSTEM] Unregistered function scope depth " 
+    //               << function->lexical_scope->scope_depth << " from runtime" << std::endl;
+    // }
+    
+    // Free the local scope memory
+    emit_mov_reg_reg(7, 15);  // RDI = local scope address (R15)
+    emit_call("free");        // Free heap-allocated scope
+    std::cout << "[NEW_FUNCTION_SYSTEM] Freed local scope memory for " << function->name << std::endl;
+    
+    // Standard function epilogue
+    emit_mov_reg_reg(4, 5);   // mov rsp, rbp
+    emit_pop_reg(5);          // pop rbp
+    emit_ret();               // ret
+    
+    std::cout << "[NEW_FUNCTION_SYSTEM] Epilogue complete for " << function->name 
+              << " using new system" << std::endl;
+}
+
+void X86CodeGenV2::set_current_scope(LexicalScopeNode* scope) {
+    current_scope = scope;
+    
+    // Also update the global scope context that variable access code uses
+    extern void set_current_scope(LexicalScopeNode* scope);
+    ::set_current_scope(scope);  // Call the global function with explicit global scope
+}
+
+LexicalScopeNode* X86CodeGenV2::get_scope_node_for_depth(int depth) {
+    if (static_analyzer_) {
+        return static_analyzer_->get_scope_node_for_depth(depth);
+    } else if (scope_analyzer) {
+        return scope_analyzer->get_scope_node_for_depth(depth);
+    }
+    return nullptr;
+}
+
+LexicalScopeNode* X86CodeGenV2::get_definition_scope_for_variable(const std::string& name) {
+    if (static_analyzer_) {
+        return static_analyzer_->get_definition_scope_for_variable(name);
+    } else if (scope_analyzer) {
+        return scope_analyzer->get_definition_scope_for_variable(name);
+    }
+    return nullptr;
+}
+
+void X86CodeGenV2::perform_deferred_packing_for_scope(LexicalScopeNode* scope_node) {
+    if (static_analyzer_) {
+        static_analyzer_->perform_deferred_packing_for_scope(scope_node);
+    } else if (scope_analyzer) {
+        scope_analyzer->perform_deferred_packing_for_scope(scope_node);
+    }
+}
+
+VariableDeclarationInfo* X86CodeGenV2::get_variable_declaration_info(const std::string& name) {
+    if (static_analyzer_) {
+        // For static analyzer, we need to get the current scope depth for lookup
+        int current_depth = current_scope ? current_scope->scope_depth : 1;
+        return static_analyzer_->get_variable_declaration_info(name, current_depth);
+    } else if (scope_analyzer) {
+        return scope_analyzer->get_variable_declaration_info(name);
+    }
+    return nullptr;
+}
+
+void X86CodeGenV2::enter_lexical_scope(LexicalScopeNode* scope_node) {
+    current_scope = scope_node;
+    setup_parent_scope_registers(scope_node);
+}
+
+void X86CodeGenV2::exit_lexical_scope(LexicalScopeNode* scope_node) {
+    (void)scope_node; // Suppress unused parameter warning
+    restore_parent_scope_registers();
+}
+
+void X86CodeGenV2::emit_variable_load(const std::string& var_name) {
+    // Stub implementation - could be enhanced later
+    (void)var_name;
+    std::cout << "[SCOPE_CODEGEN] Variable load for " << var_name << " (stub)" << std::endl;
+}
+
+void X86CodeGenV2::emit_variable_store(const std::string& var_name) {
+    // Stub implementation - could be enhanced later
+    (void)var_name;
+    std::cout << "[SCOPE_CODEGEN] Variable store for " << var_name << " (stub)" << std::endl;
+}
+
+void X86CodeGenV2::set_variable_type(const std::string& name, DataType type) {
+    variable_types[name] = type;
+}
+
+DataType X86CodeGenV2::get_variable_type(const std::string& name) {
+    auto it = variable_types.find(name);
+    if (it != variable_types.end()) {
+        return it->second;
+    }
+    return DataType::UNKNOWN; 
+}
+
+void X86CodeGenV2::mark_register_in_use(int reg_id) {
+    scope_state.registers_in_use.insert(reg_id);
+}
+
+void X86CodeGenV2::mark_register_free(int reg_id) {
+    scope_state.registers_in_use.erase(reg_id);
+}
+
+bool X86CodeGenV2::is_register_in_use(int reg_id) {
+    return scope_state.registers_in_use.count(reg_id) > 0;
+}
+
+void X86CodeGenV2::restore_parent_scope_registers() {
+    // Stub implementation - restore parent scope registers from stack
+    std::cout << "[SCOPE_CODEGEN] Restoring parent scope registers (stub)" << std::endl;
+}
+
+// =============================================================================
+// FACTORY FUNCTIONS (to replace create_scope_aware_codegen)
+// =============================================================================
+
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen(SimpleLexicalScopeAnalyzer* analyzer) {
+    return std::make_unique<X86CodeGenV2>(analyzer);
+}
+
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen_with_static_analyzer(StaticAnalyzer* analyzer) {
+    return std::make_unique<X86CodeGenV2>(analyzer);
+}
+
+std::unique_ptr<X86CodeGenV2> create_x86_codegen_with_scope_analyzer(SimpleLexicalScopeAnalyzer* analyzer) {
+    return std::make_unique<X86CodeGenV2>(analyzer);
+}
+
+std::unique_ptr<X86CodeGenV2> create_x86_codegen_with_static_analyzer(StaticAnalyzer* analyzer) {
+    return std::make_unique<X86CodeGenV2>(analyzer);
 }
 
 

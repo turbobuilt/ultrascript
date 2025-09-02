@@ -1830,94 +1830,79 @@ extern "C" void* __dynamic_value_extract_object_with_refcount(void* dynamic_valu
 // - Function instance runtime creation (replaced with compile-time generation)
 // This provides zero runtime overhead and eliminates race conditions.
 
-// ALL LEGACY FUNCTION RUNTIME FUNCTIONS REMOVED FOR PERFORMANCE:
+// ====================================================================================
+// RUNTIME SCOPE FUNCTIONS COMPLETELY REMOVED 
+// ====================================================================================
+//
+// All runtime-based scope lookup functions have been removed because they violate
+// the new compile-time scope system described in FUNCTION.md.
+//
+// The following functions are DELETED and should never be called:
 // - __register_scope_address_for_depth
 // - __get_scope_address_for_depth  
 // - __unregister_scope_address_for_depth
-// - __create_function_instance
-// - initialize_function_variable
-// - __register_function_instance_for_patching
-// - Function instance patching system
 //
-// These are replaced with:
-// - Static analysis during compilation
-// - Direct MOV instructions for function instance creation
-// - Stack-based scope parameter passing
-// - Compile-time scope mapping resolution
+// Any code generating calls to these functions must be fixed to use the new 
+// compile-time approach with hidden parameters.
+// ====================================================================================
 
-// STUB IMPLEMENTATIONS FOR LEGACY COMPATIBILITY
-// These functions are no longer used but may be referenced by old code paths
+
+
+
+
+
+
+
+
+
+
+
+
+// DEPRECATED FUNCTION STUBS - These functions were removed but are still referenced by legacy code
+// These will be removed once all references are cleaned up
 
 extern "C" void __register_function_code_address(const char* function_name, void* address) {
-    // STUB: Legacy function registration - now handled by static analysis
-    std::cout << "[LEGACY_STUB] __register_function_code_address(" << function_name 
-              << ", " << address << ") - DEPRECATED" << std::endl;
-}
-
-extern "C" void __register_scope_address_for_depth(int depth, void* address) {
-    // STUB: Legacy scope registration - now handled by compile-time analysis
-    std::cout << "[LEGACY_STUB] __register_scope_address_for_depth(" << depth 
-              << ", " << address << ") - DEPRECATED" << std::endl;
-}
-
-extern "C" void* __get_scope_address_for_depth(int depth) {
-    // STUB: Legacy scope lookup - now handled by register allocation
-    std::cout << "[LEGACY_STUB] __get_scope_address_for_depth(" << depth 
-              << ") - DEPRECATED" << std::endl;
-    return nullptr;
-}
-
-extern "C" void __unregister_scope_address_for_depth(int depth) {
-    // STUB: Legacy scope cleanup - now handled automatically
-    std::cout << "[LEGACY_STUB] __unregister_scope_address_for_depth(" << depth 
-              << ") - DEPRECATED" << std::endl;
+    // DEPRECATED STUB - Legacy function registration
+    (void)function_name; (void)address; // Suppress unused parameter warnings
 }
 
 extern "C" void* __get_function_code_address(const char* function_name) {
-    // STUB: Legacy function lookup - now handled by static linking
-    std::cout << "[LEGACY_STUB] __get_function_code_address(" << function_name 
-              << ") - DEPRECATED" << std::endl;
+    // DEPRECATED STUB - Legacy function lookup
+    (void)function_name; // Suppress unused parameter warnings
     return nullptr;
 }
 
 extern "C" void* __create_function_instance(const char* function_name, void* parent_scope) {
-    // STUB: Legacy function instance creation - now handled by mmap at compile time
-    std::cout << "[LEGACY_STUB] __create_function_instance(" << function_name 
-              << ", " << parent_scope << ") - DEPRECATED" << std::endl;
+    // DEPRECATED STUB - Legacy function instance creation
+    (void)function_name; (void)parent_scope; // Suppress unused parameter warnings
     return nullptr;
 }
 
 extern "C" void* __get_function_instance_scope_address(void* function_instance) {
-    // STUB: Legacy scope extraction - now handled by direct register access
-    std::cout << "[LEGACY_STUB] __get_function_instance_scope_address(" << function_instance 
-              << ") - DEPRECATED" << std::endl;
+    // DEPRECATED STUB - Legacy scope extraction
+    (void)function_instance; // Suppress unused parameter warnings
     return nullptr;
 }
 
+extern "C" size_t __get_function_instance_size(void* function_instance) {
+    // DEPRECATED STUB - Legacy size lookup
+    (void)function_instance; // Suppress unused parameter warnings
+    return 0;
+}
+
 extern "C" void __register_function_instance_for_patching(void* instance_ptr, const char* function_name, size_t code_addr_offset) {
-    // STUB: Legacy patching system - now handled by static analysis
-    std::cout << "[LEGACY_STUB] __register_function_instance_for_patching(" << instance_ptr 
-              << ", " << function_name << ", " << code_addr_offset << ") - DEPRECATED" << std::endl;
+    // DEPRECATED STUB - Legacy patching system
+    (void)instance_ptr; (void)function_name; (void)code_addr_offset; // Suppress unused parameter warnings
 }
 
 extern "C" void __patch_all_function_instances(void* executable_memory_base) {
-    // STUB: Legacy patching - now handled by direct address computation
-    std::cout << "[LEGACY_STUB] __patch_all_function_instances(" << executable_memory_base 
-              << ") - DEPRECATED" << std::endl;
+    // DEPRECATED STUB - Legacy patching
+    (void)executable_memory_base; // Suppress unused parameter warnings
 }
 
 extern "C" void initialize_function_variable(void* scope_ptr, void* value_ptr, size_t value_size, void** function_instances, size_t max_function_instance_size) {
-    // STUB: Legacy variable initialization - now handled by direct MOV instructions
-    std::cout << "[LEGACY_STUB] initialize_function_variable(" << scope_ptr << ", " << value_ptr 
-              << ", " << value_size << ", " << function_instances << ", " << max_function_instance_size 
-              << ") - DEPRECATED" << std::endl;
-}
-
-extern "C" size_t __get_function_instance_size(void* function_instance) {
-    if (!function_instance) return 0;
-    
-    uint64_t* header = static_cast<uint64_t*>(function_instance);
-    return static_cast<size_t>(header[0]);
+    // DEPRECATED STUB - Legacy variable initialization
+    (void)scope_ptr; (void)value_ptr; (void)value_size; (void)function_instances; (void)max_function_instance_size; // Suppress unused parameter warnings
 }
 
 // Function call error handling

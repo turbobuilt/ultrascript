@@ -383,14 +383,9 @@ struct ScopeContext {
     // Current scope information from SimpleLexicalScopeAnalyzer
     LexicalScopeNode* current_scope = nullptr;
     
-    // Scope register management
+    // NEW SYSTEM: All parent scope access via runtime lookup
     // r15 always points to current scope
-    // r12, r13, r14 point to parent scopes in order of frequency
-    std::unordered_map<int, int> scope_depth_to_register;  // depth -> register (12,13,14)
-    std::vector<int> available_scope_registers = {12, 13, 14};
-    
-    // Stack management for deep nesting (when more than 3 parent scopes)
-    std::vector<int> stack_stored_scopes;  // scope depths stored on stack
+    // Parent scopes accessed via __get_scope_address_for_depth() runtime function
     
     // Current function context for variable resolution
     std::string current_function_name;
@@ -795,8 +790,7 @@ struct PostfixDecrement : ExpressionNode {
 struct FunctionStaticAnalysis {
     std::vector<int> needed_parent_scopes;              // From priority_sorted_parent_scopes  
     std::vector<int> parent_location_indexes;           // child_index → parent_index mapping
-    int num_registers_needed = 0;                       // 0-3 (r12/r13/r14)
-    bool needs_r12 = false, needs_r13 = false, needs_r14 = false;  // Register usage flags
+    // NEW SYSTEM: No more register allocation - all parent access via runtime lookup
     size_t function_instance_size = 0;                  // Computed from captured scopes
     size_t local_scope_size = 0;                        // From total_scope_frame_size
     

@@ -8,7 +8,6 @@
 #include "runtime_object.h"
 #include "compilation_context.h"
 #include "function_compilation_manager.h"
-#include "scope_aware_codegen.h"
 #include "console_log_overhaul.h"
 #include "class_runtime_interface.h"
 #include "dynamic_properties.h"
@@ -82,14 +81,12 @@ struct GlobalScopeContext {
     // Scope nesting stack for proper save/restore (LIFO order)
     std::vector<LexicalScopeNode*> scope_nesting_stack;
     
-    // Scope register management
-    // r15 always points to current scope
-    // r12, r13, r14 point to parent scopes in order of frequency
-    struct ScopeRegisterState {
+    // NEW FUNCTION SYSTEM: Hidden parameter approach
+    // Current scope address is always stored in r15
+    // Parent scope addresses are passed as hidden parameters and accessed via runtime lookup
+    struct NewScopeSystemState {
         int current_scope_depth = 0;
-        std::unordered_map<int, int> scope_depth_to_register;  // scope_depth -> register_id (12,13,14)
-        std::vector<int> available_scope_registers = {12, 13, 14};
-        std::vector<int> stack_stored_scopes; // scopes that couldn't fit in registers
+        // No more r12/r13/r14 register allocation - all parent scopes accessed via runtime
     } scope_state;
     
     // Assignment context tracking (for complex expressions)
@@ -123,11 +120,9 @@ struct GlobalScopeContext {
         // Reset scope nesting stack for new function context
         scope_nesting_stack.clear();
         current_scope = nullptr;
-        scope_state.scope_depth_to_register.clear();
-        scope_state.stack_stored_scopes.clear();
         scope_state.current_scope_depth = 0;
         
-        std::cout << "[SCOPE_CONTEXT] Reset scope context for new function" << std::endl;
+        std::cout << "[SCOPE_CONTEXT] Reset scope context for new function (NEW SYSTEM)" << std::endl;
     }
     
     // Verify scope stack consistency
@@ -216,26 +211,23 @@ LexicalScopeNode* get_parent_scope(LexicalScopeNode* child_scope) {
 
 // Debug function to print current scope stack state
 void debug_print_scope_stack() {
-    std::cout << "[SCOPE_DEBUG] Current scope stack state:" << std::endl;
-    std::cout << "[SCOPE_DEBUG]   Current scope: " 
+    std::cout << "[NEW_SCOPE_DEBUG] Current scope stack state:" << std::endl;
+    std::cout << "[NEW_SCOPE_DEBUG]   Current scope: " 
               << (g_scope_context.current_scope ? std::to_string(g_scope_context.current_scope->scope_depth) : "nullptr") << std::endl;
-    std::cout << "[SCOPE_DEBUG]   Stack depth: " << g_scope_context.scope_nesting_stack.size() << std::endl;
+    std::cout << "[NEW_SCOPE_DEBUG]   Stack depth: " << g_scope_context.scope_nesting_stack.size() << std::endl;
     
     for (size_t i = 0; i < g_scope_context.scope_nesting_stack.size(); i++) {
-        std::cout << "[SCOPE_DEBUG]     Stack[" << i << "]: depth " 
+        std::cout << "[NEW_SCOPE_DEBUG]     Stack[" << i << "]: depth " 
                   << g_scope_context.scope_nesting_stack[i]->scope_depth << std::endl;
     }
     
-    std::cout << "[SCOPE_DEBUG]   Register assignments:" << std::endl;
-    for (const auto& pair : g_scope_context.scope_state.scope_depth_to_register) {
-        std::cout << "[SCOPE_DEBUG]     Scope depth " << pair.first << " -> r" << pair.second << std::endl;
-    }
+    std::cout << "[NEW_SCOPE_DEBUG]   NEW SYSTEM: Parent scopes accessed via runtime lookup" << std::endl;
 }
 
-// Generate stack-based access to a variable in a deeply nested parent scope
+// Generate runtime-based access to a variable in a parent scope using new function system
 void generate_deep_scope_variable_load(CodeGenerator& gen, const std::string& var_name, 
                                       int target_scope_depth, size_t var_offset) {
-    std::cout << "[DEEP_SCOPE] Generating stack-based load for '" << var_name 
+    std::cout << "[DEEP_SCOPE] Generating runtime lookup for '" << var_name 
               << "' in scope depth " << target_scope_depth << " at offset " << var_offset << std::endl;
     
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
@@ -243,7 +235,7 @@ void generate_deep_scope_variable_load(CodeGenerator& gen, const std::string& va
         throw std::runtime_error("Deep scope access requires X86CodeGenV2");
     }
     
-    // Calculate the stack-based offset to reach the target parent scope
+    // Calculate the scope depth difference for debugging
     int current_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
     int scope_depth_diff = current_depth - target_scope_depth;
     
@@ -254,39 +246,28 @@ void generate_deep_scope_variable_load(CodeGenerator& gen, const std::string& va
         throw std::runtime_error("Invalid deep scope access: target scope depth must be less than current");
     }
     
-    // Add safety limit to prevent infinite loops from corrupted scope depths
-    const int MAX_SCOPE_TRAVERSAL = 100; // Reasonable limit for scope nesting
-    if (scope_depth_diff > MAX_SCOPE_TRAVERSAL) {
-        std::cerr << "[ERROR] Scope depth difference too large: " << scope_depth_diff 
-                  << " (max allowed: " << MAX_SCOPE_TRAVERSAL << ")" << std::endl;
-        std::cerr << "[ERROR] Current scope depth: " << current_depth 
-                  << ", Target scope depth: " << target_scope_depth << std::endl;
-        throw std::runtime_error("Scope traversal limit exceeded - possible corrupted scope depths");
-    }
+    // DISABLED: Runtime lookup violates FUNCTION.md compile-time design
+    // This function should be completely rewritten to use hidden parameters
+    std::cerr << "ERROR: generate_deep_scope_access() called but runtime lookups are disabled!" << std::endl;
+    std::cerr << "ERROR: Variable '" << var_name << "' cannot be accessed from parent scope." << std::endl;
+    std::cerr << "ERROR: This function needs to be rewritten to use compile-time scope mapping." << std::endl;
+    throw std::runtime_error("Runtime scope lookup disabled - FUNCTION.md violation");
     
-    // Each scope level stores a pointer to its parent scope at a fixed offset
-    // We traverse the scope chain by following these parent pointers
+    // OLD CODE (DISABLED):
+    // x86_gen->emit_mov_reg_imm(7, target_scope_depth); // rdi = target_scope_depth
+    // x86_gen->emit_call("__get_scope_address_for_depth");
+    // // RAX now contains the address of the target parent scope
+    // 
+    // // Load the variable from the parent scope
+    // x86_gen->emit_mov_reg_reg_offset(0, 0, var_offset); // rax = [rax + var_offset]
     
-    // Start from current scope (r15 points to current scope)
-    x86_gen->emit_mov_reg_reg(11, 15); // mov r11, r15 (use r11 as working register)
-    
-    // Traverse the scope chain to reach the target scope
-    for (int i = 0; i < scope_depth_diff; i++) {
-        // Each scope stores a pointer to its parent scope at offset -8 (before the actual variables)
-        x86_gen->emit_mov_reg_reg_offset(11, 11, -8); // r11 = [r11 - 8] (follow parent pointer)
-        std::cout << "[DEEP_SCOPE] Traversed to parent scope level " << (i + 1) << "/" << scope_depth_diff << std::endl;
-    }
-    
-    // Now r11 points to the target parent scope, load the variable
-    x86_gen->emit_mov_reg_reg_offset(0, 11, var_offset); // rax = [r11 + var_offset]
-    
-    std::cout << "[DEEP_SCOPE] Loaded variable '" << var_name << "' from deep scope (stack-based access)" << std::endl;
+    std::cout << "[DEEP_SCOPE] Loaded variable '" << var_name << "' from parent scope via runtime lookup" << std::endl;
 }
 
-// Generate stack-based access to store a variable in a deeply nested parent scope  
+// Generate runtime-based access to store a variable in a parent scope using new function system
 void generate_deep_scope_variable_store(CodeGenerator& gen, const std::string& var_name,
                                        int target_scope_depth, size_t var_offset) {
-    std::cout << "[DEEP_SCOPE] Generating stack-based store for '" << var_name
+    std::cout << "[DEEP_SCOPE] Generating runtime lookup store for '" << var_name
               << "' in scope depth " << target_scope_depth << " at offset " << var_offset << std::endl;
     
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
@@ -294,7 +275,7 @@ void generate_deep_scope_variable_store(CodeGenerator& gen, const std::string& v
         throw std::runtime_error("Deep scope access requires X86CodeGenV2");
     }
     
-    // Calculate the stack-based offset to reach the target parent scope
+    // Calculate the scope depth difference for debugging
     int current_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
     int scope_depth_diff = current_depth - target_scope_depth;
     
@@ -305,207 +286,35 @@ void generate_deep_scope_variable_store(CodeGenerator& gen, const std::string& v
         throw std::runtime_error("Invalid deep scope store: target scope depth must be less than current");
     }
     
-    // Add safety limit to prevent infinite loops from corrupted scope depths
-    const int MAX_SCOPE_TRAVERSAL = 100; // Reasonable limit for scope nesting
-    if (scope_depth_diff > MAX_SCOPE_TRAVERSAL) {
-        std::cerr << "[ERROR] Scope depth difference too large for store: " << scope_depth_diff 
-                  << " (max allowed: " << MAX_SCOPE_TRAVERSAL << ")" << std::endl;
-        std::cerr << "[ERROR] Current scope depth: " << current_depth 
-                  << ", Target scope depth: " << target_scope_depth << std::endl;
-        throw std::runtime_error("Scope traversal limit exceeded in store - possible corrupted scope depths");
-    }
+    // DISABLED: Runtime lookup violates FUNCTION.md compile-time design
+    std::cerr << "ERROR: generate_deep_scope_store() called but runtime lookups are disabled!" << std::endl;
+    std::cerr << "ERROR: Variable '" << var_name << "' cannot be stored to parent scope." << std::endl;
+    throw std::runtime_error("Runtime scope lookup disabled - FUNCTION.md violation");
     
-    // Preserve RAX which contains the value to store
-    x86_gen->get_instruction_builder().push(X86Reg::RAX); // push rax
+    // OLD CODE (DISABLED):
+    // // Preserve RAX which contains the value to store
+    // x86_gen->get_instruction_builder().push(X86Reg::RAX); // push rax
+    // 
+    // // NEW SYSTEM: Use runtime lookup to get parent scope address
+    // x86_gen->emit_mov_reg_imm(7, target_scope_depth); // rdi = target_scope_depth
+    // x86_gen->emit_call("__get_scope_address_for_depth");
+    // // RAX now contains the address of the target parent scope
+    // 
+    // x86_gen->emit_mov_reg_reg(11, 0); // mov r11, rax (save scope address)
+    // 
+    // // Restore the value to store
+    // x86_gen->get_instruction_builder().pop(X86Reg::RAX); // pop rax
     
-    // Start from current scope (r15 points to current scope)  
-    x86_gen->emit_mov_reg_reg(11, 15); // mov r11, r15 (use r11 as working register)
-    
-    // Traverse the scope chain to reach the target scope
-    for (int i = 0; i < scope_depth_diff; i++) {
-        // Each scope stores a pointer to its parent scope at offset -8 (before the actual variables)
-        x86_gen->emit_mov_reg_reg_offset(11, 11, -8); // r11 = [r11 - 8] (follow parent pointer)
-        std::cout << "[DEEP_SCOPE] Store traversed to parent scope level " << (i + 1) << "/" << scope_depth_diff << std::endl;
-    }
-    
-    // Restore the value to store
-    x86_gen->get_instruction_builder().pop(X86Reg::RAX); // pop rax
-    
-    // Now r11 points to the target parent scope, store the variable
+    // Store the variable to the parent scope
     x86_gen->emit_mov_reg_offset_reg(11, var_offset, 0); // [r11 + var_offset] = rax
     
-    std::cout << "[DEEP_SCOPE] Stored variable '" << var_name << "' to deep scope (stack-based access)" << std::endl;
+    std::cout << "[DEEP_SCOPE] Stored variable '" << var_name << "' to parent scope via runtime lookup" << std::endl;
 }
 
 //=============================================================================
-// SCOPE-AWARE CODE GENERATION HELPERS
+// NEW FUNCTION SYSTEM - NO MORE R12/R13/R14 REGISTER MANAGEMENT
+// Parent scopes are now accessed via hidden parameters and runtime lookup
 //=============================================================================
-
-// Stack locations for saved scope registers (relative to current RSP)
-// These are used to save/restore r12, r13, r14 when entering/exiting nested scopes
-static const int64_t SAVED_R12_OFFSET = -8;   // [rsp - 8]  = saved r12
-static const int64_t SAVED_R13_OFFSET = -16;  // [rsp - 16] = saved r13  
-static const int64_t SAVED_R14_OFFSET = -24;  // [rsp - 24] = saved r14
-static const int64_t SCOPE_SAVE_AREA_SIZE = 24; // Total bytes for register save area
-
-// Save current parent scope registers to stack before entering child scope
-void save_parent_scope_registers(X86CodeGenV2* x86_gen) {
-    std::cout << "[SCOPE_CODEGEN] Saving current parent scope registers to stack" << std::endl;
-    
-    // Allocate stack space for saving registers
-    x86_gen->emit_sub_reg_imm(4, SCOPE_SAVE_AREA_SIZE); // sub rsp, 24
-    
-    // Save current parent scope registers to stack
-    x86_gen->emit_mov_mem_rsp_reg(SAVED_R12_OFFSET + SCOPE_SAVE_AREA_SIZE, 12); // mov [rsp + 16], r12
-    x86_gen->emit_mov_mem_rsp_reg(SAVED_R13_OFFSET + SCOPE_SAVE_AREA_SIZE, 13); // mov [rsp + 8], r13
-    x86_gen->emit_mov_mem_rsp_reg(SAVED_R14_OFFSET + SCOPE_SAVE_AREA_SIZE, 14); // mov [rsp], r14
-    
-    std::cout << "[SCOPE_CODEGEN] Saved r12, r13, r14 to stack at rsp+16, rsp+8, rsp+0" << std::endl;
-}
-
-// SMART Save parent scope registers - only saves registers that the function actually needs
-void save_parent_scope_registers_smart(X86CodeGenV2* x86_gen, LexicalScopeNode* scope_node) {
-    // Determine how many parent scopes this function needs
-    size_t num_parent_scopes = scope_node->self_dependencies.size();
-    if (num_parent_scopes == 0) {
-        std::cout << "[SCOPE_CODEGEN] SMART: Function accesses no parent scopes, skipping register save" << std::endl;
-        return;
-    }
-    
-    // Only allocate stack space for the registers we actually need
-    size_t registers_to_save = std::min(num_parent_scopes, size_t(3));
-    size_t stack_space_needed = registers_to_save * 8;
-    
-    std::cout << "[SCOPE_CODEGEN] SMART: Function needs " << num_parent_scopes 
-              << " parent scopes, saving " << registers_to_save << " registers" << std::endl;
-    
-    x86_gen->emit_sub_reg_imm(4, stack_space_needed); // sub rsp, stack_space_needed
-    
-    // Save only the registers we need
-    if (registers_to_save >= 1) {
-        x86_gen->emit_mov_mem_rsp_reg(stack_space_needed - 8, 12); // mov [rsp + offset], r12
-        std::cout << "[SCOPE_CODEGEN] SMART: Saved r12 to stack" << std::endl;
-    }
-    if (registers_to_save >= 2) {
-        x86_gen->emit_mov_mem_rsp_reg(stack_space_needed - 16, 13); // mov [rsp + offset], r13
-        std::cout << "[SCOPE_CODEGEN] SMART: Saved r13 to stack" << std::endl;
-    }
-    if (registers_to_save >= 3) {
-        x86_gen->emit_mov_mem_rsp_reg(stack_space_needed - 24, 14); // mov [rsp + offset], r14
-        std::cout << "[SCOPE_CODEGEN] SMART: Saved r14 to stack" << std::endl;
-    }
-}
-
-// Restore parent scope registers from stack after exiting child scope
-void restore_parent_scope_registers(X86CodeGenV2* x86_gen) {
-    std::cout << "[SCOPE_CODEGEN] Restoring parent scope registers from stack" << std::endl;
-    
-    // Restore parent scope registers from stack
-    x86_gen->emit_mov_reg_mem_rsp(12, SAVED_R12_OFFSET + SCOPE_SAVE_AREA_SIZE); // mov r12, [rsp + 16]
-    x86_gen->emit_mov_reg_mem_rsp(13, SAVED_R13_OFFSET + SCOPE_SAVE_AREA_SIZE); // mov r13, [rsp + 8]
-    x86_gen->emit_mov_reg_mem_rsp(14, SAVED_R14_OFFSET + SCOPE_SAVE_AREA_SIZE); // mov r14, [rsp]
-    
-    // Deallocate stack space used for saving registers
-    x86_gen->emit_add_reg_imm(4, SCOPE_SAVE_AREA_SIZE); // add rsp, 24
-    
-    std::cout << "[SCOPE_CODEGEN] Restored r12, r13, r14 from stack and deallocated save area" << std::endl;
-}
-
-// SMART Restore parent scope registers - only restores registers that were saved
-void restore_parent_scope_registers_smart(X86CodeGenV2* x86_gen, LexicalScopeNode* scope_node) {
-    // Determine how many parent scopes this function needed
-    size_t num_parent_scopes = scope_node->self_dependencies.size();
-    if (num_parent_scopes == 0) {
-        std::cout << "[SCOPE_CODEGEN] SMART: Function accessed no parent scopes, skipping register restore" << std::endl;
-        return;
-    }
-    
-    size_t registers_to_restore = std::min(num_parent_scopes, size_t(3));
-    size_t stack_space_used = registers_to_restore * 8;
-    
-    std::cout << "[SCOPE_CODEGEN] SMART: Restoring " << registers_to_restore << " registers" << std::endl;
-    
-    // Restore only the registers we saved
-    if (registers_to_restore >= 1) {
-        x86_gen->emit_mov_reg_mem_rsp(12, stack_space_used - 8); // mov r12, [rsp + offset]
-        std::cout << "[SCOPE_CODEGEN] SMART: Restored r12 from stack" << std::endl;
-    }
-    if (registers_to_restore >= 2) {
-        x86_gen->emit_mov_reg_mem_rsp(13, stack_space_used - 16); // mov r13, [rsp + offset]
-        std::cout << "[SCOPE_CODEGEN] SMART: Restored r13 from stack" << std::endl;
-    }
-    if (registers_to_restore >= 3) {
-        x86_gen->emit_mov_reg_mem_rsp(14, stack_space_used - 24); // mov r14, [rsp + offset]
-        std::cout << "[SCOPE_CODEGEN] SMART: Restored r14 from stack" << std::endl;
-    }
-    
-    // Deallocate the stack space we used
-    x86_gen->emit_add_reg_imm(4, stack_space_used); // add rsp, stack_space_used
-    
-    std::cout << "[SCOPE_CODEGEN] SMART: Deallocated " << stack_space_used << " bytes of stack space" << std::endl;
-}
-
-// Set up parent scope registers based on priority for current scope
-void setup_parent_scope_registers(X86CodeGenV2* x86_gen, LexicalScopeNode* scope_node) {
-    std::cout << "[SCOPE_CODEGEN] Setting up parent scope registers for scope depth " << scope_node->scope_depth << std::endl;
-    
-    // Clear previous register assignments
-    g_scope_context.scope_state.scope_depth_to_register.clear();
-    g_scope_context.scope_state.stack_stored_scopes.clear();
-    
-    // Reset available registers
-    g_scope_context.scope_state.available_scope_registers = {12, 13, 14};
-    
-    // FREQUENCY-BASED REGISTER ALLOCATION: Use priority_sorted_parent_scopes
-    // This implements the FUNCTION.md specification for optimal register allocation
-    if (!scope_node->priority_sorted_parent_scopes.empty()) {
-        std::cout << "[SCOPE_CODEGEN] Using frequency-based allocation for " 
-                  << scope_node->priority_sorted_parent_scopes.size() << " parent scopes" << std::endl;
-        
-        for (size_t i = 0; i < scope_node->priority_sorted_parent_scopes.size(); i++) {
-            int parent_depth = scope_node->priority_sorted_parent_scopes[i];
-            
-            if (i < 3) {
-                // Most frequent scopes get registers R12, R13, R14
-                int scope_reg = g_scope_context.scope_state.available_scope_registers[i];
-                
-                // NEW SYSTEM: Direct register assignment instead of legacy runtime call
-                if (parent_depth == 1) {
-                    // Parent is main scope - use r15 (main scope register)
-                    x86_gen->emit_mov_reg_reg(scope_reg, 15); // Move r15 to assigned register
-                    std::cout << "[SCOPE_CODEGEN] Assigned parent scope depth " << parent_depth 
-                              << " to register r" << scope_reg << " = r15 (main scope)" << std::endl;
-                } else {
-                    // Parent is intermediate scope - find its register
-                    auto parent_reg_it = g_scope_context.scope_state.scope_depth_to_register.find(parent_depth);
-                    if (parent_reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
-                        int parent_reg = parent_reg_it->second;
-                        x86_gen->emit_mov_reg_reg(scope_reg, parent_reg);
-                        std::cout << "[SCOPE_CODEGEN] Assigned parent scope depth " << parent_depth 
-                                  << " to register r" << scope_reg << " = r" << parent_reg << std::endl;
-                    } else {
-                        std::cout << "[SCOPE_CODEGEN] ERROR: Parent scope depth " << parent_depth 
-                                  << " not found in register mapping!" << std::endl;
-                    }
-                }
-                
-                // Track the assignment
-                g_scope_context.scope_state.scope_depth_to_register[parent_depth] = scope_reg;
-            } else {
-                // Less frequent scopes go to stack
-                g_scope_context.scope_state.stack_stored_scopes.push_back(parent_depth);
-                std::cout << "[SCOPE_CODEGEN] Parent scope depth " << parent_depth 
-                          << " stored on stack (priority " << i << ")" << std::endl;
-            }
-        }
-    } else {
-        std::cout << "[SCOPE_CODEGEN] No parent scopes needed for this function" << std::endl;
-    }
-    
-    std::cout << "[SCOPE_CODEGEN] Register allocation complete: " 
-              << g_scope_context.scope_state.scope_depth_to_register.size() << " in registers, "
-              << g_scope_context.scope_state.stack_stored_scopes.size() << " on stack" << std::endl;
-}
 
 // Initialize a function variable during scope hoisting
 // This creates the function instance with proper closure capture while parent scopes are active
@@ -513,186 +322,140 @@ void initialize_hoisted_function_variable(X86CodeGenV2* gen, FunctionDecl* func_
                                          LexicalScopeNode* scope_node, size_t func_var_offset) {
     std::cout << "[NEW_SYSTEM] Using new function instance creation for '" << func_decl->name << "'" << std::endl;
     
-    // Cast to the new ScopeAwareCodeGen system
-    auto scope_gen = dynamic_cast<ScopeAwareCodeGen*>(gen);
-    if (!scope_gen) {
-        throw std::runtime_error("New function system requires ScopeAwareCodeGen");
+    // Cast to X86CodeGenV2 (now includes scope management)
+    auto x86_gen = dynamic_cast<X86CodeGenV2*>(gen);
+    if (!x86_gen) {
+        throw std::runtime_error("New function system requires X86CodeGenV2");
     }
     
     // Use the new direct function instance creation method
-    scope_gen->emit_function_instance_creation(func_decl, func_var_offset);
+    x86_gen->emit_function_instance_creation(func_decl, func_var_offset);
     
     std::cout << "[NEW_SYSTEM] Function instance created using new system" << std::endl;
 }
 
-// Generate code to enter a lexical scope
+// Generate code to enter a lexical scope using new function system
 void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node) {
-    std::cout << "[SCOPE_CODEGEN] Entering lexical scope at depth " << scope_node->scope_depth << std::endl;
+    std::cout << "[NEW_SCOPE_SYSTEM] Entering lexical scope at depth " << scope_node->scope_depth << std::endl;
     
     // DEFERRED PACKING: Perform variable packing now that we have complete hoisting information
     if (scope_node->variable_offsets.empty() && !scope_node->variable_declarations.empty()) {
-        std::cout << "[SCOPE_CODEGEN] Performing deferred variable packing for " 
+        std::cout << "[NEW_SCOPE_SYSTEM] Performing deferred variable packing for " 
                   << scope_node->variable_declarations.size() << " variables" << std::endl;
         
         // Access the scope analyzer to perform packing
         if (g_scope_context.scope_analyzer) {
             g_scope_context.scope_analyzer->perform_deferred_packing_for_scope(scope_node);
         } else {
-            std::cout << "[SCOPE_CODEGEN] WARNING: No scope analyzer available for deferred packing" << std::endl;
+            std::cout << "[NEW_SCOPE_SYSTEM] WARNING: No scope analyzer available for deferred packing" << std::endl;
         }
     }
     
-    // Cast to X86CodeGenV2 to access scope management methods
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
     if (!x86_gen) {
-        throw std::runtime_error("Scope management requires X86CodeGenV2");
+        throw std::runtime_error("New scope system requires X86CodeGenV2");
     }
     
-    // STEP 1: Save current parent scope registers to stack (only if we have a real parent)
-    LexicalScopeNode* parent_scope = get_parent_scope(scope_node);
-    if (parent_scope != nullptr) {
-        save_parent_scope_registers_smart(x86_gen, scope_node);
-    }
-    
-    // STEP 2: Allocate heap memory for this scope's variables (OPTIMIZED - MINIMIZE RUNTIME CALLS)
+    // Allocate heap memory for this scope's variables
     size_t scope_size = scope_node->total_scope_frame_size;
     if (scope_size > 0) {
-        std::cout << "[SCOPE_CODEGEN_OPT] Allocating " << scope_size << " bytes with optimized allocation" << std::endl;
+        std::cout << "[NEW_SCOPE_SYSTEM] Allocating " << scope_size << " bytes for scope" << std::endl;
         
-        // Use malloc for now, but minimize calls by combining allocation and initialization
         x86_gen->emit_mov_reg_imm(7, scope_size); // RDI = size
         x86_gen->emit_call("malloc"); // Returns allocated memory in RAX
         x86_gen->emit_mov_reg_reg(15, 0); // R15 = allocated scope memory
         
-        // Optimize zero-initialization based on scope size
+        // Zero-initialize the scope
         if (scope_size <= 32) {
-            // Small scopes: direct zero writes (faster than memset call)
-            std::cout << "[SCOPE_CODEGEN_OPT] Zero-initializing " << scope_size << " bytes with direct writes" << std::endl;
+            // Small scopes: direct zero writes
             for (size_t i = 0; i < scope_size; i += 8) {
                 x86_gen->emit_mov_reg_imm(0, 0); // RAX = 0
                 x86_gen->emit_mov_reg_offset_reg(15, i, 0); // [R15 + i] = 0
             }
         } else {
-            // Large scopes: use memset (still faster than multiple small writes)
+            // Large scopes: use memset
             x86_gen->emit_mov_reg_reg(7, 15); // RDI = scope memory (R15)
             x86_gen->emit_mov_reg_imm(6, 0);  // RSI = 0 (fill value)
             x86_gen->emit_mov_reg_imm(2, scope_size); // RDX = size
             x86_gen->emit_call("memset"); // Zero-fill the memory
         }
-        
-        std::cout << "[SCOPE_CODEGEN_OPT] Allocated and initialized " << scope_size 
-                  << " bytes, r15 = scope address" << std::endl;
     } else {
-        // Even empty scopes get a minimal allocation for consistency
+        // Even empty scopes get a minimal allocation
         x86_gen->emit_mov_reg_imm(7, 8); // RDI = 8 bytes minimum
         x86_gen->emit_call("malloc");
         x86_gen->emit_mov_reg_reg(15, 0); // R15 = allocated scope memory
-        std::cout << "[SCOPE_CODEGEN_OPT] Allocated minimal 8 bytes for empty scope" << std::endl;
     }
     
-    // STEP 3: Register this scope address in the global registry
-    x86_gen->emit_mov_reg_imm(7, scope_node->scope_depth); // RDI = scope depth
-    x86_gen->emit_mov_reg_reg(6, 15); // RSI = scope address (R15)
-    x86_gen->emit_call("__register_scope_address_for_depth");
+    // DISABLED: Scope registration violates FUNCTION.md compile-time design
+    // Register this scope address with the runtime for parent scope access
+    // x86_gen->emit_mov_reg_imm(7, scope_node->scope_depth); // RDI = scope depth
+    // x86_gen->emit_mov_reg_reg(6, 15); // RSI = scope address (R15)
+    // x86_gen->emit_call("__register_scope_address_for_depth");
     
-    std::cout << "[SCOPE_CODEGEN] Registered scope depth " << scope_node->scope_depth 
-              << " in global registry" << std::endl;
-    
-    // STEP 4: Set up new parent scope registers for this scope's needs (using frequency rankings)
-    setup_parent_scope_registers(x86_gen, scope_node);
-    
-    // STEP 5: FUNCTION HOISTING - Initialize all function variables immediately
-    // This implements JavaScript function hoisting: function declarations are available
-    // throughout their entire scope from the beginning, not just after declaration
+    // FUNCTION HOISTING - Initialize all function variables immediately
     const auto& function_decls = scope_node->get_declared_functions();
     if (!function_decls.empty()) {
-        std::cout << "[SCOPE_CODEGEN] HOISTING: Initializing " << function_decls.size() 
-                  << " function variables for hoisting" << std::endl;
+        std::cout << "[NEW_SCOPE_SYSTEM] HOISTING: Initializing " << function_decls.size() 
+                  << " function variables" << std::endl;
         
         for (FunctionDecl* func_decl : function_decls) {
-            std::cout << "[SCOPE_CODEGEN] HOISTING: Initializing function variable '" 
-                      << func_decl->name << "'" << std::endl;
-            
-            // Find the variable offset for this function
             auto offset_it = scope_node->variable_offsets.find(func_decl->name);
             if (offset_it != scope_node->variable_offsets.end()) {
                 size_t func_var_offset = offset_it->second;
-                
-                // Initialize the function variable with proper closure capture
-                // This creates the function instance while all parent scopes are still active
                 initialize_hoisted_function_variable(x86_gen, func_decl, scope_node, func_var_offset);
-                
-                std::cout << "[SCOPE_CODEGEN] HOISTING: Successfully initialized function variable '" 
-                          << func_decl->name << "' at offset " << func_var_offset << std::endl;
-            } else {
-                std::cout << "[SCOPE_CODEGEN] HOISTING: WARNING - Function '" << func_decl->name 
-                          << "' not found in variable offsets" << std::endl;
             }
         }
     }
 
-    // STEP 6: Update current context
+    // Update current context
     set_current_scope(scope_node);
     
-    std::cout << "[SCOPE_CODEGEN] Successfully entered scope depth " << scope_node->scope_depth 
-              << " with " << scope_node->priority_sorted_parent_scopes.size() << " parent scopes" << std::endl;
+    std::cout << "[NEW_SCOPE_SYSTEM] Successfully entered scope depth " << scope_node->scope_depth << std::endl;
 }
 
-// Generate code to exit a lexical scope
+// Generate code to exit a lexical scope using new function system
 void emit_scope_exit(CodeGenerator& gen, LexicalScopeNode* scope_node) {
-    std::cout << "[SCOPE_CODEGEN] Exiting lexical scope at depth " << scope_node->scope_depth << std::endl;
+    std::cout << "[NEW_SCOPE_SYSTEM] Exiting lexical scope at depth " << scope_node->scope_depth << std::endl;
     
-    // Cast to X86CodeGenV2 to access scope management methods
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
     if (!x86_gen) {
-        throw std::runtime_error("Scope management requires X86CodeGenV2");
+        throw std::runtime_error("New scope system requires X86CodeGenV2");
     }
     
-    // STEP 1: Free the heap-allocated scope memory (FUNCTION.md: scopes are on heap)
-    if (scope_node->total_scope_frame_size > 0 || true) { // Always free, even minimal allocations
-        x86_gen->emit_mov_reg_reg(7, 15); // RDI = current scope memory (R15)
-        x86_gen->emit_call("free"); // Free the heap memory
-        std::cout << "[SCOPE_CODEGEN] Freed heap memory for scope at depth " << scope_node->scope_depth << std::endl;
-    }
+    // Free the heap-allocated scope memory
+    x86_gen->emit_mov_reg_reg(7, 15); // RDI = current scope memory (R15)
+    x86_gen->emit_call("free"); // Free the heap memory
+    std::cout << "[NEW_SCOPE_SYSTEM] Freed heap memory for scope at depth " << scope_node->scope_depth << std::endl;
     
-    // STEP 2: Unregister this scope address from the global registry
-    x86_gen->emit_mov_reg_imm(7, scope_node->scope_depth); // RDI = scope depth
-    x86_gen->emit_call("__unregister_scope_address_for_depth");
-    std::cout << "[SCOPE_CODEGEN] Unregistered scope depth " << scope_node->scope_depth 
-              << " from global registry" << std::endl;
+    // DISABLED: Runtime scope unregistration violates FUNCTION.md
+    // Unregister this scope address from the runtime
+    // x86_gen->emit_mov_reg_imm(7, scope_node->scope_depth); // RDI = scope depth
+    // x86_gen->emit_call("__unregister_scope_address_for_depth");
+    std::cout << "[NEW_SCOPE_SYSTEM] Scope cleanup for depth " << scope_node->scope_depth << " (runtime unregistration disabled)" << std::endl;
     
-    // STEP 3: Restore parent scope context
+    // Restore parent scope context
     LexicalScopeNode* parent_scope = get_parent_scope(scope_node);
     if (parent_scope) {
-        // Restore parent scope registers from stack
-        restore_parent_scope_registers_smart(x86_gen, scope_node);
-        
         // Update current context to parent
         set_current_scope(parent_scope);
-        
-        std::cout << "[SCOPE_CODEGEN] Restored parent scope context at depth " 
+        std::cout << "[NEW_SCOPE_SYSTEM] Restored parent scope context at depth " 
                   << parent_scope->scope_depth << std::endl;
     } else {
         // Return to global/root scope
         set_current_scope(nullptr);
-        
-        // Clear register assignments when returning to root
-        g_scope_context.scope_state.scope_depth_to_register.clear();
-        g_scope_context.scope_state.stack_stored_scopes.clear();
-        
-        std::cout << "[SCOPE_CODEGEN] Returned to global/root scope, cleared register assignments" << std::endl;
+        std::cout << "[NEW_SCOPE_SYSTEM] Returned to global/root scope" << std::endl;
     }
     
-    std::cout << "[SCOPE_CODEGEN] Successfully exited scope depth " << scope_node->scope_depth << std::endl;
+    std::cout << "[NEW_SCOPE_SYSTEM] Successfully exited scope depth " << scope_node->scope_depth << std::endl;
 }
 
-// Generate variable load code using scope-aware access
+// Generate variable load code using new function system (no r12/r13/r14)
 void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
     if (!g_scope_context.current_scope || !g_scope_context.scope_analyzer) {
         throw std::runtime_error("No scope context for variable access: " + var_name);
     }
     
-    std::cout << "[SCOPE_DEBUG] emit_variable_load for '" << var_name 
+    std::cout << "[NEW_SCOPE_SYSTEM] Loading variable '" << var_name 
               << "' - current scope depth: " << g_scope_context.current_scope->scope_depth << std::endl;
     
     // Find the scope where this variable is defined
@@ -701,10 +464,6 @@ void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
         throw std::runtime_error("Variable not found in any scope: " + var_name);
     }
     
-    std::cout << "[SCOPE_DEBUG] Variable '" << var_name << "' defined in scope depth: " 
-              << def_scope->scope_depth << ", current scope depth: " 
-              << g_scope_context.current_scope->scope_depth << std::endl;
-    
     // Get variable offset within its scope
     auto offset_it = def_scope->variable_offsets.find(var_name);
     if (offset_it == def_scope->variable_offsets.end()) {
@@ -712,82 +471,101 @@ void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
     }
     size_t var_offset = offset_it->second;
     
+    X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (!x86_gen) {
+        throw std::runtime_error("New scope system requires X86CodeGenV2");
+    }
+    
     if (def_scope == g_scope_context.current_scope) {
         // Variable is in current scope - use r15 + offset
-        gen.emit_mov_reg_reg_offset(0, 15, var_offset); // rax = [r15 + offset]
-        std::cout << "[SCOPE_CODEGEN] Loaded local variable '" << var_name << "' from r15+" << var_offset << std::endl;
+        x86_gen->emit_mov_reg_reg_offset(0, 15, var_offset); // rax = [r15 + offset]
+        std::cout << "[NEW_SCOPE_SYSTEM] Loaded local variable '" << var_name 
+                  << "' from r15+" << var_offset << std::endl;
     } else {
-        // Variable is in parent scope - find which register holds it
-        int scope_depth = def_scope->scope_depth;
-        auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
+        // DISABLED: Parent scope access using runtime lookup violates FUNCTION.md
+        std::cerr << "ERROR: Parent scope variable access disabled!" << std::endl;
+        std::cerr << "ERROR: Variable '" << var_name << "' is in parent scope but runtime lookups are disabled." << std::endl;
+        throw std::runtime_error("Parent scope access disabled - FUNCTION.md violation");
         
-        std::cout << "[SCOPE_DEBUG] Looking for scope depth " << scope_depth 
-                  << " in register map (map size: " << g_scope_context.scope_state.scope_depth_to_register.size() << ")" << std::endl;
-        
-        if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
-            // Parent scope is in a register
-            int scope_reg = reg_it->second;
-            gen.emit_mov_reg_reg_offset(0, scope_reg, var_offset); // rax = [r12/13/14 + offset]
-            std::cout << "[SCOPE_CODEGEN] Loaded parent variable '" << var_name 
-                      << "' from r" << scope_reg << "+" << var_offset << std::endl;
-        } else {
-            // Parent scope is on stack (deep nesting)
-            generate_deep_scope_variable_load(gen, var_name, scope_depth, var_offset);
-            std::cout << "[SCOPE_CODEGEN] Loaded parent variable '" << var_name 
-                      << "' from deep scope (stack-based access)" << std::endl;
-        }
+        // OLD CODE (DISABLED):
+        // // Variable is in parent scope - use runtime lookup (no more r12/r13/r14)
+        // int scope_depth = def_scope->scope_depth;
+        // 
+        // std::cout << "[NEW_SCOPE_SYSTEM] Loading parent variable from scope depth " << scope_depth 
+        //           << " using runtime lookup" << std::endl;
+        // 
+        // // Get scope address from runtime registry
+        // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
+        // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
+        // 
+        // // Load variable from parent scope: rax = [returned_scope_address + var_offset]
+        // x86_gen->emit_mov_reg_reg_offset(0, 0, var_offset); // rax = [rax + offset]
+        // 
+        // std::cout << "[NEW_SCOPE_SYSTEM] Loaded parent variable '" << var_name 
+        //           << "' from runtime-resolved scope" << std::endl;
     }
 }
 
-// Generate variable store code using scope-aware access
+// Generate variable store code using new function system (no r12/r13/r14)
 void emit_variable_store(CodeGenerator& gen, const std::string& var_name) {
     if (!g_scope_context.current_scope || !g_scope_context.scope_analyzer) {
         throw std::runtime_error("No scope context for variable store: " + var_name);
     }
     
-    // For assignments, the variable should typically be in current scope
-    std::cout << "[SCOPE_DEBUG] Looking for variable '" << var_name << "' in current scope" << std::endl;
-    std::cout << "[SCOPE_DEBUG] Current scope node address: " << (void*)g_scope_context.current_scope << std::endl;
-    std::cout << "[SCOPE_DEBUG] Current scope has " << g_scope_context.current_scope->variable_offsets.size() << " variables:" << std::endl;
-    for (const auto& pair : g_scope_context.current_scope->variable_offsets) {
-        std::cout << "[SCOPE_DEBUG]   " << pair.first << " -> offset " << pair.second << std::endl;
+    X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (!x86_gen) {
+        throw std::runtime_error("New scope system requires X86CodeGenV2");
     }
     
+    // Check if variable is in current scope first
     auto offset_it = g_scope_context.current_scope->variable_offsets.find(var_name);
     if (offset_it != g_scope_context.current_scope->variable_offsets.end()) {
         // Variable is in current scope
         size_t var_offset = offset_it->second;
-        gen.emit_mov_reg_offset_reg(15, var_offset, 0); // [r15 + offset] = rax
-        std::cout << "[SCOPE_CODEGEN] Stored to local variable '" << var_name << "' at r15+" << var_offset << std::endl;
+        x86_gen->emit_mov_reg_offset_reg(15, var_offset, 0); // [r15 + offset] = rax
+        std::cout << "[NEW_SCOPE_SYSTEM] Stored to local variable '" << var_name 
+                  << "' at r15+" << var_offset << std::endl;
     } else {
         // This might be a reassignment to a parent scope variable
-        std::cout << "[SCOPE_DEBUG] Variable '" << var_name << "' not in current scope, checking parent scopes" << std::endl;
         auto def_scope = g_scope_context.scope_analyzer->get_definition_scope_for_variable(var_name);
-        std::cout << "[SCOPE_DEBUG] get_definition_scope_for_variable returned: " << def_scope << std::endl;
         if (!def_scope) {
             throw std::runtime_error("Variable assignment to undefined variable: " + var_name);
-        } else {
-            // Reassignment to parent scope variable
-            auto parent_offset_it = def_scope->variable_offsets.find(var_name);
-            if (parent_offset_it == def_scope->variable_offsets.end()) {
-                throw std::runtime_error("Parent variable offset not found: " + var_name);
-            }
-            
-            size_t var_offset = parent_offset_it->second;
-            int scope_depth = def_scope->scope_depth;
-            auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
-            
-            if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
-                int scope_reg = reg_it->second;
-                gen.emit_mov_reg_offset_reg(scope_reg, var_offset, 0); // [r12/13/14 + offset] = rax
-                std::cout << "[SCOPE_CODEGEN] Stored to parent variable '" << var_name 
-                          << "' at r" << scope_reg << "+" << var_offset << std::endl;
-            } else {
-                generate_deep_scope_variable_store(gen, var_name, scope_depth, var_offset);
-                std::cout << "[SCOPE_CODEGEN] Stored to parent variable '" << var_name 
-                          << "' via deep scope (stack-based access)" << std::endl;
-            }
         }
+        
+        // DISABLED: Parent scope assignment using runtime lookup violates FUNCTION.md
+        std::cerr << "ERROR: Parent scope variable assignment disabled!" << std::endl;
+        std::cerr << "ERROR: Variable '" << var_name << "' assignment to parent scope blocked." << std::endl;
+        throw std::runtime_error("Parent scope assignment disabled - FUNCTION.md violation");
+        
+        // OLD CODE (DISABLED):
+        // // Reassignment to parent scope variable using runtime lookup
+        // auto parent_offset_it = def_scope->variable_offsets.find(var_name);
+        // if (parent_offset_it == def_scope->variable_offsets.end()) {
+        //     throw std::runtime_error("Parent variable offset not found: " + var_name);
+        // }
+        // 
+        // size_t var_offset = parent_offset_it->second;
+        // int scope_depth = def_scope->scope_depth;
+        // 
+        // std::cout << "[NEW_SCOPE_SYSTEM] Storing to parent variable in scope depth " << scope_depth 
+        //           << " using runtime lookup" << std::endl;
+        // 
+        // // Save the value to store (in RAX) on stack
+        // x86_gen->emit_push_reg(0); // push rax
+        // 
+        // // Get parent scope address from runtime registry
+        // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
+        // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
+        // 
+        // // Move scope address to working register and restore value
+        // x86_gen->emit_mov_reg_reg(11, 0); // R11 = scope address
+        // x86_gen->emit_pop_reg(0); // pop rax (restore value)
+        // 
+        // // Store to parent scope: [scope_address + var_offset] = rax
+        // x86_gen->emit_mov_reg_offset_reg(11, var_offset, 0); // [R11 + offset] = rax
+        // 
+        // std::cout << "[NEW_SCOPE_SYSTEM] Stored to parent variable '" << var_name 
+        //           << "' via runtime-resolved scope" << std::endl;
     }
 }
 
@@ -999,10 +777,10 @@ void Identifier::generate_code(CodeGenerator& gen) {
         return;
     }
 
-    // Cast to ScopeAwareCodeGen to get variable declaration info
-    auto scope_gen = dynamic_cast<ScopeAwareCodeGen*>(&gen);
-    if (!scope_gen) {
-        throw std::runtime_error("Variable access requires ScopeAwareCodeGen");
+    // Cast to X86CodeGenV2 to get variable declaration info
+    auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (!x86_gen) {
+        throw std::runtime_error("Variable access requires X86CodeGenV2");
     }
     
     // ULTRA-FAST: Use direct pointer (set by StaticAnalyzer)
@@ -1019,7 +797,7 @@ void Identifier::generate_code(CodeGenerator& gen) {
         std::cout << "[FUNCTION_VARIABLE] Function variable '" << name << "' accessed as value, creating function instance" << std::endl;
         
         // Get the function declaration for this variable name
-        LexicalScopeNode* func_scope = scope_gen->get_definition_scope_for_variable(name);
+        LexicalScopeNode* func_scope = x86_gen->get_definition_scope_for_variable(name);
         FunctionDecl* func_decl = nullptr;
         if (func_scope) {
             for (auto* decl : func_scope->declared_functions) {
@@ -1080,16 +858,22 @@ void Identifier::generate_code(CodeGenerator& gen) {
                 for (size_t i = 0; i < func_decl->lexical_scope->priority_sorted_parent_scopes.size(); i++) {
                     int scope_depth = func_decl->lexical_scope->priority_sorted_parent_scopes[i];
                     
-                    // Get scope address for this depth
-                    x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
-                    x86_gen->emit_call("__get_scope_address_for_depth"); // Returns scope address in RAX
+                    // DISABLED: Runtime scope lookup violates FUNCTION.md
+                    std::cerr << "ERROR: Function variable scope capture disabled!" << std::endl;
+                    std::cerr << "ERROR: Cannot capture scope depth " << scope_depth << std::endl;
+                    throw std::runtime_error("Function variable scope capture disabled - FUNCTION.md violation");
                     
-                    // Store in function instance
-                    x86_gen->emit_mov_reg_offset_reg(10, scope_offset, 0); // [R10 + scope_offset] = scope_address
-                    scope_offset += 8;
-                    
-                    std::cout << "[FUNCTION_VARIABLE] Captured scope depth " << scope_depth 
-                              << " at offset " << (scope_offset - 8) << std::endl;
+                    // OLD CODE (DISABLED):
+                    // // Get scope address for this depth
+                    // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
+                    // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns scope address in RAX
+                    // 
+                    // // Store in function instance
+                    // x86_gen->emit_mov_reg_offset_reg(10, scope_offset, 0); // [R10 + scope_offset] = scope_address
+                    // scope_offset += 8;
+                    // 
+                    // std::cout << "[FUNCTION_VARIABLE] Captured scope depth " << scope_depth 
+                    //           << " at offset " << (scope_offset - 8) << std::endl;
                 }
             }
             
@@ -1128,7 +912,7 @@ void Identifier::generate_code(CodeGenerator& gen) {
         // Use the direct offset from variable_declaration_info (FASTEST - no map lookup!)
         size_t var_offset = var_info->offset;
         
-        LexicalScopeNode* definition_scope = scope_gen->get_definition_scope_for_variable(name);
+        LexicalScopeNode* definition_scope = x86_gen->get_definition_scope_for_variable(name);
         int definition_depth = var_info->depth;
         
         std::cout << "[DEBUG_OFFSET] Variable '" << name << "' using offset " << var_offset 
@@ -1159,24 +943,32 @@ void Identifier::generate_code(CodeGenerator& gen) {
             std::cout << "[NEW_CODEGEN] Loaded from local variable '" << name << "' at r15+" << var_offset 
                       << " (type=" << static_cast<int>(var_info->data_type) << ")" << std::endl;
         } else if (definition_depth < current_scope_depth) {
-            // Variable is in parent scope (normal case)
-            int scope_depth = definition_depth;  // Use copied depth instead of pointer access
-            auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
+            // Variable is in parent scope - use runtime lookup (NEW SYSTEM)
+            // DISABLED: Parent scope variable lookup violates FUNCTION.md
+            std::cerr << "ERROR: Parent scope variable lookup disabled in generate_variable()!" << std::endl;
+            std::cerr << "ERROR: Variable '" << name << "' cannot be loaded from parent scope." << std::endl;
+            throw std::runtime_error("Parent scope lookup disabled - FUNCTION.md violation");
             
-            if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
-                // Parent scope is in a register (fast path)
-                int scope_reg = reg_it->second;
-                gen.emit_mov_reg_reg_offset(0, scope_reg, var_offset); // rax = [r12/13/14 + offset]
-                std::cout << "[NEW_CODEGEN] Loaded parent variable '" << name 
-                          << "' from r" << scope_reg << "+" << var_offset 
-                          << " (type=" << static_cast<int>(result_type) << ")" << std::endl;
-            } else {
-                // Deep nesting - use stack-based access (slower but still optimized)
-                generate_deep_scope_variable_load(gen, name, scope_depth, var_offset);
-                std::cout << "[NEW_CODEGEN] Loaded parent variable '" << name 
-                          << "' from deep scope (stack-based access)"
-                          << " (type=" << static_cast<int>(result_type) << ")" << std::endl;
-            }
+            // OLD CODE (DISABLED):
+            // int scope_depth = definition_depth;
+            // 
+            // std::cout << "[NEW_SCOPE_SYSTEM] Loading parent variable from scope depth " << scope_depth 
+            //           << " using runtime lookup" << std::endl;
+            // 
+            // X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+            // if (!x86_gen) {
+            //     throw std::runtime_error("New scope system requires X86CodeGenV2");
+            // }
+            // 
+            // // Get scope address from runtime registry
+            // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
+            // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
+            // 
+            // // Load variable from parent scope: rax = [returned_scope_address + var_offset]
+            // x86_gen->emit_mov_reg_reg_offset(0, 0, var_offset); // rax = [rax + offset]
+            
+            std::cout << "[NEW_SCOPE_SYSTEM] Loaded parent variable '" << name 
+                      << "' from runtime-resolved scope (type=" << static_cast<int>(result_type) << ")" << std::endl;
         } else {
             // Special case: Loading from deeper scope (upward access)
             // This can happen when Identifier nodes are processed outside their proper lexical context
@@ -1293,24 +1085,39 @@ void Assignment::generate_code(CodeGenerator& gen) {
                 std::cout << "[NEW_CODEGEN] Stored to local variable '" << variable_name << "' at r15+" << var_offset 
                           << " (type=" << static_cast<int>(variable_type) << ")" << std::endl;
             } else if (current_depth > target_depth) {
-                // Storing to parent scope (normal case)
-                int scope_depth = variable_declaration_info->depth;  // Use depth from variable declaration info
-                auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
+                // DISABLED: Parent scope assignment violates FUNCTION.md
+                std::cerr << "ERROR: Parent scope assignment disabled in assignment generation!" << std::endl;
+                std::cerr << "ERROR: Cannot store to variable in parent scope." << std::endl;
+                throw std::runtime_error("Parent scope assignment disabled - FUNCTION.md violation");
                 
-                if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
-                    // Parent scope is in register (fast path)
-                    int scope_reg = reg_it->second;
-                    gen.emit_mov_reg_offset_reg(scope_reg, var_offset, 0); // [r12/13/14 + offset] = rax
-                    std::cout << "[NEW_CODEGEN] Stored to parent variable '" << variable_name 
-                              << "' at r" << scope_reg << "+" << var_offset 
-                              << " (type=" << static_cast<int>(variable_type) << ")" << std::endl;
-                } else {
-                    // Deep nesting - use stack-based access
-                    generate_deep_scope_variable_store(gen, variable_name, scope_depth, var_offset);
-                    std::cout << "[NEW_CODEGEN] Stored to parent variable '" << variable_name 
-                              << "' via deep scope (stack-based access)"
-                              << " (type=" << static_cast<int>(variable_type) << ")" << std::endl;
-                }
+                // OLD CODE (DISABLED):
+                // // Storing to parent scope using runtime lookup (NEW SYSTEM)
+                // int scope_depth = variable_declaration_info->depth;
+                // 
+                // std::cout << "[NEW_SCOPE_SYSTEM] Storing to parent scope depth " << scope_depth 
+                //           << " using runtime lookup" << std::endl;
+                // 
+                // X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+                // if (!x86_gen) {
+                //     throw std::runtime_error("New scope system requires X86CodeGenV2");
+                // }
+                // 
+                // // Save the value to store (in RAX) on stack
+                // x86_gen->emit_push_reg(0); // push rax
+                // 
+                // // Get parent scope address from runtime registry
+                // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
+                // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
+                // 
+                // // Move scope address to working register and restore value
+                // x86_gen->emit_mov_reg_reg(11, 0); // R11 = scope address
+                // x86_gen->emit_pop_reg(0); // pop rax (restore value)
+                // 
+                // // Store to parent scope: [scope_address + var_offset] = rax
+                // x86_gen->emit_mov_reg_offset_reg(11, var_offset, 0); // [R11 + offset] = rax
+                
+                std::cout << "[NEW_SCOPE_SYSTEM] Stored to parent variable '" << variable_name 
+                          << "' via runtime-resolved scope (type=" << static_cast<int>(variable_type) << ")" << std::endl;
             } else {
                 // Special case: Storing to deeper scope (upward assignment)
                 // This can happen when Assignment nodes are processed outside their proper lexical context
@@ -2068,19 +1875,14 @@ void FunctionExpression::generate_code(CodeGenerator& gen) {
         for (size_t i = 0; i < scope_count; i++) {
             size_t offset = 16 + (i * 8); // Scope addresses start at offset 16
             
-            // For now, use R15 as current scope base (per FUNCTION.md register allocation)
-            // R12, R13, R14 will be used for frequent parent scopes
+            // NEW SYSTEM: All scopes accessed via runtime lookup
             if (i == 0) {
                 // First scope is current scope (R15)
                 x86_gen->emit_mov_reg_offset_reg(10, offset, 15); // instance->scope_addrs[i] = R15
-            } else if (i <= 3) {
-                // Next 3 scopes use dedicated registers R12, R13, R14
-                int reg = 12 + (i - 1); // R12, R13, or R14
-                x86_gen->emit_mov_reg_offset_reg(10, offset, reg); // instance->scope_addrs[i] = R12/R13/R14
             } else {
-                // Additional scopes loaded from memory (slower path)
-                // TODO: Implement memory-based scope loading for deep nesting
-                x86_gen->emit_mov_reg_imm(11, 0); // Null for now - will be improved
+                // Parent scopes accessed via runtime lookup - store the depth for now
+                // TODO: Store actual parent scope addresses during function instance creation
+                x86_gen->emit_mov_reg_imm(11, i); // Store depth as placeholder
                 x86_gen->emit_mov_reg_offset_reg(10, offset, 11);
             }
         }
@@ -2630,22 +2432,32 @@ void PostfixIncrement::generate_code(CodeGenerator& gen) {
         std::cout << "[NEW_CODEGEN] PostfixIncrement: loaded local variable '" << variable_name 
                   << "' from r15+" << var_offset << std::endl;
     } else {
-        // Variable is in parent scope - find which register holds it
-        int scope_depth = def_scope->scope_depth;
-        auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
+        // DISABLED: Parent scope postfix increment violates FUNCTION.md
+        std::cerr << "ERROR: Parent scope postfix increment disabled!" << std::endl;
+        std::cerr << "ERROR: Cannot increment variable '" << variable_name << "' in parent scope." << std::endl;
+        throw std::runtime_error("Parent scope postfix increment disabled - FUNCTION.md violation");
         
-        if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
-            // Parent scope is in a register
-            int scope_reg = reg_it->second;
-            gen.emit_mov_reg_reg_offset(0, scope_reg, var_offset); // rax = [r12/13/14 + offset]
-            std::cout << "[NEW_CODEGEN] PostfixIncrement: loaded parent variable '" << variable_name 
-                      << "' from r" << scope_reg << "+" << var_offset << std::endl;
-        } else {
-            // Deep nested scope access for PostfixIncrement
-            generate_deep_scope_variable_load(gen, variable_name, scope_depth, var_offset);
-            std::cout << "[NEW_CODEGEN] PostfixIncrement: loaded parent variable '" << variable_name 
-                      << "' from deep scope (stack-based access)" << std::endl;
-        }
+        // OLD CODE (DISABLED):
+        // // Variable is in parent scope - use runtime lookup (NEW SYSTEM)
+        // int scope_depth = def_scope->scope_depth;
+        // 
+        // std::cout << "[NEW_SCOPE_SYSTEM] PostfixIncrement: Loading from parent scope depth " << scope_depth 
+        //           << " using runtime lookup" << std::endl;
+        // 
+        // X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+        // if (!x86_gen) {
+        //     throw std::runtime_error("New scope system requires X86CodeGenV2");
+        // }
+        // 
+        // // Get scope address from runtime registry
+        // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
+        // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
+        // 
+        // // Load variable from parent scope: rax = [returned_scope_address + var_offset]
+        // x86_gen->emit_mov_reg_reg_offset(0, 0, var_offset); // rax = [rax + offset]
+        // 
+        // std::cout << "[NEW_SCOPE_SYSTEM] PostfixIncrement: loaded parent variable '" << variable_name 
+        //           << "' from runtime-resolved scope" << std::endl;
     }
     
     // Store the current value (this is the return value for postfix)
@@ -2661,22 +2473,39 @@ void PostfixIncrement::generate_code(CodeGenerator& gen) {
         std::cout << "[NEW_CODEGEN] PostfixIncrement: stored to local variable '" << variable_name 
                   << "' at r15+" << var_offset << std::endl;
     } else {
-        // Variable is in parent scope
-        int scope_depth = def_scope->scope_depth;
-        auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
+        // DISABLED: Parent scope postfix increment storage violates FUNCTION.md
+        std::cerr << "ERROR: Parent scope postfix increment storage disabled!" << std::endl;
+        std::cerr << "ERROR: Cannot store incremented value for variable '" << variable_name << "' in parent scope." << std::endl;
+        throw std::runtime_error("Parent scope postfix increment storage disabled - FUNCTION.md violation");
         
-        if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {
-            // Parent scope is in a register
-            int scope_reg = reg_it->second;
-            gen.emit_mov_reg_offset_reg(scope_reg, var_offset, 0); // [r12/13/14 + offset] = rax
-            std::cout << "[NEW_CODEGEN] PostfixIncrement: stored to parent variable '" << variable_name 
-                      << "' at r" << scope_reg << "+" << var_offset << std::endl;
-        } else {
-            // Deep nested scope store for PostfixIncrement
-            generate_deep_scope_variable_store(gen, variable_name, scope_depth, var_offset);
-            std::cout << "[NEW_CODEGEN] PostfixIncrement: stored to parent variable '" << variable_name 
-                      << "' via deep scope (stack-based access)" << std::endl;
-        }
+        // OLD CODE (DISABLED):
+        // // Variable is in parent scope - use runtime lookup (NEW SYSTEM)
+        // int scope_depth = def_scope->scope_depth;
+        // 
+        // std::cout << "[NEW_SCOPE_SYSTEM] PostfixIncrement: Storing to parent scope depth " << scope_depth 
+        //           << " using runtime lookup" << std::endl;
+        // 
+        // X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+        // if (!x86_gen) {
+        //     throw std::runtime_error("New scope system requires X86CodeGenV2");
+        // }
+        // 
+        // // Save the value to store (in RAX) on stack
+        // x86_gen->emit_push_reg(0); // push rax
+        // 
+        // // Get parent scope address from runtime registry
+        // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
+        // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
+        
+        // // Move scope address to working register and restore value
+        // x86_gen->emit_mov_reg_reg(11, 0); // R11 = scope address
+        // x86_gen->emit_pop_reg(0); // pop rax (restore value)
+        // 
+        // // Store to parent scope: [scope_address + var_offset] = rax
+        // x86_gen->emit_mov_reg_offset_reg(11, var_offset, 0); // [R11 + offset] = rax
+        // 
+        // std::cout << "[NEW_SCOPE_SYSTEM] PostfixIncrement: stored to parent variable '" << variable_name 
+        //           << "' via runtime-resolved scope" << std::endl;
     }
     
     // Return the original value (postfix semantics)
@@ -2710,10 +2539,10 @@ void PostfixDecrement::generate_code(CodeGenerator& gen) {
 void FunctionDecl::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_SYSTEM] Generating function '" << name << "' with new function instance system" << std::endl;
     
-    // Cast to scope-aware codegen
-    auto scope_gen = dynamic_cast<ScopeAwareCodeGen*>(&gen);
-    if (!scope_gen) {
-        throw std::runtime_error("New function system requires ScopeAwareCodeGen");
+    // Cast to X86CodeGenV2
+    auto x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (!x86_gen) {
+        throw std::runtime_error("New function system requires X86CodeGenV2");
     }
     
     // Store the current code offset for address patching
@@ -2733,11 +2562,11 @@ void FunctionDecl::generate_code(CodeGenerator& gen) {
     std::cout << "[NEW_SYSTEM] Function analysis temporarily disabled for " << name << std::endl;
     
     // Generate optimized prologue using the new function instance system
-    scope_gen->emit_function_prologue(this);
+    x86_gen->emit_function_prologue(this);
     
     // Set the lexical scope context for this function
     if (lexical_scope) {
-        scope_gen->set_current_scope(lexical_scope.get());
+        x86_gen->set_current_scope(lexical_scope.get());
     }
     
     // Generate body code
@@ -2746,7 +2575,7 @@ void FunctionDecl::generate_code(CodeGenerator& gen) {
     }
     
     // Generate optimized epilogue using the new function instance system
-    scope_gen->emit_function_epilogue(this);
+    x86_gen->emit_function_epilogue(this);
     
     std::cout << "[NEW_SYSTEM] Function '" << name << "' generation complete with new system" << std::endl;
 }

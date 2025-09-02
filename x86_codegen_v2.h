@@ -4,6 +4,17 @@
 #include "codegen_forward.h"
 #include <memory>
 #include <unordered_set>
+#include <unordered_map>
+#include <vector>
+
+// Forward declarations for scope management
+class LexicalScopeNode;
+class SimpleLexicalScopeAnalyzer;
+class StaticAnalyzer;
+struct FunctionDecl;
+struct VariableDeclarationInfo;
+struct ASTNode;
+enum class DataType;
 
 
 
@@ -50,6 +61,28 @@ private:
     };
     std::vector<FunctionInstancePatchInfo> function_instances_to_patch;
     
+    // Scope management - merged from ScopeAwareCodeGen
+    struct ScopeRegisterState {
+        int current_scope_depth = 0;
+        std::unordered_map<int, int> scope_depth_to_register;  // scope_depth -> register_id (12,13,14)
+        std::vector<int> available_scope_registers = {12, 13, 14};
+        std::vector<int> stack_stored_scopes; // scopes that couldn't fit in registers
+        
+        // Register preservation tracking
+        std::unordered_set<int> registers_in_use;  // which of r12,r13,r14 are currently used
+        std::unordered_set<int> registers_saved_to_stack;  // which registers we've pushed to stack
+        std::vector<int> register_save_order;  // order in which registers were saved (for proper restore)
+    } scope_state;
+    
+    // Current context
+    class LexicalScopeNode* current_scope = nullptr;
+    class SimpleLexicalScopeAnalyzer* scope_analyzer = nullptr;
+    class StaticAnalyzer* static_analyzer_ = nullptr;
+    
+    // Type information from parse phase
+    std::unordered_map<std::string, DataType> variable_types;
+    std::unordered_map<std::string, DataType> variable_array_element_types;
+    
     // Helper methods for register management
     X86Reg allocate_register();
     void free_register(X86Reg reg);
@@ -58,17 +91,61 @@ private:
     // Runtime function resolution helper
     void* get_runtime_function_address(const std::string& function_name);
     
+    // Scope management private methods
+    void setup_parent_scope_registers(LexicalScopeNode* scope_node);
+    void restore_parent_scope_registers();
+    
     // Optimization helpers
     void optimize_mov_sequences();
     void eliminate_dead_code();
     
 public:
     X86CodeGenV2();
+    X86CodeGenV2(SimpleLexicalScopeAnalyzer* analyzer);
+    X86CodeGenV2(StaticAnalyzer* analyzer);
     ~X86CodeGenV2() override = default;
     
     // Performance optimization settings
     bool enable_peephole_optimization = true;
     bool enable_register_allocation = true;
+    
+    // --- SCOPE MANAGEMENT METHODS (merged from ScopeAwareCodeGen) ---
+    
+    // Function instance creation/call methods (stubs for now)
+    void emit_function_instance_creation(struct FunctionDecl* child_func, size_t func_offset);
+    void emit_function_instance_call(size_t func_offset, const std::vector<std::unique_ptr<ASTNode>>& arguments);
+    
+    // Function prologue/epilogue generation with scope management
+    void emit_function_prologue(struct FunctionDecl* function);
+    void emit_function_epilogue(struct FunctionDecl* function);
+    
+    // Set the current scope context
+    void set_current_scope(LexicalScopeNode* scope);
+    
+    // Scope data access methods
+    LexicalScopeNode* get_scope_node_for_depth(int depth);
+    LexicalScopeNode* get_definition_scope_for_variable(const std::string& name);
+    void perform_deferred_packing_for_scope(LexicalScopeNode* scope_node);
+    
+    // Scope management methods
+    void enter_lexical_scope(LexicalScopeNode* scope_node);
+    void exit_lexical_scope(LexicalScopeNode* scope_node);
+    
+    // Variable access methods
+    void emit_variable_load(const std::string& var_name);
+    void emit_variable_store(const std::string& var_name);
+    VariableDeclarationInfo* get_variable_declaration_info(const std::string& name);
+    
+    // Type context methods
+    void set_variable_type(const std::string& name, DataType type);
+    DataType get_variable_type(const std::string& name);
+    
+    // Register usage tracking methods
+    void mark_register_in_use(int reg_id);
+    void mark_register_free(int reg_id);
+    bool is_register_in_use(int reg_id);
+    
+    // --- END SCOPE MANAGEMENT ---
     
     // CodeGenerator interface implementation
     void emit_prologue() override;
@@ -245,6 +322,14 @@ public:
 
 // Factory function for creating optimized code generators
 std::unique_ptr<CodeGenerator> create_optimized_x86_codegen();
+
+// Factory functions to replace create_scope_aware_codegen
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen(SimpleLexicalScopeAnalyzer* analyzer);
+std::unique_ptr<CodeGenerator> create_scope_aware_codegen_with_static_analyzer(StaticAnalyzer* analyzer);
+
+// New factory function names for clarity
+std::unique_ptr<X86CodeGenV2> create_x86_codegen_with_scope_analyzer(SimpleLexicalScopeAnalyzer* analyzer);
+std::unique_ptr<X86CodeGenV2> create_x86_codegen_with_static_analyzer(StaticAnalyzer* analyzer);
 
 // Performance testing and validation
 class X86CodeGenTester {

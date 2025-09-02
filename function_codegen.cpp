@@ -2,7 +2,6 @@
 #include "compiler.h"
 #include "simple_lexical_scope.h"
 #include "x86_codegen_v2.h"
-#include "scope_aware_codegen.h"  // For ScopeAwareCodeGen
 #include "function_instance.h"
 #include "function_address_patching.h"
 #include <iostream>
@@ -27,54 +26,106 @@ FunctionCallStrategy determine_function_call_strategy(const std::string& functio
 // FUNCTION CALL CODE GENERATION METHODS
 //=============================================================================
 
-// Generate function call code based on the appropriate strategy (SIMPLIFIED VERSION)
+// Generate function call code using new hidden parameter approach from FUNCTION.md
 void generate_function_call_code(CodeGenerator& gen, 
                                 const std::string& function_var_name,
                                 SimpleLexicalScopeAnalyzer* analyzer,
                                 LexicalScopeNode* current_scope) {
-    std::cout << "[NEW_SYSTEM] Using new function call system for '" << function_var_name << "'" << std::endl;
+    std::cout << "[NEW_FUNCTION_SYSTEM] Generating function call for '" << function_var_name << "' with hidden parameters" << std::endl;
     
-    // Cast to the new ScopeAwareCodeGen system
-    auto scope_gen = dynamic_cast<ScopeAwareCodeGen*>(&gen);
-    if (!scope_gen) {
-        throw std::runtime_error("New function system requires ScopeAwareCodeGen");
+    X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
+    if (!x86_gen) {
+        throw std::runtime_error("New function system requires X86CodeGenV2");
     }
     
-    // Find the function variable in the current scope
-    if (!current_scope) {
-        throw std::runtime_error("No current scope for function variable lookup");
+    // NEW SYSTEM: For now, use direct call until full function registry is implemented
+    std::cout << "[NEW_FUNCTION_SYSTEM] Using direct call for '" << function_var_name << "' (temporary until full registry)" << std::endl;
+    x86_gen->emit_call(function_var_name);
+    return;
+    
+    /* TODO: Implement full function registry lookup and hidden parameter passing
+    // Find the function declaration to determine what scopes it needs
+    auto function_decl_it = function_registry.find(function_var_name);
+    if (function_decl_it == function_registry.end()) {
+        std::cout << "[NEW_FUNCTION_SYSTEM] Function '" << function_var_name << "' not found in lookup, using direct call" << std::endl;
+        x86_gen->emit_call(function_var_name);
+        return;
+    }*/
+    
+    /* TODO: Restore once function registry is implemented
+    FunctionDecl* target_function = function_decl_it->second;
+    if (!target_function->lexical_scope) {
+        std::cout << "[NEW_FUNCTION_SYSTEM] Function '" << function_var_name << "' has no lexical scope, using direct call" << std::endl;
+        x86_gen->emit_call(function_var_name);
+        return;
     }
     
-    auto offset_it = current_scope->variable_offsets.find(function_var_name);
-    if (offset_it == current_scope->variable_offsets.end()) {
-        throw std::runtime_error("Function variable not found in scope: " + function_var_name);
+    // Get the scopes the target function needs, sorted by access frequency
+    const std::vector<int>& required_scopes = target_function->lexical_scope->priority_sorted_parent_scopes;
+    */ // End of TODO section - commented out until function registry is ready
+    
+    /* TODO: Continue once function registry is implemented
+    std::cout << "[NEW_FUNCTION_SYSTEM] Function '" << function_var_name << "' needs " 
+              << required_scopes.size() << " parent scopes as hidden parameters" << std::endl;
+    
+    // Pass required scope addresses as hidden parameters after regular arguments
+    // We need to push them in reverse order so the function receives them in correct order
+    for (int i = required_scopes.size() - 1; i >= 0; i--) {
+        int required_depth = required_scopes[i];
+        
+        // Determine where to get this scope address from current context
+        if (required_depth == current_scope->scope_depth) {
+            // Current scope - use R15
+            std::cout << "[NEW_FUNCTION_SYSTEM] Passing current scope (depth " << required_depth << ") from R15" << std::endl;
+            // Load r15 into next available parameter register or push to stack
+            if (i < 6) {
+                // Use parameter registers for first 6 hidden parameters (after regular args)
+                // This assumes regular arguments are already loaded into registers
+                // We need to be careful about register allocation here
+                x86_gen->emit_mov_reg_reg(7 + i, 15); // Use RDI, RSI, etc. for hidden params
+            } else {
+                x86_gen->emit_push_reg(15); // push r15 for additional hidden params
+            }
+        } else {
+            // DISABLED: Parent scope passing via runtime lookup violates FUNCTION.md
+            std::cerr << "ERROR: Function call scope parameter passing disabled!" << std::endl;
+            std::cerr << "ERROR: Cannot pass parent scope parameters to function '" << function_var_name << "'" << std::endl;
+            throw std::runtime_error("Function call scope parameter passing disabled - FUNCTION.md violation");
+            
+            // OLD CODE (DISABLED):
+            // // Parent scope - find which register contains it or get from stack
+            // // In the new system, we should have parent scope addresses in parameter registers
+            // // from our own function's hidden parameters
+            // 
+            // // For now, assume parent scopes are accessible via runtime lookup
+            // // This will be optimized once the full system is in place
+            // std::cout << "[NEW_FUNCTION_SYSTEM] Passing parent scope (depth " << required_depth << ")" << std::endl;
+            // x86_gen->emit_mov_reg_imm(0, required_depth); // RAX = scope depth
+            // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
+            // 
+            // if (i < 6) {
+            //     x86_gen->emit_mov_reg_reg(7 + i, 0); // Move scope address to parameter register
+            // } else {
+            //     x86_gen->emit_push_reg(0); // Push scope address for additional hidden params
+            // }
+        }
     }
     
-    size_t func_var_offset = offset_it->second;
+    // Make the function call
+    std::cout << "[NEW_FUNCTION_SYSTEM] Calling function '" << function_var_name 
+              << "' with " << required_scopes.size() << " hidden scope parameters" << std::endl;
+    x86_gen->emit_call(function_var_name);
     
-    // The function instance is stored at func_var_offset + 8 (skip type tag)
-    size_t func_instance_offset = func_var_offset + 8;
+    // Clean up stack if we pushed additional hidden parameters
+    size_t stack_params = (required_scopes.size() > 6) ? required_scopes.size() - 6 : 0;
+    if (stack_params > 0) {
+        int stack_cleanup = stack_params * 8; // 8 bytes per scope address
+        std::cout << "[NEW_FUNCTION_SYSTEM] Cleaning up " << stack_cleanup << " bytes from stack" << std::endl;
+        x86_gen->emit_add_reg_imm(4, stack_cleanup); // add rsp, stack_cleanup
+    }
+    */ // End of commented section
     
-    // Load function instance address
-    scope_gen->emit_mov_reg_reg_offset(0, 15, func_instance_offset); // rax = [r15 + instance_offset]
-    
-    // Get the actual FunctionDecl to access static analysis
-    // For now, we'll implement a simpler version that works with the available data
-    
-    // Load number of captured scopes from the instance
-    scope_gen->emit_mov_reg_reg_offset(1, 0, 16); // rcx = [rax + 16] (num_captured_scopes)
-    
-    // Push captured scopes in reverse order
-    // We need a loop since we don't know the count at compile time in this context
-    std::cout << "[NEW_SYSTEM] Pushing captured scopes for function call" << std::endl;
-    
-    // Simple approach: assume we have the scope count in rcx, push in reverse order
-    // This is a simplified version - in reality we'd need the static analysis data
-    
-    // For now, call the function code address directly
-    scope_gen->emit_call_reg_offset(0, 8); // call [rax + 8] (function_code_addr)
-    
-    std::cout << "[NEW_SYSTEM] Function call completed using new system" << std::endl;
+    std::cout << "[NEW_FUNCTION_SYSTEM] Function call completed using new hidden parameter system" << std::endl;
 }
 
 //=============================================================================

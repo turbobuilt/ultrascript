@@ -13,6 +13,6 @@ We will take care to note that the order of addresses is different for each func
 
 Then it allocates it's own lexicalscope to the stack and stores this address to r15. Obviously would need to save r15 if not root scope level 1.
 
-Then it will generate the function code to access variables and lexical scopes
+Then it will generate the function code to access variables normally. variables in lexical scope would be [lexical_scope_register+offset], the offset is available in varaibleinfo poitner object i think. if past 8th parameter, would have extra inderection
 
-Then in epiloguge, it would restore r15.
+Then in epiloguge, it would restore r15,and handle other vars as usual.

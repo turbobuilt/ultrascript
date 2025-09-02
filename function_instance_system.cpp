@@ -47,16 +47,12 @@ void FunctionInstanceSystem::compute_complete_function_analysis(
     // Update the function's static analysis data for compatibility
     function->static_analysis.needed_parent_scopes = analysis.needed_parent_scopes;
     function->static_analysis.parent_location_indexes = analysis.parent_location_indexes;
-    function->static_analysis.num_registers_needed = analysis.num_registers_needed;
-    function->static_analysis.needs_r12 = analysis.needs_r12;
-    function->static_analysis.needs_r13 = analysis.needs_r13;
-    function->static_analysis.needs_r14 = analysis.needs_r14;
+    // NEW SYSTEM: No more register allocation
     function->static_analysis.function_instance_size = analysis.function_instance_size;
     function->static_analysis.local_scope_size = analysis.local_scope_size;
     
-    std::cout << "[FUNCTION_SYSTEM] Analysis complete for " << function->name 
+    std::cout << "[NEW_FUNCTION_SYSTEM] Analysis complete for " << function->name 
               << ": needs " << analysis.needed_parent_scopes.size() << " parent scopes, "
-              << analysis.num_registers_needed << " registers, "
               << analysis.function_instance_size << " bytes function instance" << std::endl;
 }
 
@@ -112,29 +108,16 @@ void FunctionInstanceSystem::compute_scope_dependencies(
 void FunctionInstanceSystem::compute_register_allocation(CompleteFunctionAnalysis& analysis) {
     std::cout << "[FUNCTION_SYSTEM] Computing register allocation" << std::endl;
     
-    // Allocate R12, R13, R14 to most frequently accessed scopes
-    analysis.num_registers_needed = std::min((int)analysis.priority_sorted_parent_scopes.size(), 3);
-    
+    // NEW SYSTEM: All parent scopes accessed via runtime lookup - no register allocation
     analysis.parent_location_indexes.resize(analysis.priority_sorted_parent_scopes.size(), -1);
     
-    for (int i = 0; i < analysis.num_registers_needed; ++i) {
-        analysis.parent_location_indexes[i] = i; // For now, simple 1:1 mapping
+    for (int i = 0; i < (int)analysis.priority_sorted_parent_scopes.size(); ++i) {
+        analysis.parent_location_indexes[i] = i; // Simple 1:1 mapping for hidden parameter order
         
-        switch (i) {
-            case 0: analysis.needs_r12 = true; break;
-            case 1: analysis.needs_r13 = true; break;
-            case 2: analysis.needs_r14 = true; break;
-        }
-        
-        std::cout << "[FUNCTION_SYSTEM]   R" << (12 + i) << " = scope depth " 
-                  << analysis.priority_sorted_parent_scopes[i] << std::endl;
+        std::cout << "[NEW_FUNCTION_SYSTEM]   Hidden param[" << i << "] = scope depth " 
+                  << analysis.priority_sorted_parent_scopes[i] << " (runtime lookup)" << std::endl;
     }
-    
-    // Remaining scopes go on stack
-    for (int i = 3; i < (int)analysis.priority_sorted_parent_scopes.size(); ++i) {
-        std::cout << "[FUNCTION_SYSTEM]   Stack[" << (i-3) << "] = scope depth " 
-                  << analysis.priority_sorted_parent_scopes[i] << std::endl;
-    }
+}
 }
 
 void FunctionInstanceSystem::compute_hidden_parameter_specification(
@@ -276,12 +259,18 @@ void FunctionInstanceSystem::emit_scope_address_capture(CodeGenerator& gen,
         x86_gen->emit_mov_reg_imm(11, 0); // Will be patched with global scope address
         std::cout << "[FUNCTION_SYSTEM]   Capturing global scope at offset " << target_offset << std::endl;
     } else {
-        // For now, use a runtime call - will be replaced with pure ASM once scope tracking is complete
-        x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
-        x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
-        x86_gen->emit_mov_reg_reg(11, 0); // R11 = scope address
-        std::cout << "[FUNCTION_SYSTEM]   Capturing scope depth " << scope_depth 
-                  << " at offset " << target_offset << std::endl;
+        // DISABLED: Runtime scope lookup violates FUNCTION.md
+        std::cerr << "ERROR: Function instance scope capture disabled!" << std::endl;
+        std::cerr << "ERROR: Cannot capture scope depth " << scope_depth << std::endl;
+        throw std::runtime_error("Function instance scope capture disabled - FUNCTION.md violation");
+        
+        // OLD CODE (DISABLED):
+        // // For now, use a runtime call - will be replaced with pure ASM once scope tracking is complete
+        // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
+        // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
+        // x86_gen->emit_mov_reg_reg(11, 0); // R11 = scope address
+        // std::cout << "[FUNCTION_SYSTEM]   Capturing scope depth " << scope_depth 
+        //           << " at offset " << target_offset << std::endl;
     }
     
     // Store captured scope address in function instance: [R10 + target_offset] = R11
@@ -366,33 +355,36 @@ void FunctionInstanceSystem::emit_function_prologue_with_scope_loading(
     x86_gen->emit_push_reg(5);      // push rbp
     x86_gen->emit_mov_reg_reg(5, 4); // mov rbp, rsp
     
-    // Save caller's scope registers that we'll overwrite
-    if (analysis.needs_r12) x86_gen->emit_push_reg(12); // push r12
-    if (analysis.needs_r13) x86_gen->emit_push_reg(13); // push r13  
-    if (analysis.needs_r14) x86_gen->emit_push_reg(14); // push r14
+    // NEW SYSTEM: No need to save registers - we don't use r12/r13/r14 anymore
     
     // Allocate local scope on heap
     if (analysis.local_scope_size > 0) {
         emit_heap_allocation_pure_asm(gen, analysis.local_scope_size);
         x86_gen->emit_mov_reg_reg(15, 0); // R15 = local scope address
-        std::cout << "[FUNCTION_SYSTEM]   Allocated " << analysis.local_scope_size 
+        std::cout << "[NEW_FUNCTION_SYSTEM]   Allocated " << analysis.local_scope_size 
                   << " bytes for local scope in R15" << std::endl;
     }
     
-    // Load parent scopes from hidden parameters into registers
-    int param_index = 0;
-    for (int i = 0; i < analysis.num_registers_needed; ++i) {
-        int target_register = 12 + i;
-        // Load from stack parameter: mov rN, [rbp + 16 + param_index*8]
-        int64_t stack_offset = 16 + param_index * 8;
-        x86_gen->emit_mov_reg_reg_offset(target_register, 5, stack_offset);
-        param_index++;
+    // NEW SYSTEM: Register parent scope addresses with runtime for lookup
+    // Parent scope addresses are passed as hidden parameters after regular args
+    for (size_t i = 0; i < analysis.needed_parent_scopes.size(); ++i) {
+        int scope_depth = analysis.needed_parent_scopes[i];
+        int64_t stack_offset = 16 + (num_regular_params + i) * 8; // After regular params
         
-        std::cout << "[FUNCTION_SYSTEM]   Loaded R" << target_register 
-                  << " from stack parameter " << param_index-1 << std::endl;
+        // Load parent scope address from stack: mov rax, [rbp + offset]
+        x86_gen->emit_mov_reg_reg_offset(0, 5, stack_offset);
+        
+        // DISABLED: Runtime scope registration violates FUNCTION.md
+        // Register it with runtime: __register_scope_address_for_depth(depth, address)
+        // x86_gen->emit_mov_reg_imm(7, scope_depth); // rdi = depth
+        // x86_gen->emit_mov_reg_reg(6, 0);          // rsi = address
+        // x86_gen->emit_call_symbol("__register_scope_address_for_depth");
+        
+        std::cout << "[NEW_FUNCTION_SYSTEM]   Loaded scope depth " << scope_depth 
+                  << " from hidden parameter " << i << " (runtime registration disabled)" << std::endl;
     }
     
-    std::cout << "[FUNCTION_SYSTEM] Prologue complete for " << function->name << std::endl;
+    std::cout << "[NEW_FUNCTION_SYSTEM] Prologue complete for " << function->name << std::endl;
 }
 
 void FunctionInstanceSystem::emit_function_epilogue_with_scope_restoration(
@@ -400,14 +392,25 @@ void FunctionInstanceSystem::emit_function_epilogue_with_scope_restoration(
     FunctionDecl* function,
     const CompleteFunctionAnalysis& analysis) {
     
-    std::cout << "[FUNCTION_SYSTEM] Emitting function epilogue for " << function->name << std::endl;
+    std::cout << "[NEW_FUNCTION_SYSTEM] Emitting function epilogue for " << function->name << std::endl;
     
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
     
-    // Restore caller's scope registers
-    if (analysis.needs_r14) x86_gen->emit_pop_reg(14); // pop r14
-    if (analysis.needs_r13) x86_gen->emit_pop_reg(13); // pop r13
-    if (analysis.needs_r12) x86_gen->emit_pop_reg(12); // pop r12
+    // DISABLED: Runtime scope unregistration violates FUNCTION.md
+    // NEW SYSTEM: Unregister parent scopes from runtime
+    // for (int scope_depth : analysis.needed_parent_scopes) {
+    //     x86_gen->emit_mov_reg_imm(7, scope_depth); // rdi = depth
+    //     x86_gen->emit_call_symbol("__unregister_scope_address_for_depth");
+    //     
+    //     std::cout << "[NEW_FUNCTION_SYSTEM]   Unregistered scope depth " << scope_depth << std::endl;
+    // }
+    
+    // Free local scope memory if allocated
+    if (analysis.local_scope_size > 0) {
+        x86_gen->emit_mov_reg_reg(7, 15); // rdi = local scope address (R15)
+        x86_gen->emit_call_symbol("free");
+        std::cout << "[NEW_FUNCTION_SYSTEM]   Freed local scope memory" << std::endl;
+    }
     
     // Standard function epilogue
     x86_gen->emit_mov_reg_reg(4, 5); // mov rsp, rbp
