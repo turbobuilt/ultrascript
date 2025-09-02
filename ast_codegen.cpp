@@ -1282,7 +1282,7 @@ void Assignment::generate_code(CodeGenerator& gen) {
             
             // Generate optimal store code based on scope depth comparison (not pointer equality)
             int current_depth = g_scope_context.current_scope ? g_scope_context.current_scope->scope_depth : 1;
-            int target_depth = definition_depth;  // Use copied depth value
+            int target_depth = variable_declaration_info->depth;  // Use depth from variable declaration info
             
             std::cout << "[ASSIGNMENT_DEBUG] Assignment to '" << variable_name 
                       << "': current_depth=" << current_depth << ", target_depth=" << target_depth << std::endl;
@@ -1294,7 +1294,7 @@ void Assignment::generate_code(CodeGenerator& gen) {
                           << " (type=" << static_cast<int>(variable_type) << ")" << std::endl;
             } else if (current_depth > target_depth) {
                 // Storing to parent scope (normal case)
-                int scope_depth = definition_depth;  // Use copied depth instead of pointer access
+                int scope_depth = variable_declaration_info->depth;  // Use depth from variable declaration info
                 auto reg_it = g_scope_context.scope_state.scope_depth_to_register.find(scope_depth);
                 
                 if (reg_it != g_scope_context.scope_state.scope_depth_to_register.end()) {

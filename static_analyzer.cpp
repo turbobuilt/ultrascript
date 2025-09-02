@@ -194,6 +194,7 @@ void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
             assignment->definition_scope = current_scope_;
             assignment->assignment_scope = current_scope_;
             assignment->variable_declaration_info = &current_scope_->variable_declarations[assignment->variable_name];
+            // NOTE: definition_depth is now available via variable_declaration_info->depth
             
             std::cout << "[StaticAnalyzer] Found variable declaration: " << assignment->variable_name 
                       << " at depth " << current_depth_ << std::endl;
