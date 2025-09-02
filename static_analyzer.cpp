@@ -90,7 +90,7 @@ void StaticAnalyzer::perform_complete_variable_packing_from_scopes() {
     // Pack variables in all discovered scopes
     for (auto& scope_entry : depth_to_scope_node_) {
         LexicalScopeNode* scope = scope_entry.second.get();
-        if (scope && !scope->declared_variables.empty()) {
+        if (scope && !scope->variable_declarations.empty()) {
             perform_optimal_packing_for_scope(scope);
         }
     }
@@ -176,10 +176,9 @@ void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
         // This is a variable declaration/assignment
         if (current_scope_) {
             std::cout << "[StaticAnalyzer] Current scope is valid, depth=" << current_depth_ << std::endl;
-            current_scope_->declared_variables.insert(assignment->variable_name);
             
             // Create variable declaration info
-            auto var_info = std::make_unique<VariableDeclarationInfo>(
+            VariableDeclarationInfo var_info(
                 current_depth_, 
                 (assignment->declaration_kind == Assignment::LET) ? "let" :
                 (assignment->declaration_kind == Assignment::CONST) ? "const" : "var",
@@ -189,12 +188,12 @@ void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
             std::cout << "[StaticAnalyzer] Created declaration info for " << assignment->variable_name << std::endl;
             
             // Store in scope
-            current_scope_->variable_declarations[assignment->variable_name] = std::move(var_info);
+            current_scope_->variable_declarations[assignment->variable_name] = var_info;
             
             // Populate AST node fields
             assignment->definition_scope = current_scope_;
             assignment->assignment_scope = current_scope_;
-            assignment->variable_declaration_info = current_scope_->variable_declarations[assignment->variable_name].get();
+            assignment->variable_declaration_info = &current_scope_->variable_declarations[assignment->variable_name];
             
             std::cout << "[StaticAnalyzer] Found variable declaration: " << assignment->variable_name 
                       << " at depth " << current_depth_ << std::endl;
@@ -223,7 +222,7 @@ void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
             // Get the variable declaration info
             auto it = definition_scope->variable_declarations.find(identifier->name);
             if (it != definition_scope->variable_declarations.end()) {
-                identifier->variable_declaration_info = it->second.get();
+                identifier->variable_declaration_info = &it->second;
             }
             
             std::cout << "[StaticAnalyzer] Found variable reference: " << identifier->name 
@@ -243,13 +242,11 @@ void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
         // Traverse function parameters (declare them in function scope)
         for (const auto& param : func_decl->parameters) {
             if (current_scope_) {
-                current_scope_->declared_variables.insert(param.name);
-                
                 // Create parameter declaration info
-                auto param_info = std::make_unique<VariableDeclarationInfo>(
+                VariableDeclarationInfo param_info(
                     current_depth_, "param", param.type
                 );
-                current_scope_->variable_declarations[param.name] = std::move(param_info);
+                current_scope_->declare_variable(param.name, param_info);
                 
                 std::cout << "[StaticAnalyzer] Found function parameter: " << param.name 
                           << " at depth " << current_depth_ << std::endl;
@@ -273,12 +270,10 @@ void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
         // Traverse function parameters
         for (const auto& param : func_expr->parameters) {
             if (current_scope_) {
-                current_scope_->declared_variables.insert(param.name);
-                
-                auto param_info = std::make_unique<VariableDeclarationInfo>(
+                VariableDeclarationInfo param_info(
                     current_depth_, "param", param.type
                 );
-                current_scope_->variable_declarations[param.name] = std::move(param_info);
+                current_scope_->declare_variable(param.name, param_info);
                 
                 std::cout << "[StaticAnalyzer] Found function expression parameter: " << param.name 
                           << " at depth " << current_depth_ << std::endl;
@@ -312,7 +307,7 @@ void StaticAnalyzer::perform_optimal_packing_for_scope(LexicalScopeNode* scope) 
     if (!scope) return;
     
     std::cout << "[StaticAnalyzer] Performing optimal packing for scope at depth " 
-              << scope->scope_depth << " with " << scope->declared_variables.size() 
+              << scope->scope_depth << " with " << scope->variable_declarations.size() 
               << " variables" << std::endl;
     
     // Clear existing packing
@@ -321,18 +316,18 @@ void StaticAnalyzer::perform_optimal_packing_for_scope(LexicalScopeNode* scope) 
     
     // Pack variables and update their declaration info with offsets
     size_t current_offset = 0;
-    for (const std::string& var_name : scope->declared_variables) {
+    for (const auto& var_entry : scope->variable_declarations) {
+        const std::string& var_name = var_entry.first;
+        const VariableDeclarationInfo& var_info = var_entry.second;
+        
         scope->variable_offsets[var_name] = current_offset;
         scope->packed_variable_order.push_back(var_name);
         
         // Update the VariableDeclarationInfo with offset and size info
-        auto var_info_it = scope->variable_declarations.find(var_name);
-        if (var_info_it != scope->variable_declarations.end()) {
-            VariableDeclarationInfo* var_info = var_info_it->second.get();
-            var_info->offset = current_offset;
-            var_info->size_bytes = 8; // Default 64-bit size
-            var_info->alignment = 8;
-        }
+        auto& mutable_var_info = const_cast<VariableDeclarationInfo&>(var_info);
+        mutable_var_info.offset = current_offset;
+        mutable_var_info.size_bytes = 8; // Default 64-bit size
+        mutable_var_info.alignment = 8;
         
         current_offset += 8; // Default 64-bit size
         
@@ -368,7 +363,7 @@ LexicalScopeNode* StaticAnalyzer::get_definition_scope_for_variable(const std::s
     // Search through all scopes for the variable definition
     for (const auto& scope_pair : depth_to_scope_node_) {
         LexicalScopeNode* scope = scope_pair.second.get();
-        if (scope && scope->declared_variables.find(name) != scope->declared_variables.end()) {
+        if (scope && scope->has_variable(name)) {
             return scope;
         }
     }
@@ -407,7 +402,7 @@ LexicalScopeNode* StaticAnalyzer::find_variable_definition_scope(const std::stri
         auto scope_it = depth_to_scope_node_.find(depth);
         if (scope_it != depth_to_scope_node_.end()) {
             LexicalScopeNode* scope = scope_it->second.get();
-            if (scope->declared_variables.find(variable_name) != scope->declared_variables.end()) {
+            if (scope->has_variable(variable_name)) {
                 return scope;
             }
         }
@@ -429,10 +424,9 @@ VariableDeclarationInfo* StaticAnalyzer::find_variable_declaration(const std::st
         }
         
         // Check if the variable is declared in this scope's variable_declarations
-        for (const auto& var_pair : scope->variable_declarations) {
-            if (var_pair.first == name && var_pair.second) {
-                return var_pair.second.get();
-            }
+        auto var_it = scope->variable_declarations.find(name);
+        if (var_it != scope->variable_declarations.end()) {
+            return const_cast<VariableDeclarationInfo*>(&var_it->second);
         }
     }
     
@@ -485,10 +479,11 @@ void StaticAnalyzer::print_analysis_results() const {
         
         std::cout << "[StaticAnalyzer] Scope " << depth 
                   << " (function=" << (scope->is_function_scope ? "yes" : "no") << "): "
-                  << scope->declared_variables.size() << " variables, "
+                  << scope->variable_declarations.size() << " variables, "
                   << scope->total_scope_frame_size << " bytes" << std::endl;
                   
-        for (const std::string& var_name : scope->declared_variables) {
+        for (const auto& var_entry : scope->variable_declarations) {
+            const std::string& var_name = var_entry.first;
             auto offset_it = scope->variable_offsets.find(var_name);
             size_t offset = (offset_it != scope->variable_offsets.end()) ? offset_it->second : 0;
             std::cout << "  '" << var_name << "' @ offset " << offset << std::endl;

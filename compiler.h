@@ -435,7 +435,7 @@ struct LexicalScopeNode : ASTNode {
     // Basic scope information
     int scope_depth;                                           // Absolute depth of this scope (1=global, 2=first function, etc.)
     bool is_function_scope;                                    // true for global + functions (hoisting), false for blocks
-    std::unordered_set<std::string> declared_variables;       // Variables declared in THIS scope
+    std::unordered_map<std::string, VariableDeclarationInfo> variable_declarations; // Variables declared in THIS scope (identifier -> info)
     
     // Function registration for proper hoisting
     std::vector<FunctionDecl*> declared_functions;            // Function declarations in this scope
@@ -450,7 +450,6 @@ struct LexicalScopeNode : ASTNode {
     
     // Variable packing and memory layout (NEW)
     std::unordered_map<std::string, size_t> variable_offsets; // identifier -> byte offset in scope frame
-    std::unordered_map<std::string, std::unique_ptr<VariableDeclarationInfo>> variable_declarations; // identifier -> declaration info
     size_t total_scope_frame_size = 0;                        // Total size of all variables in this scope
     std::vector<std::string> packed_variable_order;           // Variables in memory layout order
     
@@ -459,8 +458,13 @@ struct LexicalScopeNode : ASTNode {
     
     LexicalScopeNode(int depth, bool is_func_scope = false) : scope_depth(depth), is_function_scope(is_func_scope) {}
     
-    void declare_variable(const std::string& name) {
-        declared_variables.insert(name);
+    void declare_variable(const std::string& name, const VariableDeclarationInfo& var_info) {
+        variable_declarations[name] = var_info;
+    }
+    
+    // Check if variable already exists in this scope
+    bool has_variable(const std::string& name) const {
+        return variable_declarations.find(name) != variable_declarations.end();
     }
     
     // Function registration methods

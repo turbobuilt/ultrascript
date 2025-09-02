@@ -37,7 +37,7 @@ std::shared_ptr<LexicalScopeNode> SimpleLexicalScopeAnalyzer::exit_scope() {
     scope_stack_.pop_back();
     
     std::cout << "[SimpleLexicalScope] Exiting scope at depth " << current_depth_ 
-              << " with " << current_scope_node->declared_variables.size() << " declared variables" << std::endl;
+              << " with " << current_scope_node->variable_declarations.size() << " declared variables" << std::endl;
     
     // Propagate dependencies to parent scope when this scope closes
     if (!scope_stack_.empty()) {  // If there's a parent scope
@@ -200,12 +200,27 @@ void SimpleLexicalScopeAnalyzer::declare_variable(const std::string& name, const
         target_depth = current_depth_;
     }
     
+    // Check for duplicate declaration in target scope
+    if (target_scope && target_scope->has_variable(name)) {
+        const auto& existing = target_scope->variable_declarations[name];
+        if (existing.data_type != data_type || existing.declaration_type != declaration_type) {
+            std::cout << "[REDECLARATION_ERROR] Variable '" << name << "' already declared in scope at depth " 
+                      << target_depth << " with type " << static_cast<int>(existing.data_type)
+                      << " (trying to redeclare with type " << static_cast<int>(data_type) << ")" << std::endl;
+            throw std::runtime_error("Variable '" + name + "' is already declared in this scope with a different type");
+        }
+        // Same type redeclaration - just return (no-op)
+        std::cout << "[SimpleLexicalScope] Variable '" << name << "' already declared with same type, skipping" << std::endl;
+        return;
+    }
+    
     // Add to the variable declarations map at the appropriate depth
     variable_declarations_[name].emplace_back(std::make_unique<VariableDeclarationInfo>(target_depth, declaration_type, data_type));
     
-    // Add to target scope's declared variables
+    // Add to target scope's declared variables with complete info
     if (target_scope) {
-        target_scope->declared_variables.insert(name);
+        VariableDeclarationInfo var_info(target_depth, declaration_type, data_type);
+        target_scope->declare_variable(name, var_info);
     }
     
     std::cout << "[SimpleLexicalScope] Declared variable '" << name << "' as " << declaration_type 
@@ -672,7 +687,7 @@ void SimpleLexicalScopeAnalyzer::register_function_in_current_scope(FunctionDecl
         function_declaration_conflicts_[func_name] = func_decl;
         
         // Check if there are any existing variable declarations with the same name in the function scope
-        bool has_var_decl = function_scope->declared_variables.find(func_name) != function_scope->declared_variables.end();
+        bool has_var_decl = function_scope->has_variable(func_name);
         
         if (has_var_decl) {
             // Conflict detected! Promote existing variables to DYNAMIC_VALUE
@@ -860,7 +875,7 @@ void SimpleLexicalScopeAnalyzer::resolve_hoisting_conflicts_in_current_scope() {
         const std::string& func_name = func_decl->name;
         
         // Check if there are any variable declarations with the same name in this scope
-        bool has_var_decl = current_scope->declared_variables.find(func_name) != current_scope->declared_variables.end();
+        bool has_var_decl = current_scope->has_variable(func_name);
         
         if (has_var_decl) {
             // Conflict detected! The variable should be promoted to DYNAMIC_VALUE
@@ -1008,12 +1023,12 @@ void SimpleLexicalScopeAnalyzer::resolve_all_unresolved_references() {
 
 // NEW: Perform deferred variable packing for a scope during AST generation
 void SimpleLexicalScopeAnalyzer::perform_deferred_packing_for_scope(LexicalScopeNode* scope_node) {
-    if (!scope_node || scope_node->declared_variables.empty()) {
+    if (!scope_node || scope_node->variable_declarations.empty()) {
         return;
     }
     
     std::cout << "[DeferredPacking] Performing deferred packing for scope at depth " 
-              << scope_node->scope_depth << " with " << scope_node->declared_variables.size() << " variables" << std::endl;
+              << scope_node->scope_depth << " with " << scope_node->variable_declarations.size() << " variables" << std::endl;
     
     // Finalize function variable sizes before packing
     finalize_function_variable_sizes();
@@ -1022,8 +1037,14 @@ void SimpleLexicalScopeAnalyzer::perform_deferred_packing_for_scope(LexicalScope
     std::vector<std::string> packed_order;
     size_t total_frame_size = 0;
     
+    // Extract variable names from the map for packing
+    std::unordered_set<std::string> variable_names;
+    for (const auto& var_entry : scope_node->variable_declarations) {
+        variable_names.insert(var_entry.first);
+    }
+    
     // Call the private packing method
-    pack_scope_variables(scope_node->declared_variables, variable_offsets, packed_order, 
+    pack_scope_variables(variable_names, variable_offsets, packed_order, 
                         total_frame_size, scope_node);
     
     // Store packing results in the lexical scope node

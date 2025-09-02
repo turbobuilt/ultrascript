@@ -1,5 +1,7 @@
+
 function test() {
-    console.log("Hello from test");
+    console.log('Inside test function');
 }
 
 test();
+

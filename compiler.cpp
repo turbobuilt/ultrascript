@@ -270,9 +270,9 @@ void GoTSCompiler::compile(const std::string& source) {
         LexicalScopeNode* global_scope = static_analyzer_->get_scope_node_for_depth(1);
         if (global_scope) {
             // CRITICAL: Pack global scope variables before main function generation
-            if (global_scope->variable_offsets.empty() && !global_scope->declared_variables.empty()) {
+            if (global_scope->variable_offsets.empty() && !global_scope->variable_declarations.empty()) {
                 std::cout << "[MAIN_SCOPE_DEBUG] Triggering deferred packing for global scope with " 
-                          << global_scope->declared_variables.size() << " variables" << std::endl;
+                          << global_scope->variable_declarations.size() << " variables" << std::endl;
                 static_analyzer_->perform_deferred_packing_for_scope(global_scope);
             }
             

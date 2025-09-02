@@ -530,9 +530,9 @@ void emit_scope_enter(CodeGenerator& gen, LexicalScopeNode* scope_node) {
     std::cout << "[SCOPE_CODEGEN] Entering lexical scope at depth " << scope_node->scope_depth << std::endl;
     
     // DEFERRED PACKING: Perform variable packing now that we have complete hoisting information
-    if (scope_node->variable_offsets.empty() && !scope_node->declared_variables.empty()) {
+    if (scope_node->variable_offsets.empty() && !scope_node->variable_declarations.empty()) {
         std::cout << "[SCOPE_CODEGEN] Performing deferred variable packing for " 
-                  << scope_node->declared_variables.size() << " variables" << std::endl;
+                  << scope_node->variable_declarations.size() << " variables" << std::endl;
         
         // Access the scope analyzer to perform packing
         if (g_scope_context.scope_analyzer) {
@@ -1005,8 +1005,13 @@ void Identifier::generate_code(CodeGenerator& gen) {
         throw std::runtime_error("Variable access requires ScopeAwareCodeGen");
     }
     
-    // Get variable declaration info from the scope system
-    VariableDeclarationInfo* var_info = scope_gen->get_variable_declaration_info(name);
+    // ULTRA-FAST: Use direct pointer (set by StaticAnalyzer)
+    VariableDeclarationInfo* var_info = variable_declaration_info;
+    
+    // If var_info is null, something went wrong in earlier compilation phases
+    if (!var_info) {
+        throw std::runtime_error("COMPILER_ERROR: Variable '" + name + "' has no declaration info - StaticAnalyzer failed to resolve variable reference");
+    }
     
     // SPECIAL HANDLING FOR FUNCTION VARIABLES WHEN ACCESSED AS VALUES
     // Check if this is a function variable that needs initialization

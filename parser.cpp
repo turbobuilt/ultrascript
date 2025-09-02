@@ -1201,7 +1201,7 @@ std::unique_ptr<ASTNode> Parser::parse_function_declaration() {
         // Attach the scope node to the function declaration
         func_decl->lexical_scope = function_scope_node;
         std::cout << "[Parser] Completed function '" << func_name << "' scope analysis with " 
-                  << func_decl->lexical_scope->declared_variables.size() << " variables" << std::endl;
+                  << func_decl->lexical_scope->variable_declarations.size() << " variables" << std::endl;
     }
     
     // GC Integration: Exit function scope
@@ -2277,7 +2277,7 @@ std::vector<std::unique_ptr<ASTNode>> Parser::parse() {
         auto global_scope_node = scope_analyzer_->exit_scope();
         // TODO: Store or attach the global scope node to the AST
         std::cout << "[Parser] Completed global scope analysis with " 
-                  << global_scope_node->declared_variables.size() << " variables" << std::endl;
+                  << global_scope_node->variable_declarations.size() << " variables" << std::endl;
     }
     
     // GC Integration: Finalize escape analysis
@@ -2653,7 +2653,7 @@ std::unique_ptr<ASTNode> Parser::parse_block_statement() {
         // Attach the scope node to the block statement
         block->lexical_scope = block_scope_node;
         std::cout << "[Parser] Completed block scope analysis with " 
-                  << block->lexical_scope->declared_variables.size() << " variables" << std::endl;
+                  << block->lexical_scope->variable_declarations.size() << " variables" << std::endl;
     }
     
     // GC Integration: Exit block scope
