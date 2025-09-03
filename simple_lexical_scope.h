@@ -187,6 +187,10 @@ public:
     size_t get_max_function_size(const std::string& var_name) const;
     bool has_tracked_function_sizes(const std::string& var_name) const;
     
+    // FUNCTION.md: Function scope requirements for hidden parameter passing
+    // Maps function_name -> vector of parent scope depths needed by that function
+    std::unordered_map<std::string, std::vector<int>> function_scope_requirements;
+    
     // NEW: Function variable type classification (for FUNCTION.md strategies)
     enum class FunctionVariableStrategy {
         STATIC_SINGLE_ASSIGNMENT,    // Strategy 1: Static single function assignment

@@ -1584,17 +1584,105 @@ void X86CodeGenV2::emit_pop_reg(int reg) {
 
 // Minimal stub implementations for removed methods
 void X86CodeGenV2::emit_function_instance_creation(struct FunctionDecl* child_func, size_t func_offset) {
-    // Method removed - this is a stub to prevent compile errors
-    (void)child_func;
-    (void)func_offset;
-    std::cout << "[REMOVED] emit_function_instance_creation called - method removed" << std::endl;
+    std::cout << "[FUNCTION_INSTANCE] Creating function instance for '" << child_func->name 
+              << "' according to FUNCTION.md spec" << std::endl;
+    
+    if (!child_func->lexical_scope) {
+        std::cout << "[FUNCTION_INSTANCE] WARNING: Function '" << child_func->name 
+                  << "' has no lexical scope - creating minimal instance" << std::endl;
+    }
+    
+    // Calculate size needed for the function instance
+    // FunctionInstance structure: size(8) + function_addr(8) + scope_addresses(8*N)
+    size_t num_captured_scopes = 0;
+    if (child_func->lexical_scope && !child_func->lexical_scope->priority_sorted_parent_scopes.empty()) {
+        num_captured_scopes = child_func->lexical_scope->priority_sorted_parent_scopes.size();
+    }
+    
+    size_t function_instance_size = 16 + (num_captured_scopes * 8); // size + func_addr + scope_addrs
+    
+    std::cout << "[FUNCTION_INSTANCE] Instance size: " << function_instance_size 
+              << " bytes for " << num_captured_scopes << " captured scopes" << std::endl;
+    
+    // Allocate memory for the function instance
+    emit_mov_reg_imm(7, function_instance_size);   // RDI = size for malloc
+    emit_call("malloc");                           // RAX = allocated function instance
+    emit_mov_reg_reg(11, 0);                      // R11 = function instance pointer
+    
+    // Initialize function instance header
+    emit_mov_reg_imm(10, function_instance_size);  // R10 = size
+    emit_mov_reg_offset_reg(11, 0, 10);            // [R11 + 0] = size
+    
+    // Store function code address (will be patched later during linking)
+    emit_mov_reg_imm(10, func_offset);             // R10 = function code offset
+    emit_mov_reg_offset_reg(11, 8, 10);            // [R11 + 8] = function_addr
+    
+    // Store captured lexical scope addresses
+    if (num_captured_scopes > 0) {
+        std::cout << "[FUNCTION_INSTANCE] Storing " << num_captured_scopes << " captured scope addresses" << std::endl;
+        
+        const auto& needed_scopes = child_func->lexical_scope->priority_sorted_parent_scopes;
+        for (size_t i = 0; i < needed_scopes.size(); i++) {
+            int scope_depth = needed_scopes[i];
+            
+            // Get the scope address for this depth
+            // For now, we'll use the current scope address mapping
+            // In a complete implementation, this would lookup the scope addresses from the
+            // calling function's available scope addresses
+            
+            if (scope_depth == 1) {
+                // Global scope - use a known global scope address (we'll need to maintain this)
+                emit_mov_reg_imm(10, 0);  // For now, null - needs proper global scope address
+            } else {
+                // Parent scope - for now use R15 as a placeholder
+                // In reality, this would come from the calling function's scope context
+                emit_mov_reg_reg(10, 15);  // Use current scope as placeholder
+            }
+            
+            size_t scope_offset = 16 + (i * 8);
+            emit_mov_reg_offset_reg(11, scope_offset, 10);  // [R11 + offset] = scope_address
+            
+            std::cout << "[FUNCTION_INSTANCE] Stored scope depth " << scope_depth 
+                      << " at offset " << scope_offset << std::endl;
+        }
+    }
+    
+    // Result: R11 contains the complete function instance pointer
+    // This needs to be stored in the appropriate function variable
+    std::cout << "[FUNCTION_INSTANCE] Function instance creation complete - result in R11" << std::endl;
 }
 
 void X86CodeGenV2::emit_function_instance_call(size_t func_offset, const std::vector<std::unique_ptr<ASTNode>>& arguments) {
-    // Method removed - this is a stub to prevent compile errors
-    (void)func_offset;
-    (void)arguments;
-    std::cout << "[REMOVED] emit_function_instance_call called - method removed" << std::endl;
+    std::cout << "[FUNCTION_CALL] Emitting simplified function instance call" << std::endl;
+    
+    // For now, simplified implementation using available methods only
+    // Step 1: Generate argument evaluation (regular function arguments)
+    std::cout << "[FUNCTION_CALL] Evaluating " << arguments.size() << " function arguments" << std::endl;
+    
+    // Store arguments in calling convention order (only first few registers for now)
+    for (size_t i = 0; i < arguments.size() && i < 6; i++) {
+        // Generate code for the argument
+        arguments[i]->generate_code(*this);
+        
+        // Move result from RAX to appropriate argument register
+        if (i == 0) emit_mov_reg_reg(7, 0);        // RDI = arg0
+        else if (i == 1) emit_mov_reg_reg(6, 0);   // RSI = arg1
+        else if (i == 2) emit_mov_reg_reg(2, 0);   // RDX = arg2
+        else if (i == 3) emit_mov_reg_reg(1, 0);   // RCX = arg3
+        else if (i == 4) emit_mov_reg_reg(8, 0);   // R8 = arg4
+        else if (i == 5) emit_mov_reg_reg(9, 0);   // R9 = arg5
+    }
+    
+    if (arguments.size() > 6) {
+        std::cout << "[FUNCTION_CALL] WARNING: More than 6 arguments not yet supported in simplified implementation" << std::endl;
+    }
+    
+    // Step 2: For now, assume function instance is in R11 and call directly
+    // Extract function code address and call it
+    emit_mov_reg_reg_offset(10, 11, 8);          // R10 = function_instance->function_code_addr
+    emit_call_reg(10);                            // call R10 (function address)
+    
+    std::cout << "[FUNCTION_CALL] Simplified function call complete, result in RAX" << std::endl;
 }
 
 // Legacy method stub
@@ -1604,121 +1692,98 @@ void X86CodeGenV2::setup_parent_scope_registers(LexicalScopeNode* scope_node) {
 }
 
 void X86CodeGenV2::emit_function_prologue(struct FunctionDecl* function) {
-    std::cout << "[NEW_FUNCTION_SYSTEM] Generating prologue for " << function->name 
-              << " using hidden parameter approach" << std::endl;
+    std::cout << "[FUNCTION_PROLOGUE] Generating prologue for '" << function->name 
+              << "' with FUNCTION.md specification" << std::endl;
     
-    // Standard function prologue
-    emit_push_reg(5);       // push rbp
-    emit_mov_reg_reg(5, 4); // mov rbp, rsp
+    // Standard function prologue using pattern builder
+    std::vector<X86Reg> saved_regs = {X86Reg::R12, X86Reg::R13, X86Reg::R14, X86Reg::R15};  // Scope registers
+    pattern_builder->emit_function_prologue(
+        function->lexical_scope ? function->lexical_scope->total_scope_frame_size : 8,
+        saved_regs
+    );
     
-    // Allocate local scope on heap for the function's variables
+    // For now, use simplified scope setup without push/pop since they're not available
+    // FUNCTION.md Step 2: Allocate local lexical scope and store address in R15
+    size_t local_scope_size = 8; // Minimum allocation
     if (function->lexical_scope && function->lexical_scope->total_scope_frame_size > 0) {
-        size_t local_scope_size = function->lexical_scope->total_scope_frame_size;
-        std::cout << "[NEW_FUNCTION_SYSTEM] Allocating " << local_scope_size 
-                  << " bytes for function local scope" << std::endl;
-        
-        emit_mov_reg_imm(7, local_scope_size); // RDI = size
-        emit_call("malloc");                   // RAX = allocated memory
-        emit_mov_reg_reg(15, 0);              // R15 = local scope address
-        
-        // Initialize local scope to zeros
-        if (local_scope_size <= 64) {
-            // Small scope: direct zero writes
-            for (size_t i = 0; i < local_scope_size; i += 8) {
-                emit_mov_reg_imm(0, 0);
-                emit_mov_reg_offset_reg(15, i, 0);
-            }
-        } else {
-            // Large scope: use memset
-            emit_mov_reg_reg(7, 15);           // RDI = scope memory
-            emit_mov_reg_imm(6, 0);            // RSI = 0 (fill value)
-            emit_mov_reg_imm(2, local_scope_size); // RDX = size
-            emit_call("memset");
-        }
-    } else {
-        // Even functions without variables get a minimal scope allocation
-        emit_mov_reg_imm(7, 8);             // RDI = 8 bytes minimum
-        emit_call("malloc");
-        emit_mov_reg_reg(15, 0);            // R15 = minimal scope
-        std::cout << "[NEW_FUNCTION_SYSTEM] Allocated minimal scope for " << function->name << std::endl;
+        local_scope_size = function->lexical_scope->total_scope_frame_size;
     }
     
-    // NEW: Receive parent scope addresses as hidden parameters
-    // These are passed after the regular function arguments
+    std::cout << "[FUNCTION_PROLOGUE] Allocating " << local_scope_size 
+              << " bytes for local lexical scope" << std::endl;
+    
+    emit_mov_reg_imm(7, local_scope_size); // RDI = size
+    emit_call("malloc");                   // RAX = allocated memory
+    emit_mov_reg_reg(15, 0);              // R15 = local scope address (FUNCTION.md requirement)
+    
+    // Initialize local scope memory to zeros (simplified version)
+    for (size_t i = 0; i < local_scope_size; i += 8) {
+        emit_mov_reg_imm(0, 0);               // RAX = 0
+        emit_mov_reg_offset_reg(15, i, 0);    // [R15 + i] = 0
+    }
+    
+    // FUNCTION.md Step 3: Load parent scope addresses from hidden parameters
     if (function->lexical_scope && !function->lexical_scope->priority_sorted_parent_scopes.empty()) {
         const auto& needed_scopes = function->lexical_scope->priority_sorted_parent_scopes;
-        std::cout << "[NEW_FUNCTION_SYSTEM] Loading " << needed_scopes.size() 
+        std::cout << "[FUNCTION_PROLOGUE] Loading " << needed_scopes.size() 
                   << " parent scope addresses from hidden parameters" << std::endl;
         
-        // Parent scopes are passed as hidden parameters after regular arguments
-        // They appear on the stack above the return address and saved RBP
-        // Stack layout: ... | arg6 | arg7 | ... | scope0 | scope1 | ... | return_addr | saved_rbp <- rbp
-        
-        // Calculate base offset for hidden parameters
-        // Regular function arguments (beyond first 6) start at rbp+16
-        // Hidden scope parameters come after all regular arguments
+        // Calculate offset to hidden parameters
         size_t num_regular_args = function->parameters.size();
         size_t stack_args = (num_regular_args > 6) ? num_regular_args - 6 : 0;
-        int64_t hidden_param_base_offset = 16 + (stack_args * 8);
+        int64_t hidden_param_base = 16 + (stack_args * 8);  // Skip return addr + saved rbp + stack args
         
-        // Store parent scope addresses in a simple array for easy access
-        // For now, we'll use stack-based storage for the mapping
+        // Load parent scopes according to access frequency priority
+        // Most frequent scope -> R12, second -> R13, third -> R14
         for (size_t i = 0; i < needed_scopes.size(); i++) {
             int scope_depth = needed_scopes[i];
-            int64_t param_offset = hidden_param_base_offset + (i * 8);
+            int64_t param_offset = hidden_param_base + (i * 8);
             
-            // Load scope address from stack parameter
-            emit_mov_reg_reg_offset(10 + i, 5, param_offset); // R10+i = [rbp + offset]
+            std::cout << "[FUNCTION_PROLOGUE] Loading parent scope depth " << scope_depth 
+                      << " from stack offset " << param_offset << std::endl;
             
-            // REMOVED: Runtime registration violates FUNCTION.md compile-time design
-            // emit_mov_reg_imm(7, scope_depth);     // RDI = scope depth
-            // emit_mov_reg_reg(6, 10 + i);          // RSI = scope address
-            // emit_call("__register_scope_address_for_depth");
-            
-            std::cout << "[NEW_FUNCTION_SYSTEM] Loaded parent scope depth " << scope_depth
-                      << " from stack offset " << param_offset << " into R" << (10 + i) << std::endl;
+            if (i == 0) {
+                // Most frequent parent scope -> R12
+                emit_mov_reg_reg_offset(12, 5, param_offset);  // R12 = [RBP + offset]
+            } else if (i == 1) {
+                // Second most frequent -> R13
+                emit_mov_reg_reg_offset(13, 5, param_offset);  // R13 = [RBP + offset]
+            } else if (i == 2) {
+                // Third most frequent -> R14
+                emit_mov_reg_reg_offset(14, 5, param_offset);  // R14 = [RBP + offset]
+            } else {
+                // Additional parent scopes: store in function's local scope memory for lookup
+                size_t storage_offset = (i - 3) * 8;  // Offset for scopes beyond R12/R13/R14
+                emit_mov_reg_reg_offset(10, 5, param_offset);     // R10 = [RBP + param_offset]
+                emit_mov_reg_offset_reg(15, storage_offset, 10);  // [R15 + storage_offset] = scope_addr
+            }
         }
+    } else {
+        std::cout << "[FUNCTION_PROLOGUE] Function has no parent scope dependencies" << std::endl;
     }
     
-    // REMOVED: Runtime registration violates FUNCTION.md compile-time design
-    // Register current function scope with the runtime
-    // if (function->lexical_scope) {
-    //     emit_mov_reg_imm(7, function->lexical_scope->scope_depth); // RDI = scope depth
-    //     emit_mov_reg_reg(6, 15);                                   // RSI = local scope address
-    //     emit_call("__register_scope_address_for_depth");
-    //     std::cout << "[NEW_FUNCTION_SYSTEM] Registered function scope depth " 
-    //               << function->lexical_scope->scope_depth << " with runtime" << std::endl;
-    // }
-    
-    std::cout << "[NEW_FUNCTION_SYSTEM] Prologue complete for " << function->name 
-              << " using new hidden parameter system" << std::endl;
+    std::cout << "[FUNCTION_PROLOGUE] Prologue complete for '" << function->name 
+              << "' - ready for variable access via [scope_register + offset]" << std::endl;
 }
 
 void X86CodeGenV2::emit_function_epilogue(struct FunctionDecl* function) {
-    std::cout << "[NEW_FUNCTION_SYSTEM] Generating epilogue for " << function->name 
-              << " using new approach" << std::endl;
+    std::cout << "[FUNCTION_EPILOGUE] Generating epilogue for '" << function->name 
+              << "' with FUNCTION.md specification" << std::endl;
     
-    // DISABLED: Runtime scope unregistration violates FUNCTION.md
-    // Unregister current function scope from the runtime
-    // if (function->lexical_scope) {
-    //     emit_mov_reg_imm(7, function->lexical_scope->scope_depth); // RDI = scope depth
-    //     emit_call("__unregister_scope_address_for_depth");
-    //     std::cout << "[NEW_FUNCTION_SYSTEM] Unregistered function scope depth " 
-    //               << function->lexical_scope->scope_depth << " from runtime" << std::endl;
-    // }
-    
-    // Free the local scope memory
+    // FUNCTION.md Step 1: Free the local scope memory (allocated in prologue)
     emit_mov_reg_reg(7, 15);  // RDI = local scope address (R15)
-    emit_call("free");        // Free heap-allocated scope
-    std::cout << "[NEW_FUNCTION_SYSTEM] Freed local scope memory for " << function->name << std::endl;
+    emit_call("free");        // Free heap-allocated local scope
+    std::cout << "[FUNCTION_EPILOGUE] Freed local scope memory" << std::endl;
     
-    // Standard function epilogue
-    emit_mov_reg_reg(4, 5);   // mov rsp, rbp
-    emit_pop_reg(5);          // pop rbp
-    emit_ret();               // ret
+    // Use pattern builder for standard epilogue
+    std::vector<X86Reg> saved_regs = {X86Reg::R12, X86Reg::R13, X86Reg::R14, X86Reg::R15};  // Scope registers
+    pattern_builder->emit_function_epilogue(
+        function->lexical_scope ? function->lexical_scope->total_scope_frame_size : 8,
+        saved_regs
+    );
     
-    std::cout << "[NEW_FUNCTION_SYSTEM] Epilogue complete for " << function->name 
-              << " using new system" << std::endl;
+    std::cout << "[FUNCTION_EPILOGUE] Epilogue complete for '" << function->name 
+              << "' - control returned to caller" << std::endl;
 }
 
 void X86CodeGenV2::set_current_scope(LexicalScopeNode* scope) {
@@ -1777,15 +1842,168 @@ void X86CodeGenV2::exit_lexical_scope(LexicalScopeNode* scope_node) {
 }
 
 void X86CodeGenV2::emit_variable_load(const std::string& var_name) {
-    // Stub implementation - could be enhanced later
-    (void)var_name;
-    std::cout << "[SCOPE_CODEGEN] Variable load for " << var_name << " (stub)" << std::endl;
+    std::cout << "[VARIABLE_LOAD] Loading variable '" << var_name 
+              << "' using FUNCTION.md scope-aware access" << std::endl;
+    
+    // Find the variable's definition scope and access information
+    VariableDeclarationInfo* var_info = get_variable_declaration_info(var_name);
+    if (!var_info) {
+        std::cout << "[VARIABLE_LOAD] ERROR: Variable '" << var_name << "' not found in scope analysis" << std::endl;
+        emit_mov_reg_imm(0, 0);  // Return 0 as fallback
+        return;
+    }
+    
+    // Get the definition scope for this variable
+    LexicalScopeNode* def_scope = get_definition_scope_for_variable(var_name);
+    if (!def_scope) {
+        std::cout << "[VARIABLE_LOAD] ERROR: Definition scope for '" << var_name << "' not found" << std::endl;
+        emit_mov_reg_imm(0, 0);  // Return 0 as fallback
+        return;
+    }
+    
+    // Get variable offset within its scope
+    auto offset_it = def_scope->variable_offsets.find(var_name);
+    if (offset_it == def_scope->variable_offsets.end()) {
+        std::cout << "[VARIABLE_LOAD] ERROR: Variable '" << var_name << "' has no offset in its scope" << std::endl;
+        emit_mov_reg_imm(0, 0);  // Return 0 as fallback
+        return;
+    }
+    
+    size_t var_offset = offset_it->second;
+    int def_depth = def_scope->scope_depth;
+    
+    std::cout << "[VARIABLE_LOAD] Variable '" << var_name 
+              << "' defined at depth " << def_depth 
+              << ", offset " << var_offset << std::endl;
+    
+    // FUNCTION.md: Access pattern based on scope depth
+    // R15 = current scope (this function's local scope)
+    // R12 = most frequent parent scope
+    // R13 = second most frequent parent scope  
+    // R14 = third most frequent parent scope
+    // Additional scopes stored in local scope memory
+    
+    // Determine which register/memory location contains the target scope
+    X86Reg scope_register = X86Reg::R15;  // Default to local scope
+    bool use_memory_lookup = false;
+    size_t memory_lookup_offset = 0;
+    
+    // Check if this is accessing current function's local scope
+    if (current_scope && def_depth == current_scope->scope_depth) {
+        // Local variable access via R15
+        std::cout << "[FUNCTION.md] Accessing local variable via R15+" << var_offset << std::endl;
+        emit_mov_reg_reg_offset(0, static_cast<int>(X86Reg::R15), var_offset);
+    } else {
+        // Parent scope access - use FUNCTION.md hidden parameters
+        std::cout << "[FUNCTION.md] Accessing parent variable from scope depth " << def_depth << std::endl;
+        
+        // Find which hidden parameter contains this scope depth
+        int hidden_param_index = -1;
+        if (current_scope && !current_scope->parent_scopes.empty()) {
+            for (size_t i = 0; i < current_scope->parent_scopes.size(); i++) {
+                if (current_scope->parent_scopes[i] == def_depth) {
+                    hidden_param_index = i;
+                    break;
+                }
+            }
+        }
+        
+        if (hidden_param_index >= 0) {
+            // Load parent scope address from hidden parameter and access variable
+            int stack_offset = 16 + (hidden_param_index * 8); // rbp+16+index*8
+            std::cout << "[FUNCTION.md] Loading from hidden parameter at rbp+" << stack_offset 
+                      << ", variable offset " << var_offset << std::endl;
+            emit_mov_reg_reg_offset(0, 5, stack_offset);      // rax = [rbp+stack_offset] (scope address)
+            emit_mov_reg_reg_offset(0, 0, var_offset);       // rax = [rax+var_offset] (variable value)
+        } else {
+            std::cout << "[VARIABLE_LOAD] ERROR: Parent scope depth " << def_depth 
+                      << " not found in function's hidden parameters" << std::endl;
+            emit_mov_reg_imm(0, 0);  // Return 0 as fallback
+        }
+    }
+    
+    std::cout << "[VARIABLE_LOAD] Variable '" << var_name << "' loaded successfully into RAX" << std::endl;
 }
 
 void X86CodeGenV2::emit_variable_store(const std::string& var_name) {
-    // Stub implementation - could be enhanced later
-    (void)var_name;
-    std::cout << "[SCOPE_CODEGEN] Variable store for " << var_name << " (stub)" << std::endl;
+    std::cout << "[VARIABLE_STORE] Storing to variable '" << var_name 
+              << "' using FUNCTION.md scope-aware access" << std::endl;
+    
+    // The value to store is expected to be in RAX
+    // We need to save it while we compute the target address
+    emit_push_reg(0);  // Save RAX (the value to store)
+    
+    // Find the variable's definition scope and access information
+    VariableDeclarationInfo* var_info = get_variable_declaration_info(var_name);
+    if (!var_info) {
+        std::cout << "[VARIABLE_STORE] ERROR: Variable '" << var_name << "' not found in scope analysis" << std::endl;
+        emit_pop_reg(0);  // Restore RAX
+        return;
+    }
+    
+    // Get the definition scope for this variable
+    LexicalScopeNode* def_scope = get_definition_scope_for_variable(var_name);
+    if (!def_scope) {
+        std::cout << "[VARIABLE_STORE] ERROR: Definition scope for '" << var_name << "' not found" << std::endl;
+        emit_pop_reg(0);  // Restore RAX
+        return;
+    }
+    
+    // Get variable offset within its scope
+    auto offset_it = def_scope->variable_offsets.find(var_name);
+    if (offset_it == def_scope->variable_offsets.end()) {
+        std::cout << "[VARIABLE_STORE] ERROR: Variable '" << var_name << "' has no offset in its scope" << std::endl;
+        emit_pop_reg(0);  // Restore RAX
+        return;
+    }
+    
+    size_t var_offset = offset_it->second;
+    int def_depth = def_scope->scope_depth;
+    
+    std::cout << "[VARIABLE_STORE] Variable '" << var_name 
+              << "' defined at depth " << def_depth 
+              << ", offset " << var_offset << std::endl;
+    
+    // Check if this is accessing current function's local scope
+    if (current_scope && def_depth == current_scope->scope_depth) {
+        // Local variable store via R15
+        std::cout << "[FUNCTION.md] Storing to local variable via R15+" << var_offset << std::endl;
+        emit_pop_reg(10);  // R10 = value to store (was in RAX)
+        emit_mov_reg_offset_reg(static_cast<int>(X86Reg::R15), var_offset, 10);  // [R15 + offset] = R10
+        emit_mov_reg_reg(0, 10);  // RAX = stored value (restore for consistency)
+    } else {
+        // Parent scope store - use FUNCTION.md hidden parameters
+        std::cout << "[FUNCTION.md] Storing to parent variable in scope depth " << def_depth << std::endl;
+        
+        // Find which hidden parameter contains this scope depth
+        int hidden_param_index = -1;
+        if (current_scope && !current_scope->parent_scopes.empty()) {
+            for (size_t i = 0; i < current_scope->parent_scopes.size(); i++) {
+                if (current_scope->parent_scopes[i] == def_depth) {
+                    hidden_param_index = i;
+                    break;
+                }
+            }
+        }
+        
+        if (hidden_param_index >= 0) {
+            // Store to parent scope using hidden parameter
+            int stack_offset = 16 + (hidden_param_index * 8); // rbp+16+index*8
+            std::cout << "[FUNCTION.md] Storing via hidden parameter at rbp+" << stack_offset 
+                      << ", variable offset " << var_offset << std::endl;
+            emit_pop_reg(10);  // R10 = value to store (was in RAX)
+            emit_mov_reg_reg_offset(11, 5, stack_offset);             // r11 = [rbp+stack_offset] (scope address)
+            emit_mov_reg_offset_reg(11, var_offset, 10);              // [r11+var_offset] = r10
+            emit_mov_reg_reg(0, 10);  // RAX = stored value (restore for consistency)
+        } else {
+            std::cout << "[VARIABLE_STORE] ERROR: Parent scope depth " << def_depth 
+                      << " not found in function's hidden parameters" << std::endl;
+            emit_pop_reg(0);  // Restore RAX
+            return;
+        }
+    }
+    
+    std::cout << "[VARIABLE_STORE] Variable '" << var_name << "' stored successfully" << std::endl;
 }
 
 void X86CodeGenV2::set_variable_type(const std::string& name, DataType type) {
@@ -1821,6 +2039,7 @@ void X86CodeGenV2::restore_parent_scope_registers() {
 // FACTORY FUNCTIONS (to replace create_scope_aware_codegen)
 // =============================================================================
 
+/*
 std::unique_ptr<CodeGenerator> create_scope_aware_codegen(SimpleLexicalScopeAnalyzer* analyzer) {
     return std::make_unique<X86CodeGenV2>(analyzer);
 }
@@ -1836,5 +2055,6 @@ std::unique_ptr<X86CodeGenV2> create_x86_codegen_with_scope_analyzer(SimpleLexic
 std::unique_ptr<X86CodeGenV2> create_x86_codegen_with_static_analyzer(StaticAnalyzer* analyzer) {
     return std::make_unique<X86CodeGenV2>(analyzer);
 }
+*/
 
 

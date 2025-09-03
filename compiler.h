@@ -431,6 +431,7 @@ struct LexicalScopeNode : ASTNode {
     int scope_depth;                                           // Absolute depth of this scope (1=global, 2=first function, etc.)
     bool is_function_scope;                                    // true for global + functions (hoisting), false for blocks
     std::unordered_map<std::string, VariableDeclarationInfo> variable_declarations; // Variables declared in THIS scope (identifier -> info)
+    std::unordered_set<std::string> declared_variables;       // Simple set for compatibility with static analyzer
     
     // Function registration for proper hoisting
     std::vector<FunctionDecl*> declared_functions;            // Function declarations in this scope
@@ -442,6 +443,9 @@ struct LexicalScopeNode : ASTNode {
     
     // Priority-sorted scope levels (backend-agnostic, computed after analysis)
     std::vector<int> priority_sorted_parent_scopes;           // Scope levels/depths in order of access frequency
+    
+    // FUNCTION.md: Parent scope depths for hidden parameter passing
+    std::vector<int> parent_scopes;                           // Parent scope depths needed by this function
     
     // Variable packing and memory layout (NEW)
     std::unordered_map<std::string, size_t> variable_offsets; // identifier -> byte offset in scope frame

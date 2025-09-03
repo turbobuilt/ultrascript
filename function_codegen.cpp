@@ -135,23 +135,81 @@ void generate_function_call_code(CodeGenerator& gen,
 void generate_function_call(CodeGenerator& gen, const std::string& function_var_name, 
                            const SimpleLexicalScopeAnalyzer* analyzer) {
     
-    std::cout << "[FUNCTION_CODEGEN] SIMPLIFIED FunctionCall::generate_code - function: " << function_var_name << std::endl;
-    
-    // SIMPLIFIED APPROACH: Direct call by function name
-    // This bypasses the complex function instance system for now
+    std::cout << "[FUNCTION.md] FunctionCall::generate_code - function: " << function_var_name << std::endl;
     
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(&gen);
     if (!x86_gen) {
         throw std::runtime_error("Function calls require X86CodeGenV2");
     }
     
-    std::cout << "[FUNCTION_CODEGEN] SIMPLIFIED: Generating direct call to function '" 
-              << function_var_name << "'" << std::endl;
+    // FUNCTION.md approach: Pass parent scope addresses as hidden parameters
+    LexicalScopeNode* current_scope = get_current_scope();
     
-    // Direct call to the function label - this will be resolved at link time
+    if (current_scope && analyzer && analyzer->function_scope_requirements.count(function_var_name)) {
+        const auto& required_scopes = analyzer->function_scope_requirements.at(function_var_name);
+        
+        std::cout << "[FUNCTION.md] Function '" << function_var_name 
+                  << "' needs " << required_scopes.size() << " parent scope addresses" << std::endl;
+        
+        // Pass required scope addresses as hidden parameters after regular arguments
+        // Push them in reverse order so the function receives them in correct order on stack
+        for (int i = required_scopes.size() - 1; i >= 0; i--) {
+            int required_depth = required_scopes[i];
+            
+            if (required_depth == current_scope->scope_depth) {
+                // Current scope - use R15 (current scope register)
+                std::cout << "[FUNCTION.md] Passing current scope (depth " << required_depth << ") from R15" << std::endl;
+                x86_gen->emit_push_reg(15); // push r15 (current scope address)
+            } else {
+                // Parent scope - get from our own hidden parameters
+                // In FUNCTION.md approach, parent scopes are received as hidden parameters after regular args
+                // They're stored at stack offsets: rbp+16, rbp+24, rbp+32, etc.
+                // Find which hidden parameter contains this scope depth
+                int hidden_param_index = -1;
+                if (current_scope->parent_scopes.size() > 0) {
+                    for (size_t j = 0; j < current_scope->parent_scopes.size(); j++) {
+                        if (current_scope->parent_scopes[j] == required_depth) {
+                            hidden_param_index = static_cast<int>(j);
+                            break;
+                        }
+                    }
+                }
+                
+                if (hidden_param_index >= 0) {
+                    // Load parent scope address from hidden parameter and push it
+                    int stack_offset = 16 + (hidden_param_index * 8); // rbp+16+index*8
+                    std::cout << "[FUNCTION.md] Passing parent scope (depth " << required_depth 
+                              << ") from hidden parameter at rbp+" << stack_offset << std::endl;
+                    x86_gen->emit_mov_reg_reg_offset(0, 5, stack_offset); // mov rax, [rbp+offset]
+                    x86_gen->emit_push_reg(0); // push rax (parent scope address)
+                } else {
+                    std::cerr << "ERROR: Required parent scope depth " << required_depth 
+                              << " not available in current function's parameters" << std::endl;
+                    throw std::runtime_error("Parent scope not available for function call");
+                }
+            }
+        }
+        
+        std::cout << "[FUNCTION.md] Pushed " << required_scopes.size() 
+                  << " scope addresses as hidden parameters" << std::endl;
+    }
+    
+    // Make the function call - hidden parameters are now on stack after regular arguments
+    std::cout << "[FUNCTION.md] Calling function '" << function_var_name 
+              << "' with FUNCTION.md calling convention" << std::endl;
     x86_gen->emit_call(function_var_name);
     
-    std::cout << "[FUNCTION_CODEGEN] SIMPLIFIED: Generated direct call successfully" << std::endl;
+    // Clean up hidden parameter stack space
+    if (current_scope && analyzer && analyzer->function_scope_requirements.count(function_var_name)) {
+        const auto& required_scopes = analyzer->function_scope_requirements.at(function_var_name);
+        if (required_scopes.size() > 0) {
+            int stack_cleanup = required_scopes.size() * 8; // 8 bytes per scope address
+            std::cout << "[FUNCTION.md] Cleaning up " << stack_cleanup << " bytes of hidden parameters" << std::endl;
+            x86_gen->emit_add_reg_imm(4, stack_cleanup); // add rsp, stack_cleanup
+        }
+    }
+    
+    std::cout << "[FUNCTION.md] Function call completed using hidden parameter approach" << std::endl;
 }
 
 //=============================================================================

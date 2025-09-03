@@ -1226,26 +1226,17 @@ void SimpleLexicalScopeAnalyzer::compute_function_static_analysis(FunctionDecl* 
     
     // Step 1: Extract needed parent scopes from priority_sorted_parent_scopes
     function->static_analysis.needed_parent_scopes = func_scope->priority_sorted_parent_scopes;
-    
-    // Step 2: Determine register requirements
     size_t num_parent_scopes = function->static_analysis.needed_parent_scopes.size();
-    function->static_analysis.num_registers_needed = std::min(static_cast<size_t>(3), num_parent_scopes);
-    function->static_analysis.needs_r12 = (num_parent_scopes >= 1);
-    function->static_analysis.needs_r13 = (num_parent_scopes >= 2);
-    function->static_analysis.needs_r14 = (num_parent_scopes >= 3);
     
-    // Step 3: Compute function instance size
+    // Step 2: Compute function instance size and local scope size  
     function->static_analysis.function_instance_size = compute_function_instance_size(func_scope);
     function->function_instance_size = function->static_analysis.function_instance_size; // Keep legacy field in sync
     
-    // Step 4: Store local scope size
+    // Step 3: Store local scope size
     function->static_analysis.local_scope_size = func_scope->total_scope_frame_size;
     
     std::cout << "[StaticAnalysis] Function '" << function->name << "' analysis complete:" << std::endl;
-    std::cout << "  - Needs " << num_parent_scopes << " parent scopes" << std::endl;
-    std::cout << "  - Registers: r12=" << (function->static_analysis.needs_r12 ? "YES" : "NO")
-              << ", r13=" << (function->static_analysis.needs_r13 ? "YES" : "NO") 
-              << ", r14=" << (function->static_analysis.needs_r14 ? "YES" : "NO") << std::endl;
+    std::cout << "  - Needs " << num_parent_scopes << " parent scopes (runtime lookup)" << std::endl;
     std::cout << "  - Function instance size: " << function->static_analysis.function_instance_size << " bytes" << std::endl;
     std::cout << "  - Local scope size: " << function->static_analysis.local_scope_size << " bytes" << std::endl;
     

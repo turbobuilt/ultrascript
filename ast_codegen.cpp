@@ -482,27 +482,36 @@ void emit_variable_load(CodeGenerator& gen, const std::string& var_name) {
         std::cout << "[NEW_SCOPE_SYSTEM] Loaded local variable '" << var_name 
                   << "' from r15+" << var_offset << std::endl;
     } else {
-        // DISABLED: Parent scope access using runtime lookup violates FUNCTION.md
-        std::cerr << "ERROR: Parent scope variable access disabled!" << std::endl;
-        std::cerr << "ERROR: Variable '" << var_name << "' is in parent scope but runtime lookups are disabled." << std::endl;
-        throw std::runtime_error("Parent scope access disabled - FUNCTION.md violation");
+        // Variable is in parent scope - get from FUNCTION.md hidden parameters
+        LexicalScopeNode* current_scope = g_scope_context.current_scope;
+        int required_depth = def_scope->scope_depth;
         
-        // OLD CODE (DISABLED):
-        // // Variable is in parent scope - use runtime lookup (no more r12/r13/r14)
-        // int scope_depth = def_scope->scope_depth;
-        // 
-        // std::cout << "[NEW_SCOPE_SYSTEM] Loading parent variable from scope depth " << scope_depth 
-        //           << " using runtime lookup" << std::endl;
-        // 
-        // // Get scope address from runtime registry
-        // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
-        // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
-        // 
-        // // Load variable from parent scope: rax = [returned_scope_address + var_offset]
-        // x86_gen->emit_mov_reg_reg_offset(0, 0, var_offset); // rax = [rax + offset]
-        // 
-        // std::cout << "[NEW_SCOPE_SYSTEM] Loaded parent variable '" << var_name 
-        //           << "' from runtime-resolved scope" << std::endl;
+        std::cout << "[FUNCTION.md] Loading parent variable '" << var_name 
+                  << "' from scope depth " << required_depth << std::endl;
+        
+        // Find which hidden parameter contains this scope depth
+        int hidden_param_index = -1;
+        if (current_scope->parent_scopes.size() > 0) {
+            for (size_t j = 0; j < current_scope->parent_scopes.size(); j++) {
+                if (current_scope->parent_scopes[j] == required_depth) {
+                    hidden_param_index = static_cast<int>(j);
+                    break;
+                }
+            }
+        }
+        
+        if (hidden_param_index >= 0) {
+            // Load parent scope address from hidden parameter and access variable
+            int stack_offset = 16 + (hidden_param_index * 8); // rbp+16+index*8
+            std::cout << "[FUNCTION.md] Loading parent variable from hidden parameter at rbp+" 
+                      << stack_offset << ", offset " << var_offset << std::endl;
+            x86_gen->emit_mov_reg_reg_offset(0, 5, stack_offset);      // rax = [rbp+stack_offset] (scope address)
+            x86_gen->emit_mov_reg_reg_offset(0, 0, var_offset);       // rax = [rax+var_offset] (variable value)
+        } else {
+            std::cerr << "ERROR: Required parent scope depth " << required_depth 
+                      << " not available in current function's hidden parameters" << std::endl;
+            throw std::runtime_error("Parent scope not available for variable: " + var_name);
+        }
     }
 }
 
@@ -532,40 +541,44 @@ void emit_variable_store(CodeGenerator& gen, const std::string& var_name) {
             throw std::runtime_error("Variable assignment to undefined variable: " + var_name);
         }
         
-        // DISABLED: Parent scope assignment using runtime lookup violates FUNCTION.md
-        std::cerr << "ERROR: Parent scope variable assignment disabled!" << std::endl;
-        std::cerr << "ERROR: Variable '" << var_name << "' assignment to parent scope blocked." << std::endl;
-        throw std::runtime_error("Parent scope assignment disabled - FUNCTION.md violation");
+        // Variable is in parent scope - store using FUNCTION.md hidden parameters
+        LexicalScopeNode* current_scope = g_scope_context.current_scope;
+        int required_depth = def_scope->scope_depth;
         
-        // OLD CODE (DISABLED):
-        // // Reassignment to parent scope variable using runtime lookup
-        // auto parent_offset_it = def_scope->variable_offsets.find(var_name);
-        // if (parent_offset_it == def_scope->variable_offsets.end()) {
-        //     throw std::runtime_error("Parent variable offset not found: " + var_name);
-        // }
-        // 
-        // size_t var_offset = parent_offset_it->second;
-        // int scope_depth = def_scope->scope_depth;
-        // 
-        // std::cout << "[NEW_SCOPE_SYSTEM] Storing to parent variable in scope depth " << scope_depth 
-        //           << " using runtime lookup" << std::endl;
-        // 
-        // // Save the value to store (in RAX) on stack
-        // x86_gen->emit_push_reg(0); // push rax
-        // 
-        // // Get parent scope address from runtime registry
-        // x86_gen->emit_mov_reg_imm(7, scope_depth); // RDI = scope depth
-        // x86_gen->emit_call("__get_scope_address_for_depth"); // Returns address in RAX
-        // 
-        // // Move scope address to working register and restore value
-        // x86_gen->emit_mov_reg_reg(11, 0); // R11 = scope address
-        // x86_gen->emit_pop_reg(0); // pop rax (restore value)
-        // 
-        // // Store to parent scope: [scope_address + var_offset] = rax
-        // x86_gen->emit_mov_reg_offset_reg(11, var_offset, 0); // [R11 + offset] = rax
-        // 
-        // std::cout << "[NEW_SCOPE_SYSTEM] Stored to parent variable '" << var_name 
-        //           << "' via runtime-resolved scope" << std::endl;
+        auto parent_offset_it = def_scope->variable_offsets.find(var_name);
+        if (parent_offset_it == def_scope->variable_offsets.end()) {
+            throw std::runtime_error("Parent variable offset not found: " + var_name);
+        }
+        size_t var_offset = parent_offset_it->second;
+        
+        std::cout << "[FUNCTION.md] Storing to parent variable '" << var_name 
+                  << "' in scope depth " << required_depth << std::endl;
+        
+        // Find which hidden parameter contains this scope depth
+        int hidden_param_index = -1;
+        if (current_scope->parent_scopes.size() > 0) {
+            for (size_t j = 0; j < current_scope->parent_scopes.size(); j++) {
+                if (current_scope->parent_scopes[j] == required_depth) {
+                    hidden_param_index = static_cast<int>(j);
+                    break;
+                }
+            }
+        }
+        
+        if (hidden_param_index >= 0) {
+            // Store to parent scope using hidden parameter
+            int stack_offset = 16 + (hidden_param_index * 8); // rbp+16+index*8
+            std::cout << "[FUNCTION.md] Storing to parent variable via hidden parameter at rbp+" 
+                      << stack_offset << ", offset " << var_offset << std::endl;
+            x86_gen->emit_push_reg(0);                                // push rax (save value)
+            x86_gen->emit_mov_reg_reg_offset(10, 5, stack_offset);    // r10 = [rbp+stack_offset] (scope address)
+            x86_gen->emit_pop_reg(0);                                 // pop rax (restore value)
+            x86_gen->emit_mov_reg_offset_reg(10, var_offset, 0);      // [r10+var_offset] = rax
+        } else {
+            std::cerr << "ERROR: Required parent scope depth " << required_depth 
+                      << " not available in current function's hidden parameters" << std::endl;
+            throw std::runtime_error("Parent scope not available for variable store: " + var_name);
+        }
     }
 }
 

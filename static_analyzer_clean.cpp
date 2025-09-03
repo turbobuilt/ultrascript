@@ -13,6 +13,28 @@ StaticAnalyzer::~StaticAnalyzer() {
     std::cout << "[StaticAnalyzer] Static analyzer destroyed" << std::endl;
 }
 
+// Set the SimpleLexicalScopeAnalyzer from parser for integration
+void StaticAnalyzer::set_parser_scope_analyzer(SimpleLexicalScopeAnalyzer* scope_analyzer) {
+    parser_scope_analyzer_ = scope_analyzer;
+    std::cout << "[StaticAnalyzer] Connected to parser's SimpleLexicalScopeAnalyzer" << std::endl;
+}
+
+// Helper method to find the lexical scope where a variable is defined
+LexicalScopeNode* StaticAnalyzer::find_variable_definition_scope(const std::string& variable_name) {
+    // Search from current scope upward through the scope hierarchy
+    int search_depth = current_depth_;
+    
+    while (search_depth >= 1) {
+        LexicalScopeNode* scope = get_scope_node_for_depth(search_depth);
+        if (scope && scope->declared_variables.find(variable_name) != scope->declared_variables.end()) {
+            return scope;
+        }
+        search_depth--;
+    }
+    
+    return nullptr; // Variable not found
+}
+
 // Main entry point: perform complete static analysis on the pure AST
 void StaticAnalyzer::analyze(std::vector<std::unique_ptr<ASTNode>>& ast) {
     std::cout << "[StaticAnalyzer] Starting pure AST analysis on " << ast.size() << " AST nodes" << std::endl;
@@ -145,22 +167,155 @@ void StaticAnalyzer::traverse_ast_node_for_scopes(ASTNode* node) {
 void StaticAnalyzer::traverse_ast_node_for_variables(ASTNode* node) {
     if (!node) return;
     
-    // Handle variable declarations and references
-    if (auto* assignment = dynamic_cast<Assignment*>(node)) {
-        // This is a variable declaration/assignment
-        if (current_scope_) {
-            current_scope_->declared_variables.insert(assignment->variable_name);
-            std::cout << "[StaticAnalyzer] Found variable declaration: " << assignment->variable_name 
-                      << " at depth " << current_depth_ << std::endl;
+    // Variable reference analysis - identify all variable accesses and their depths
+    if (auto* identifier = dynamic_cast<Identifier*>(node)) {
+        std::string var_name = identifier->name;
+        std::cout << "[StaticAnalyzer] Resolving variable reference: " << var_name
+                  << " at access depth " << current_depth_ << std::endl;
+        
+        // Find the definition scope for this variable
+        LexicalScopeNode* def_scope = find_variable_definition_scope(var_name);
+        if (def_scope) {
+            int definition_depth = def_scope->scope_depth;
+            std::cout << "[StaticAnalyzer] Variable '" << var_name 
+                      << "' defined at depth " << definition_depth 
+                      << ", accessed at depth " << current_depth_ << std::endl;
+            
+            // Record access pattern in the accessing scope
+            if (current_scope_) {
+                current_scope_->record_variable_access(var_name, definition_depth);
+                
+                // If accessing from outer scope, record as dependency
+                if (definition_depth < current_depth_) {
+                    // This is a closure access - record in self_dependencies
+                    bool found = false;
+                    for (auto& dep : current_scope_->self_dependencies) {
+                        if (dep.variable_name == var_name && dep.definition_depth == definition_depth) {
+                            dep.access_count++;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        ScopeDependency new_dep(var_name, definition_depth);
+                        new_dep.access_count = 1;
+                        current_scope_->self_dependencies.push_back(new_dep);
+                        
+                        std::cout << "[StaticAnalyzer] Added closure dependency: " << var_name 
+                                  << " (def_depth=" << definition_depth << ") to scope " << current_depth_ << std::endl;
+                    }
+                }
+            }
+        } else {
+            std::cout << "[StaticAnalyzer] WARNING: Variable '" << var_name 
+                      << "' not found in any scope" << std::endl;
+            unresolved_variables_.insert(var_name);
         }
     }
-    else if (auto* identifier = dynamic_cast<Identifier*>(node)) {
-        // This is a variable reference - for now just log it
-        std::cout << "[StaticAnalyzer] Found variable reference: " << identifier->name 
-                  << " at depth " << current_depth_ << std::endl;
+    
+    // Variable declarations - record in current scope
+    else if (auto* assignment = dynamic_cast<Assignment*>(node)) {
+        if (assignment->declaration_kind != Assignment::VAR) { // let, const, var declarations
+            std::string var_name = assignment->variable_name;
+            if (current_scope_ && current_scope_->declared_variables.find(var_name) == current_scope_->declared_variables.end()) {
+                // New variable declaration
+                current_scope_->declared_variables.insert(var_name);
+                std::cout << "[StaticAnalyzer] Declared variable '" << var_name 
+                          << "' in scope depth " << current_depth_ << std::endl;
+            }
+        }
+        
+        // Process the assignment expression for variable references
+        if (assignment->value) {
+            traverse_ast_node_for_variables(assignment->value.get());
+        }
     }
     
-    // TODO: Add more comprehensive AST traversal for all node types
+    // Function declarations - enter function scope for body analysis
+    else if (auto* func_decl = dynamic_cast<FunctionDecl*>(node)) {
+        int old_depth = current_depth_;
+        LexicalScopeNode* old_scope = current_scope_;
+        
+        // Enter function scope
+        current_depth_++;
+        current_scope_ = get_scope_node_for_depth(current_depth_);
+        
+        // Traverse function body
+        for (const auto& stmt : func_decl->body) {
+            traverse_ast_node_for_variables(stmt.get());
+        }
+        
+        // Exit function scope
+        current_depth_ = old_depth;
+        current_scope_ = old_scope;
+    }
+    
+    // Function expressions - similar to function declarations
+    else if (auto* func_expr = dynamic_cast<FunctionExpression*>(node)) {
+        int old_depth = current_depth_;
+        LexicalScopeNode* old_scope = current_scope_;
+        
+        // Enter function scope
+        current_depth_++;
+        current_scope_ = get_scope_node_for_depth(current_depth_);
+        
+        // Traverse function body
+        for (const auto& stmt : func_expr->body) {
+            traverse_ast_node_for_variables(stmt.get());
+        }
+        
+        // Exit function scope
+        current_depth_ = old_depth;
+        current_scope_ = old_scope;
+    }
+    
+    // Binary operations - traverse both operands
+    else if (auto* binop = dynamic_cast<BinaryOp*>(node)) {
+        traverse_ast_node_for_variables(binop->left.get());
+        traverse_ast_node_for_variables(binop->right.get());
+    }
+    
+    // Function calls - traverse function name and arguments
+    else if (auto* func_call = dynamic_cast<FunctionCall*>(node)) {
+        // Function name might be a variable reference
+        if (!func_call->name.empty()) {
+            // Create a temporary identifier to process function name as variable reference
+            Identifier temp_id(func_call->name);
+            traverse_ast_node_for_variables(&temp_id);
+        }
+        
+        // Process arguments
+        for (const auto& arg : func_call->arguments) {
+            traverse_ast_node_for_variables(arg.get());
+        }
+    }
+    
+    // Control flow statements
+    else if (auto* if_stmt = dynamic_cast<IfStatement*>(node)) {
+        traverse_ast_node_for_variables(if_stmt->condition.get());
+        for (const auto& stmt : if_stmt->then_body) {
+            traverse_ast_node_for_variables(stmt.get());
+        }
+        for (const auto& stmt : if_stmt->else_body) {
+            traverse_ast_node_for_variables(stmt.get());
+        }
+    }
+    
+    // Return statements
+    else if (auto* ret_stmt = dynamic_cast<ReturnStatement*>(node)) {
+        if (ret_stmt->value) {
+            traverse_ast_node_for_variables(ret_stmt->value.get());
+        }
+    }
+    
+    // Property access
+    else if (auto* prop_access = dynamic_cast<PropertyAccess*>(node)) {
+        // Object name might be a variable reference
+        Identifier temp_id(prop_access->object_name);
+        traverse_ast_node_for_variables(&temp_id);
+    }
+    
+    // TODO: Add more node types as needed (loops, switch statements, etc.)
 }
 
 void StaticAnalyzer::perform_optimal_packing_for_scope(LexicalScopeNode* scope) {
@@ -195,12 +350,75 @@ void StaticAnalyzer::analyze_function_dependencies(LexicalScopeNode* scope) {
     
     std::cout << "[StaticAnalyzer] Analyzing function dependencies for scope at depth " << scope->scope_depth << std::endl;
     
-    // For now, basic analysis - can be expanded
-    // Functions beyond global can have closures
-    bool has_closures = (scope->scope_depth > 1);
+    // Step 1: Collect all scope dependencies for this function AND all its descendants
+    std::unordered_map<int, size_t> scope_access_counts; // depth -> total access count
     
-    std::cout << "[StaticAnalyzer] Function scope analysis complete - closures: " 
-              << (has_closures ? "yes" : "no") << std::endl;
+    // Process self dependencies (variables this function accesses from outer scopes)
+    for (const auto& dep : scope->self_dependencies) {
+        scope_access_counts[dep.definition_depth] += dep.access_count;
+        std::cout << "[StaticAnalyzer] Self dependency: depth " << dep.definition_depth 
+                  << " (" << dep.variable_name << ") accessed " << dep.access_count << " times" << std::endl;
+    }
+    
+    // Step 2: Recursively collect dependencies from all descendant scopes
+    collect_descendant_dependencies(scope, scope_access_counts);
+    
+    // Step 3: Sort scopes by access frequency (most frequently accessed first)
+    std::vector<std::pair<int, size_t>> sorted_deps; // (depth, access_count)
+    for (const auto& entry : scope_access_counts) {
+        if (entry.first != scope->scope_depth) { // Don't include self
+            sorted_deps.push_back(entry);
+        }
+    }
+    
+    // Sort by access count in descending order (most frequent first)
+    std::sort(sorted_deps.begin(), sorted_deps.end(), 
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+    
+    // Step 4: Extract the priority-sorted parent scopes
+    scope->priority_sorted_parent_scopes.clear();
+    for (const auto& dep : sorted_deps) {
+        scope->priority_sorted_parent_scopes.push_back(dep.first);
+        std::cout << "[StaticAnalyzer] Priority scope depth " << dep.first 
+                  << " (total accesses: " << dep.second << ")" << std::endl;
+    }
+    
+    // Step 5: Update any corresponding FunctionDecl with static analysis data
+    for (FunctionDecl* func_decl : scope->declared_functions) {
+        if (func_decl && func_decl->lexical_scope.get() == scope) {
+            func_decl->static_analysis.needed_parent_scopes = scope->priority_sorted_parent_scopes;
+            func_decl->static_analysis.local_scope_size = scope->total_scope_frame_size;
+            
+            std::cout << "[StaticAnalyzer] Updated FunctionDecl '" << func_decl->name 
+                      << "' with " << scope->priority_sorted_parent_scopes.size() 
+                      << " parent scope dependencies" << std::endl;
+        }
+    }
+    
+    std::cout << "[StaticAnalyzer] Function dependency analysis complete for scope depth " 
+              << scope->scope_depth << " - needs " << scope->priority_sorted_parent_scopes.size() 
+              << " parent scopes" << std::endl;
+}
+
+void StaticAnalyzer::collect_descendant_dependencies(LexicalScopeNode* scope, std::unordered_map<int, size_t>& scope_access_counts) {
+    if (!scope) return;
+    
+    // Find all descendant scopes (scopes with depth > current scope's depth)
+    for (const auto& scope_pair : depth_to_scope_node_) {
+        LexicalScopeNode* descendant = scope_pair.second.get();
+        if (descendant && descendant->scope_depth > scope->scope_depth) {
+            // Check if this descendant is actually within our scope's hierarchy
+            // For now, we assume all deeper scopes are descendants (can be refined later)
+            
+            // Add descendant's dependencies to our count
+            for (const auto& dep : descendant->self_dependencies) {
+                scope_access_counts[dep.definition_depth] += dep.access_count;
+                std::cout << "[StaticAnalyzer] Descendant dependency from depth " 
+                          << descendant->scope_depth << ": depth " << dep.definition_depth 
+                          << " (" << dep.variable_name << ") accessed " << dep.access_count << " times" << std::endl;
+            }
+        }
+    }
 }
 
 // Public interface methods (for compatibility with code generator)
@@ -244,11 +462,6 @@ void StaticAnalyzer::exit_scope() {
         current_depth_--;
         current_scope_ = get_scope_node_for_depth(current_depth_);
     }
-}
-
-VariableDeclarationInfo* StaticAnalyzer::find_variable_declaration(const std::string& name, int access_depth) {
-    // Stub for now
-    return nullptr;
 }
 
 int StaticAnalyzer::compute_access_depth_between_scopes(LexicalScopeNode* definition_scope, LexicalScopeNode* access_scope) {
@@ -301,4 +514,27 @@ void StaticAnalyzer::print_analysis_results() const {
     }
     
     std::cout << "[StaticAnalyzer] =================================" << std::endl;
+}
+
+VariableDeclarationInfo* StaticAnalyzer::get_variable_declaration_info(const std::string& name, int access_depth) {
+    // Find the variable in the appropriate scope
+    LexicalScopeNode* def_scope = find_variable_definition_scope(name);
+    if (def_scope) {
+        // Try the full variable_declarations map first
+        auto var_it = def_scope->variable_declarations.find(name);
+        if (var_it != def_scope->variable_declarations.end()) {
+            return &var_it->second;
+        }
+        
+        // If not found in variable_declarations but exists in declared_variables,
+        // create a default VariableDeclarationInfo and add it
+        if (def_scope->declared_variables.find(name) != def_scope->declared_variables.end()) {
+            VariableDeclarationInfo default_info;
+            default_info.data_type = DataType::ANY;
+            default_info.declaration_type = "var";
+            def_scope->variable_declarations[name] = default_info;
+            return &def_scope->variable_declarations[name];
+        }
+    }
+    return nullptr;
 }

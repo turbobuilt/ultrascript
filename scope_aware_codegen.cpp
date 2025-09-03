@@ -53,132 +53,102 @@ std::unique_ptr<CodeGenerator> create_scope_aware_codegen_with_static_analyzer(S
 }
 
 void ScopeAwareCodeGen::emit_function_prologue(struct FunctionDecl* function) {
-    std::cout << "[NEW_FUNCTION_SYSTEM] Generating prologue for " << function->name 
-              << " using hidden parameter approach" << std::endl;
+    std::cout << "[FUNCTION.md] Generating prologue for " << function->name 
+              << " using hidden parameter approach (stack-based scope allocation)" << std::endl;
     
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(this);
     if (!x86_gen) {
-        throw std::runtime_error("New function system requires X86CodeGenV2");
+        throw std::runtime_error("Function system requires X86CodeGenV2");
     }
     
     // Standard function prologue
     x86_gen->emit_push_reg(5);       // push rbp
     x86_gen->emit_mov_reg_reg(5, 4); // mov rbp, rsp
     
-    // Allocate local scope on heap for the function's variables
+    // FUNCTION.md: Allocate local scope on STACK (not heap) for the function's variables
     if (function->lexical_scope && function->lexical_scope->total_scope_frame_size > 0) {
         size_t local_scope_size = function->lexical_scope->total_scope_frame_size;
-        std::cout << "[NEW_FUNCTION_SYSTEM] Allocating " << local_scope_size 
-                  << " bytes for function local scope" << std::endl;
+        std::cout << "[FUNCTION.md] Allocating " << local_scope_size 
+                  << " bytes for function local scope on STACK" << std::endl;
         
-        x86_gen->emit_mov_reg_imm(7, local_scope_size); // RDI = size
-        x86_gen->emit_call("malloc");                   // RAX = allocated memory
-        x86_gen->emit_mov_reg_reg(15, 0);              // R15 = local scope address
+        // Allocate on stack by adjusting RSP
+        x86_gen->emit_sub_reg_imm(4, local_scope_size); // sub rsp, local_scope_size
+        x86_gen->emit_mov_reg_reg(15, 4);               // R15 = current stack pointer (local scope)
         
-        // Initialize local scope to zeros
+        // Initialize local scope to zeros on stack
         if (local_scope_size <= 64) {
             // Small scope: direct zero writes
             for (size_t i = 0; i < local_scope_size; i += 8) {
-                x86_gen->emit_mov_reg_imm(0, 0);
-                x86_gen->emit_mov_reg_offset_reg(15, i, 0);
+                x86_gen->emit_mov_reg_imm(0, 0);               // RAX = 0
+                x86_gen->emit_mov_reg_offset_reg(15, i, 0);    // [R15 + i] = 0
             }
         } else {
-            // Large scope: use memset
-            x86_gen->emit_mov_reg_reg(7, 15);           // RDI = scope memory
-            x86_gen->emit_mov_reg_imm(6, 0);            // RSI = 0 (fill value)
-            x86_gen->emit_mov_reg_imm(2, local_scope_size); // RDX = size
+            // Large scope: use memset  
+            x86_gen->emit_mov_reg_reg(7, 15);                  // RDI = scope memory
+            x86_gen->emit_mov_reg_imm(6, 0);                   // RSI = 0 (fill value)
+            x86_gen->emit_mov_reg_imm(2, local_scope_size);    // RDX = size
             x86_gen->emit_call("memset");
         }
     } else {
-        // Even functions without variables get a minimal scope allocation
-        x86_gen->emit_mov_reg_imm(7, 8);             // RDI = 8 bytes minimum
-        x86_gen->emit_call("malloc");
-        x86_gen->emit_mov_reg_reg(15, 0);            // R15 = minimal scope
-        std::cout << "[NEW_FUNCTION_SYSTEM] Allocated minimal scope for " << function->name << std::endl;
+        // Even functions without variables get a minimal scope allocation on stack
+        x86_gen->emit_sub_reg_imm(4, 8);        // sub rsp, 8  (minimal stack space)
+        x86_gen->emit_mov_reg_reg(15, 4);       // R15 = minimal scope
+        std::cout << "[FUNCTION.md] Allocated minimal stack scope for " << function->name << std::endl;
     }
     
-    // NEW: Receive parent scope addresses as hidden parameters
-    // These are passed after the regular function arguments
+    // FUNCTION.md: Load parent scope addresses from hidden parameters  
+    // These come after regular function arguments: [a,b,...lexicalscopeaddresses]
     if (function->lexical_scope && !function->lexical_scope->priority_sorted_parent_scopes.empty()) {
         const auto& needed_scopes = function->lexical_scope->priority_sorted_parent_scopes;
-        std::cout << "[NEW_FUNCTION_SYSTEM] Loading " << needed_scopes.size() 
+        std::cout << "[FUNCTION.md] Loading " << needed_scopes.size() 
                   << " parent scope addresses from hidden parameters" << std::endl;
         
-        // Parent scopes are passed as hidden parameters after regular arguments
-        // They appear on the stack above the return address and saved RBP
-        // Stack layout: ... | arg6 | arg7 | ... | scope0 | scope1 | ... | return_addr | saved_rbp <- rbp
+        // FUNCTION.md: Parent scopes are passed as hidden parameters after regular arguments
+        // Stack layout: ... | regular_args | scope0 | scope1 | ... | return_addr | saved_rbp <- rbp
         
-        // Calculate base offset for hidden parameters
-        // Regular function arguments (beyond first 6) start at rbp+16
-        // Hidden scope parameters come after all regular arguments
+        // Calculate offset for first hidden parameter (first parent scope address)
         size_t num_regular_args = function->parameters.size();
         size_t stack_args = (num_regular_args > 6) ? num_regular_args - 6 : 0;
         int64_t hidden_param_base_offset = 16 + (stack_args * 8);
         
-        // Store parent scope addresses in a simple array for easy access
-        // For now, we'll use stack-based storage for the mapping
-        for (size_t i = 0; i < needed_scopes.size(); i++) {
+        // FUNCTION.md: Store parent scope addresses for variable access
+        // We'll use a simple mapping for now - could be optimized later
+        for (size_t i = 0; i < needed_scopes.size() && i < 3; i++) {  // Limit to 3 for now
             int scope_depth = needed_scopes[i];
             int64_t param_offset = hidden_param_base_offset + (i * 8);
             
-            // Load scope address from stack parameter
+            // Load scope address from hidden parameter on stack
+            // Store in temporary registers for later use in variable access
             x86_gen->emit_mov_reg_reg_offset(10 + i, 5, param_offset); // R10+i = [rbp + offset]
             
-            // DISABLED: Runtime scope registration violates FUNCTION.md
-            // Register this scope address with the runtime for quick lookup
-            // x86_gen->emit_mov_reg_imm(7, scope_depth);     // RDI = scope depth
-            // x86_gen->emit_mov_reg_reg(6, 10 + i);          // RSI = scope address
-            // x86_gen->emit_call("__register_scope_address_for_depth");
-            
-            std::cout << "[NEW_FUNCTION_SYSTEM] Loaded parent scope depth " << scope_depth
-                      << " from stack offset " << param_offset << " into R" << (10 + i) << std::endl;
+            std::cout << "[FUNCTION.md] Loaded scope depth " << scope_depth 
+                      << " address from offset " << param_offset 
+                      << " into R" << (10 + i) << std::endl;
         }
     }
     
-    // DISABLED: Runtime scope registration violates FUNCTION.md
-    // Register current function scope with the runtime
-    // if (function->lexical_scope) {
-    //     x86_gen->emit_mov_reg_imm(7, function->lexical_scope->scope_depth); // RDI = scope depth
-    //     x86_gen->emit_mov_reg_reg(6, 15);                                   // RSI = local scope address
-    //     x86_gen->emit_call("__register_scope_address_for_depth");
-    //     std::cout << "[NEW_FUNCTION_SYSTEM] Registered function scope depth " 
-    //               << function->lexical_scope->scope_depth << " with runtime" << std::endl;
-    // }
-    
-    std::cout << "[NEW_FUNCTION_SYSTEM] Prologue complete for " << function->name 
-              << " using new hidden parameter system" << std::endl;
+    std::cout << "[FUNCTION.md] Prologue complete for " << function->name 
+              << " using hidden parameter system" << std::endl;
 }
 
 void ScopeAwareCodeGen::emit_function_epilogue(struct FunctionDecl* function) {
-    std::cout << "[NEW_FUNCTION_SYSTEM] Generating epilogue for " << function->name 
-              << " using new approach" << std::endl;
+    std::cout << "[FUNCTION.md] Generating epilogue for " << function->name 
+              << " using stack-based approach" << std::endl;
     
     X86CodeGenV2* x86_gen = dynamic_cast<X86CodeGenV2*>(this);
     if (!x86_gen) {
-        throw std::runtime_error("New function system requires X86CodeGenV2");
+        throw std::runtime_error("Function system requires X86CodeGenV2");
     }
     
-    // DISABLED: Runtime scope unregistration violates FUNCTION.md
-    // Unregister current function scope from the runtime
-    // if (function->lexical_scope) {
-    //     x86_gen->emit_mov_reg_imm(7, function->lexical_scope->scope_depth); // RDI = scope depth
-    //     x86_gen->emit_call("__unregister_scope_address_for_depth");
-    //     std::cout << "[NEW_FUNCTION_SYSTEM] Unregistered function scope depth " 
-    //               << function->lexical_scope->scope_depth << " from runtime" << std::endl;
-    // }
+    // FUNCTION.md: No need to free stack-allocated scope - just restore stack pointer
+    // The stack space will be automatically deallocated when we restore RSP from RBP
     
-    // Free the local scope memory
-    x86_gen->emit_mov_reg_reg(7, 15);  // RDI = local scope address (R15)
-    x86_gen->emit_call("free");        // Free heap-allocated scope
-    std::cout << "[NEW_FUNCTION_SYSTEM] Freed local scope memory for " << function->name << std::endl;
+    std::cout << "[FUNCTION.md] Stack scope automatically deallocated for " << function->name << std::endl;
     
-    // Standard function epilogue
-    x86_gen->emit_mov_reg_reg(4, 5);   // mov rsp, rbp
+    // FUNCTION.md: Standard function epilogue - restore R15 and other registers as needed
+    x86_gen->emit_mov_reg_reg(4, 5);   // mov rsp, rbp (restores stack, deallocates local scope)
     x86_gen->emit_pop_reg(5);          // pop rbp
     x86_gen->emit_ret();               // ret
-    
-    std::cout << "[NEW_FUNCTION_SYSTEM] Epilogue complete for " << function->name 
-              << " using new system" << std::endl;
 }
 
 void ScopeAwareCodeGen::set_current_scope(LexicalScopeNode* scope) {

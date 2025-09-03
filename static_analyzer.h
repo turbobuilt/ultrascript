@@ -87,6 +87,7 @@ private:
     // Variable packing and function analysis helpers
     void perform_optimal_packing_for_scope(LexicalScopeNode* scope);
     void analyze_function_dependencies(LexicalScopeNode* scope);
+    void collect_descendant_dependencies(LexicalScopeNode* scope, std::unordered_map<int, size_t>& scope_access_counts);
     
     // Helper methods for scope management and variable lookup
     void enter_scope(LexicalScopeNode* scope);
